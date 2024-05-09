@@ -15,18 +15,6 @@ permissions:
   contents: read # to fetch code (actions/checkout)
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Set up Python 3.8
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.8'
-      - uses: pre-commit/action@v3.0.1
-
   pyright:
     runs-on: ubuntu-latest
     steps:
