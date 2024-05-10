@@ -77,6 +77,8 @@ exclude = [
 ]
 
 [tool.pytest.ini_options]
+pythonpath = ['.']
+django_find_project = false
 DJANGO_SETTINGS_MODULE = "tests.testapp.settings"
 
 [tool.pyright]
