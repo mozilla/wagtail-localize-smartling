@@ -40,12 +40,10 @@ dependencies = [
     "Django>=4.2",
     "Wagtail>=5.2",
     "wagtail-localize>=1.0.0",
-    "SmartlingApiSdk>=3.1.2,<4",
+    "djangorestframework>=3",
+    "requests",
 ]
 [project.optional-dependencies]
-dev = [
-    "ruff"
-]
 test = [
     "coverage==7.5.1",
     "dj-database-url==2.1.0",
@@ -54,7 +52,8 @@ test = [
     "pytest-cov==5.0.0",
     "pytest-django==4.8.0",
     "pytest==8.1.1",
-    "requests",
+    "responses==0.25.0",
+    "ruff",
     "tox",
 ]
 
@@ -78,8 +77,11 @@ exclude = [
 ]
 
 [tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "wagtail_localize_smartling.test.settings"
+DJANGO_SETTINGS_MODULE = "tests.testapp.settings"
 
 [tool.pyright]
 typeCheckingMode = "standard"
+reportUnnecessaryTypeIgnoreComment = true
+# Make sure we're checking against the minimum supported Python version by
+# default. CI will check against all supported versions for us.
 pythonVersion = "3.8"

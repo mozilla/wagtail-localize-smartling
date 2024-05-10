@@ -32,8 +32,8 @@ ALLOWED_HOSTS = ["localhost", "testserver"]
 # Application definition
 
 INSTALLED_APPS = [
+    "tests.testapp",
     "wagtail_localize_smartling",
-    "wagtail_localize_smartling.test",
     "wagtail.contrib.search_promotions",
     "wagtail.contrib.forms",
     "wagtail.contrib.redirects",
@@ -71,7 +71,7 @@ MIDDLEWARE = [
     "wagtail.contrib.redirects.middleware.RedirectMiddleware",
 ]
 
-ROOT_URLCONF = "wagtail_localize_smartling.test.urls"
+ROOT_URLCONF = "testapp.urls"
 
 TEMPLATES = [
     {
@@ -161,3 +161,40 @@ MEDIA_ROOT = os.path.join(BASE_DIR, "test-media")
 # Wagtail settings
 
 WAGTAIL_SITE_NAME = "Wagtail Localize Smartling test site"
+
+
+# Logging
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        # Send logs with at least INFO level to the console.
+        "console": {
+            "level": "DEBUG",
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "formatters": {
+        "verbose": {
+            "format": "[%(asctime)s][%(process)d][%(levelname)s][%(name)s] %(message)s"
+        }
+    },
+    "loggers": {
+        "wagtail_localize_smartling": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+    },
+}
+
+
+# Smartling settings
+
+WAGTAIL_LOCALIZE_SMARTLING = {
+    "PROJECT_ID": os.getenv("SMARTLING_PROJECT_ID", ""),
+    "USER_IDENTIFIER": os.getenv("SMARTLING_USER_IDENTIFIER", ""),
+    "USER_SECRET": os.getenv("SMARTLING_USER_SECRET", ""),
+}

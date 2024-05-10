@@ -33,7 +33,8 @@
         "stylelint.vscode-stylelint",
         "tamasfe.even-better-toml",
         "github.vscode-github-actions",
-        "the-compiler.python-tox"
+        "the-compiler.python-tox",
+        "batisteo.vscode-django"
       ]
     }
   }
