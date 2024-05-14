@@ -6,16 +6,6 @@ from rest_framework import serializers
 from .types import SmartlingAPIErrorDict
 
 
-class ErrorSerializer(serializers.Serializer):
-    key = serializers.CharField()
-    message = serializers.CharField()
-    details = serializers.CharField(
-        required=False,
-        allow_blank="",
-        trim_whitespace=False,
-    )
-
-
 class ResponseSerializerMetaclass(serializers.SerializerMetaclass):
     """
     Custom Serializer metaclass for ResponseSerializer that makes declaring
@@ -73,9 +63,19 @@ class ResponseSerializerMetaclass(serializers.SerializerMetaclass):
         return super().__new__(cls, name, bases, attrs)
 
 
+class ErrorSerializer(serializers.Serializer):
+    key = serializers.CharField()
+    message = serializers.CharField()
+    details = serializers.CharField(
+        required=False,
+        allow_blank="",
+        trim_whitespace=False,
+    )
+
+
 class InnerResponseSerializer(serializers.Serializer):
     code = serializers.CharField()
-    # data = ... <- This gets dynamically created by ResponseSerializerMetaclass
+    # data = ...__DataSerializer() <- Created by ResponseSerializerMetaclass
     response_errors = ErrorSerializer(required=False, many=True, source="errors")
 
     def validate(self, attrs: Dict[str, Any]):
@@ -85,7 +85,7 @@ class InnerResponseSerializer(serializers.Serializer):
 
 
 class ResponseSerializer(serializers.Serializer, metaclass=ResponseSerializerMetaclass):
-    # response = ... <- This get dynamically created by ResponseSerializerMetaclass
+    # response = ...__InnerResponseSerializer() <- Created by ResponseSerializerMetaclass  # noqa: E501
 
     @cached_property
     def response_data(self) -> Dict[str, Any]:

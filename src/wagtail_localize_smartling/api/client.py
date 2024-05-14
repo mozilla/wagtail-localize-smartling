@@ -175,7 +175,7 @@ class SmartlingAPIClient:
         url = urljoin(self._base_url, path)
         headers = self._headers if send_headers else {}
 
-        logger.debug(
+        logger.info(
             "Smartling API request: %s %s",
             method,
             url,
@@ -183,7 +183,7 @@ class SmartlingAPIClient:
         response = requests_method(
             url, headers=headers, timeout=settings.API_TIMEOUT_SECONDS, **kwargs
         )
-        logger.debug(
+        logger.info(
             "Smartling API response: %s %s",
             response.status_code,
             f"{response.elapsed.total_seconds()}s",
@@ -217,7 +217,7 @@ class SmartlingAPIClient:
 
     def get_project_details(
         self,
-        include_disabled_locales: bool = False,
+        include_disabled_locales: bool = True,
     ) -> Dict[str, Any]:
         params = {}
         if include_disabled_locales:

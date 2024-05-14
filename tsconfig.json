@@ -8,8 +8,4 @@
     "strictNullChecks": true,
     "esModuleInterop": true
   },
-  "files": [
-    "wagtail_localize_smartling/static_src/main.tsx",
-    "wagtail_localize_smartling/static_src/custom.d.ts"
-  ]
 }

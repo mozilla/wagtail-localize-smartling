@@ -1,7 +1,7 @@
 const path = require('path');
 
 module.exports = {
-  entry: './wagtail_localize_smartling/static_src/main.tsx',
+  entry: './src/wagtail_localize_smartling/static_src/main.tsx',
   module: {
     rules: [
       {
@@ -39,7 +39,7 @@ module.exports = {
   output: {
     path: path.resolve(
       __dirname,
-      'wagtail_localize_smartling/static/wagtail_localize_smartling/js',
+      './src/wagtail_localize_smartling/static/wagtail_localize_smartling/js',
     ),
     filename: 'wagtail-localize-smartling.js',
   },
