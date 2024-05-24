@@ -28,7 +28,7 @@ jobs:
           python -m flit install --symlink
 
       - name: Build
-        run: python -m flit build
+        run: python -m flit build --no-use-vcs
 
       - uses: actions/upload-artifact@v4
         with:

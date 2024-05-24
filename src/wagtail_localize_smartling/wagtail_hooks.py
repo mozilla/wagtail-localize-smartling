@@ -3,6 +3,9 @@ from django.views.i18n import JavaScriptCatalog
 from wagtail import hooks
 
 
+# TODO
+
+
 @hooks.register("register_admin_urls")  # pyright: ignore[reportOptionalCall]
 def register_admin_urls():
     urls = [

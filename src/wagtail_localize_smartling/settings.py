@@ -20,6 +20,7 @@ class SmartlingSettings:
     API_TIMEOUT_SECONDS: float
 
 
+
 def _init_settings() -> SmartlingSettings:
     """
     Get and validate Smartling settings from the Django settings.

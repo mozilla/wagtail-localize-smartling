@@ -134,13 +134,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/stable/topics/i18n/
 
-LANGUAGE_CODE = "en-us"
-
-TIME_ZONE = "UTC"
-
 USE_I18N = True
-
 USE_L10N = True
+LANGUAGE_CODE = "en-us"
 
 WAGTAIL_I18N_ENABLED = True
 WAGTAIL_CONTENT_LANGUAGES = [
@@ -150,6 +146,7 @@ WAGTAIL_CONTENT_LANGUAGES = [
 ]
 
 USE_TZ = True
+TIME_ZONE = "UTC"
 
 
 # Static files (CSS, JavaScript, Images)
@@ -160,12 +157,10 @@ STATICFILES_FINDERS = [
     "django.contrib.staticfiles.finders.AppDirectoriesFinder",
 ]
 
-STATICFILES_DIRS = [os.path.join(PROJECT_DIR, "static")]
-
-STATIC_ROOT = os.path.join(BASE_DIR, "test-static")
+STATIC_ROOT = os.path.join(PROJECT_DIR, "test-static")
 STATIC_URL = "/static/"
 
-MEDIA_ROOT = os.path.join(BASE_DIR, "test-media")
+MEDIA_ROOT = os.path.join(PROJECT_DIR, "test-media")
 
 
 # Wagtail settings

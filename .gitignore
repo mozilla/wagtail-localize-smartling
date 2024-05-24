@@ -1,19 +1,26 @@
-__pycache__/
-*.py[co]
-/build
-/dist
-/wagtail_localize_smartling.egg-info
-.coverage*
-!/.coveragerc
-.env
-.pytest_cache/
-htmlcov/
-.tox/
-.venv/
-venv/
-.vscode/
+# Directories in the project root
+/.tox/
+/.venv/
+/.vscode/
+/build/
+/dist/
+/htmlcov/
 /site/
+/venv/
+
+
+# Files in the project root
+/.coverage*
+!/.coveragerc
+
+# Files anywhere
 *.db
-node_modules/
-test-static/
+*.py[co]
+.env
+
+# Directories anywhere
+.ruff_cache/
+.pytest_cache/
+__pycache__/
 test-media/
+test-static/

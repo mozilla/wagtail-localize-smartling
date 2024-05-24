@@ -1,7 +1,6 @@
 from wagtail import blocks
 from wagtail.admin.panels import FieldPanel
 from wagtail.documents.blocks import DocumentChooserBlock
-from wagtail.embeds.blocks import EmbedBlock
 from wagtail.fields import StreamField
 from wagtail.images.blocks import ImageChooserBlock
 from wagtail.models import Page
@@ -15,7 +14,6 @@ class BodyBlock(blocks.StreamBlock):
     paragraph = blocks.RichTextBlock()
     document = DocumentChooserBlock()
     image = ImageChooserBlock()
-    embed = EmbedBlock()
 
 
 class InfoPage(Page):

@@ -1,10 +1,13 @@
-from django import forms
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 
 
-class CallbackForm(forms.Form):
+def job_callback(request: HttpRequest) -> HttpResponse:
+    # TODO
     pass
 
 
-def create_job_callback_view(request: HttpRequest):
+def file_callback(request: HttpRequest) -> HttpResponse:
+    # TODO
+    # Takes the locale and file URI as query parameters, called when a file 100%
+    # published for a locale
     pass

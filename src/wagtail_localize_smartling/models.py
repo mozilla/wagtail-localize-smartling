@@ -1,26 +1,42 @@
 import logging
 
-from typing import Set
+from datetime import datetime
+from functools import lru_cache
+from typing import Iterable, Optional, Set
 
-from django.db import models, transaction
+from django.conf import settings
+from django.contrib.auth.models import AbstractBaseUser
+from django.db import models
 from django.db.models.manager import Manager
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+from wagtail.admin.panels import FieldPanel
+from wagtail_localize.components import register_translation_component
+from wagtail_localize.models import Translation, TranslationSource
+from wagtail_localize.tasks import ImmediateBackend, background
 
+from . import utils
 from .api.client import client
+from .forms import JobForm
 
 
 logger = logging.getLogger(__name__)
 
 
 class SyncedModel(models.Model):
-    first_synced_at = models.DateTimeField()
-    last_synced_at = models.DateTimeField()
+    first_synced_at = models.DateTimeField(null=True, editable=False)
+    last_synced_at = models.DateTimeField(null=True, editable=False)
 
     class Meta:
         abstract = True
 
 
 class Project(SyncedModel):
+    """
+    Represents a project in Smartling. There should normally only be one of
+    these, it's synced from the Smartling API based on the PROJECT_ID setting.
+    """
+
     account_uid = models.CharField(max_length=16)
     archived = models.BooleanField()
     project_id = models.CharField(max_length=16)
@@ -29,7 +45,7 @@ class Project(SyncedModel):
     source_locale_description = models.CharField(max_length=255)
     source_locale_id = models.CharField(max_length=16)
 
-    target_locales: Manager["TargetLocale"]
+    target_locales: Manager["ProjectTargetLocale"]
 
     class Meta(SyncedModel.Meta):
         unique_together = ["account_uid", "project_id"]
@@ -38,8 +54,14 @@ class Project(SyncedModel):
         return f"{self.name} ({self.project_id})"
 
     @classmethod
-    @transaction.atomic
-    def sync(cls):
+    @lru_cache
+    def get_current(cls) -> "Project":
+        """
+        Returns the current Project as per the PROJECT_ID setting. The first
+        time this is called, the project details are fetched from the Smartling
+        API and a Project instance is created/updated as appropriate before
+        being returned. Subsequent calls returned that instance from cache.
+        """
         now = timezone.now()
         project_details = client.get_project_details()
 
@@ -52,7 +74,7 @@ class Project(SyncedModel):
             project = cls(
                 account_uid=project_details["accountUid"],
                 project_id=project_details["projectId"],
-                first_synced_at=timezone.now(),
+                first_synced_at=now,
             )
 
         project.archived = project_details["archived"]
@@ -67,7 +89,7 @@ class Project(SyncedModel):
         seen_target_locale_ids: Set[str] = set()
         for target_locale_data in project_details["targetLocales"]:
             seen_target_locale_ids.add(target_locale_data["localeId"])
-            TargetLocale.objects.update_or_create(
+            ProjectTargetLocale.objects.update_or_create(
                 project=project,
                 locale_id=target_locale_data["localeId"],
                 defaults={
@@ -79,9 +101,10 @@ class Project(SyncedModel):
         project.target_locales.exclude(locale_id__in=seen_target_locale_ids).delete()
 
         logger.info("Synced project %s", project)
+        return project
 
 
-class TargetLocale(models.Model):
+class ProjectTargetLocale(models.Model):
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
@@ -98,10 +121,89 @@ class TargetLocale(models.Model):
         return f"{self.description}"
 
 
-# class Job(models.Model):
-#     project = models.ForeignKey(Project, on_delete=models.CASCADE)
-#     name = models.CharField(max_length=170)
 
+@register_translation_component(
+    # TODO better labels
+    heading=_("Send translation to Smartling"),
+    help_text=_("You can modify Smartling job details"),
+    enable_text=_("Send to Smartling"),
+    disable_text=_("Do not send to Smartling"),
+)
+class Job(SyncedModel):
+    """
+    Represents a job in Smartling and its links to TranslationSource and
+    Translation objects in Wagtail.
+    """
 
-# class JobItem(models.Model):
-#     pass
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="jobs")
+
+    # wagtail-localize fields
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+    translation_source = models.ForeignKey(
+        TranslationSource,
+        on_delete=models.CASCADE,
+        related_name="smartling_jobs",
+    )
+    translations = models.ManyToManyField(Translation, related_name="smartling_jobs")
+
+    # Smartling job config fields
+    name = models.CharField(max_length=170)
+    description = models.TextField(blank=True)
+    due_date = models.DateTimeField(blank=True, null=True)
+    reference_number = models.CharField(max_length=255, blank=True, editable=False)
+
+    # # Smartling API-derived fields
+    # translation_job_uid = models.CharField(max_length=64, editable=False)
+
+    base_form_class = JobForm
+    panels = [
+        FieldPanel("name"),
+        FieldPanel("description"),
+        FieldPanel("due_date"),
+    ]
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def get_or_create_from_source_and_translation_data(
+        cls,
+        translation_source: TranslationSource,
+        translations: Iterable[Translation],
+        *,
+        user: AbstractBaseUser,
+        name: str,
+        description: str,
+        due_date: Optional[datetime],
+    ) -> None:
+        """
+        This is the main entrypoint for creating Jobs. Jobs created here are in
+        a pending state until the `sync_smartling` management command picks them
+        up and creates a corresponding job in Smartling via the API.
+
+        Jobs are only created if there's no pending or completed job for the provided
+        TranslationSource.
+        """
+        job = Job.objects.create(
+            project=Project.get_current(),
+            translation_source=translation_source,
+            user=user,
+            name=name,
+            description=description,
+            due_date=due_date,
+            reference_number=f"translationsource_id:{translation_source.pk}",
+        )
+        job.translations.set(translations)
+
+        if isinstance(background, ImmediateBackend):
+            # Don't enqueue anything slow if we're using the dummy background
+            # worker, let the `sync_smartling` management command pick things up
+            # on a schedule instead
+            return
+
+        # TODO if we get here we've got a proper background worker, so enqueue
+        # the API-related stuff

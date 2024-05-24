@@ -4,10 +4,6 @@
   "name": "wagtail-localize-smartling",
   "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
   "features": {
-    "ghcr.io/devcontainers/features/node:1": {
-      "version": "lts",
-      "nvmVersion": "latest"
-    },
     "ghcr.io/devcontainers-contrib/features/flit:2": {
       "version": "latest"
     },
@@ -16,25 +12,24 @@
     }
   },
   "postCreateCommand": {
-    "pythonDeps": "pip install --user --editable .[test]",
-    "nodeDeps": "npm install"
+    "pythonDeps": "pip install --user --editable .[test]"
   },
   "forwardPorts": [8000],
   "customizations": {
     "vscode": {
       "extensions": [
-        "dbaeumer.vscode-eslint",
         "ms-python.vscode-pylance",
         "ms-python.python",
         "ms-python.debugpy",
         "EditorConfig.EditorConfig",
-        "esbenp.prettier-vscode",
         "charliermarsh.ruff",
-        "stylelint.vscode-stylelint",
         "tamasfe.even-better-toml",
         "github.vscode-github-actions",
         "the-compiler.python-tox",
-        "batisteo.vscode-django"
+        "batisteo.vscode-django",
+        "redhat.vscode-yaml",
+        "bierner.markdown-preview-github-styles",
+        "bierner.markdown-mermaid"
       ]
     }
   }
