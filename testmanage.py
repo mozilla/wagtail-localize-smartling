@@ -11,7 +11,7 @@ load_dotenv()
 
 
 def main():
-    os.environ["DJANGO_SETTINGS_MODULE"] = "tests.testapp.settings"
+    os.environ["DJANGO_SETTINGS_MODULE"] = "testapp.settings"
     execute_from_command_line(sys.argv)
 
 

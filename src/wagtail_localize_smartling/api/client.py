@@ -2,12 +2,16 @@ import logging
 import pprint
 import textwrap
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from functools import cached_property
+from io import BytesIO
+from tempfile import TemporaryFile
 from typing import (
     TYPE_CHECKING,
     Any,
     Dict,
+    Generator,
     List,
     Literal,
     Optional,
@@ -16,17 +20,19 @@ from typing import (
     cast,
 )
 from urllib.parse import quote, urljoin
+from zipfile import ZipFile
 
 import requests
 import requests.exceptions
 import rest_framework.serializers
 
+from django.conf import settings as django_settings
 from django.utils import timezone
 from django.utils.functional import SimpleLazyObject
-from polib import POFile
 from requests.exceptions import HTTPError
 
-from ..settings import settings
+from .. import utils
+from ..settings import settings as smartling_settings
 from . import types
 from .serializers import (
     AddFileToJobResponseSerializer,
@@ -78,6 +84,9 @@ class FailedResponse(SmartlingAPIError):
             f"{self.code}\n"
             f"{textwrap.indent(pprint.pformat(self.errors, indent=2), prefix='  ')}"
         )
+
+class JobNotFound(SmartlingAPIError):
+    pass
 
 
 # API client
@@ -146,8 +155,8 @@ class SmartlingAPIClient:
                 response_serializer_class=AuthenticateResponseSerializer,
                 send_headers=False,
                 json={
-                    "userIdentifier": settings.USER_IDENTIFIER,
-                    "userSecret": settings.USER_SECRET,
+                    "userIdentifier": smartling_settings.USER_IDENTIFIER,
+                    "userSecret": smartling_settings.USER_SECRET,
                 },
             ),
         )
@@ -180,11 +189,13 @@ class SmartlingAPIClient:
 
     @cached_property
     def _base_url(self) -> str:
-        if settings.ENVIRONMENT == "production":
+        if smartling_settings.ENVIRONMENT == "production":
             return "https://api.smartling.com"
-        elif settings.ENVIRONMENT == "staging":
+        elif smartling_settings.ENVIRONMENT == "staging":
             return "https://api.stg.smartling.net"
-        raise SmartlingAPIError(f"Unknown environment: {settings.ENVIRONMENT}")
+        raise SmartlingAPIError(
+            f"Unknown environment: {smartling_settings.ENVIRONMENT}"
+        )
 
     def _request(
         self,
@@ -195,13 +206,6 @@ class SmartlingAPIClient:
         send_headers: bool = True,
         **kwargs,
     ) -> Dict[str, Any]:
-        if method == "GET":
-            requests_method = requests.get
-        elif method == "POST":
-            requests_method = requests.post
-        else:
-            raise RuntimeError(f"Invalid request method: {method}")
-
         url = urljoin(self._base_url, path)
         headers = self._headers if send_headers else {}
 
@@ -210,8 +214,12 @@ class SmartlingAPIClient:
             method,
             url,
         )
-        response = requests_method(
-            url, headers=headers, timeout=settings.API_TIMEOUT_SECONDS, **kwargs
+        response = requests.request(
+            method=method,
+            url=url,
+            headers=headers,
+            timeout=smartling_settings.API_TIMEOUT_SECONDS,
+            **kwargs,
         )
         logger.info(
             "Smartling API response: %s %s",
@@ -227,8 +235,8 @@ class SmartlingAPIClient:
             ) from e
 
         serializer = cast(
-            # This sort of cast is required because the created instance could
-            # be a ListSerializer if we passed many=True, but we know better.
+            # This cast is required because the created instance could be a
+            # ListSerializer if we'd passed many=True, but we know better.
             response_serializer_class,
             response_serializer_class(data=response_json),
         )
@@ -250,9 +258,7 @@ class SmartlingAPIClient:
     # API methods
 
     def get_project_details(
-        self,
-        *,
-        include_disabled_locales: bool = True,
+        self, *, include_disabled_locales: bool = True
     ) -> types.GetProjectDetailsResponseData:
         params = {}
         if include_disabled_locales:
@@ -261,7 +267,7 @@ class SmartlingAPIClient:
             types.GetProjectDetailsResponseData,
             self._request(
                 method="GET",
-                path=f"/projects-api/v2/projects/{quote(settings.PROJECT_ID)}",
+                path=f"/projects-api/v2/projects/{quote(smartling_settings.PROJECT_ID)}",
                 response_serializer_class=GetProjectDetailsResponseSerializer,
                 params=params,
             ),
@@ -275,7 +281,7 @@ class SmartlingAPIClient:
             types.ListJobsResponseData,
             self._request(
                 method="GET",
-                path=f"/jobs-api/v3/projects/{quote(settings.PROJECT_ID)}/jobs",
+                path=f"/jobs-api/v3/projects/{quote(smartling_settings.PROJECT_ID)}/jobs",
                 response_serializer_class=ListJobsResponseSerializer,
                 params=params,
             ),
@@ -288,10 +294,9 @@ class SmartlingAPIClient:
         target_locale_ids: Optional[List[str]] = None,
         description: Optional[str] = None,
         due_date: Optional[datetime] = None,
-        reference_number: Optional[str] = None,
         callback_url: Optional[str] = None,
         callback_method: Optional[Literal["GET", "POST"]] = None,
-    ) -> Dict[str, Any]:
+    ) -> types.CreateJobResponseData:
         if (callback_url is None) != (callback_method is None):
             raise ValueError(
                 "Both callback_url and callback_method must be provided, or neither"
@@ -306,74 +311,144 @@ class SmartlingAPIClient:
             params["description"] = description
         if due_date is not None:
             params["dueDate"] = due_date.isoformat()
-        if reference_number is not None:
-            params["referenceNumber"] = reference_number
         if callback_url is not None:
             params["callbackMethod"] = callback_method
             params["callbackUrl"] = callback_url
 
-        return self._request(
-            method="POST",
-            path=f"/jobs-api/v3/projects/{quote(settings.PROJECT_ID)}/jobs",
-            response_serializer_class=CreateJobResponseSerializer,
-            json=params,
+        return cast(
+            types.CreateJobResponseData,
+            self._request(
+                method="POST",
+                path=f"/jobs-api/v3/projects/{quote(smartling_settings.PROJECT_ID)}/jobs",
+                response_serializer_class=CreateJobResponseSerializer,
+                json=params,
+            ),
         )
 
-    def get_job_details(
-        self,
-        *,
-        job: "Job",
-    ) -> Dict[str, Any]:
-        return self._request(
-            method="GET",
-            path=f"/jobs-api/v3/projects/{quote(settings.PROJECT_ID)}/jobs/{quote(job.translation_job_uid)}",
-            response_serializer_class=GetJobDetailsResponseSerializer,
-        )
+    def get_job_details(self, *, job: "Job") -> types.GetJobDetailsResponseData:
+        try:
+            return cast(
+                types.GetJobDetailsResponseData,
+                self._request(
+                    method="GET",
+                    path=f"/jobs-api/v3/projects/{quote(smartling_settings.PROJECT_ID)}/jobs/{quote(job.translation_job_uid)}",
+                    response_serializer_class=GetJobDetailsResponseSerializer,
+                ),
+            )
+        except FailedResponse as e:
+            if e.code == "NOT_FOUND_ERROR":
+                raise JobNotFound(f"Job {job.translation_job_uid} not found") from e
+            else:
+                raise
 
-    def upload_po_file(
-        self,
-        *,
-        po_file: POFile,
-        file_name: str,
-        file_uri: str,
-        namespace: Optional[str] = None,
-    ):
+    def upload_po_file_for_job(self, *, job: "Job") -> str:
         # TODO handle 202 reponses for files that take over a minute to upload
 
-        return self._request(
+        # TODO document why we're using the Job PK for the file URI. It's
+        # because Smartling uses this as the default namespace for any
+        # strings contained in the file, and strings can only exist once in
+        # a namespace. If we were to upload the same file to multiple jobs
+        # (e.g. if a page got translated, converted back to an alias and
+        # then translated again), then the second job would contain no
+        # strings because they're all part of the first job. You can't
+        # authorize a job with no strings, so it'd be effectively stuck.
+        file_uri = f"job_{job.pk}.po"
+        self._request(
             method="POST",
-            path=f"/files-api/v2/projects/{quote(settings.PROJECT_ID)}/file",
+            path=f"/files-api/v2/projects/{quote(job.project.project_id)}/file",
             response_serializer_class=UploadFileResponseSerializer,
             files={
-                "file": (file_name, str(po_file)),
+                "file": (file_uri, str(job.translation_source.export_po())),
             },
             data={
                 "fileUri": file_uri,
                 "fileType": "gettext",
             },
         )
+        return file_uri
 
-    def add_file_to_job(
-        self,
-        *,
-        translation_job_uid: str,
-        file_uri: str,
-        target_locale_ids: Optional[List[str]] = None,
-    ):
+    def add_file_to_job(self, *, job: "Job"):
         # TODO handle 202 responses for files that get added asynchronously
 
         body: Dict[str, Any] = {
-            "fileUri": file_uri,
+            "fileUri": job.file_uri,
+            "targetLocaleIds": [
+                utils.format_smartling_locale_id(t.target_locale.language_code)
+                for t in job.translations.all()
+            ],
         }
-        if target_locale_ids is not None:
-            body["targetLocaleIds"] = target_locale_ids
 
         return self._request(
             method="POST",
-            path=f"/jobs-api/v3/projects/{quote(settings.PROJECT_ID)}/jobs/{quote(translation_job_uid)}/file/add",
+            path=f"/jobs-api/v3/projects/{quote(job.project.project_id)}/jobs/{quote(job.translation_job_uid)}/file/add",
             response_serializer_class=AddFileToJobResponseSerializer,
             json=body,
         )
+
+    @contextmanager
+    def download_translations(self, *, job: "Job") -> Generator[ZipFile, None, None]:
+        # This is an unusual case where a successful response is a ZIP file,
+        # rather than JSON. JSON responses will be returned for errors.
+
+        url = urljoin(
+            self._base_url,
+            f"/files-api/v2/projects/{quote(job.project.project_id)}/locales/all/file/zip",
+        )
+        with requests.get(
+            url,
+            headers=self._headers,
+            params={
+                "fileUri": job.file_uri,
+                "retrievalType": "published",
+                "includeOriginalStrings": True,  # TODO make this configurable?
+            },
+            stream=True,
+            timeout=smartling_settings.API_TIMEOUT_SECONDS,
+        ) as response:
+            # Log consistently with other requests. Don't log the method and URL
+            # until we've initiated the request so it doesn't get interleaved
+            # with any auth requests triggered by generating the headers
+            logger.info("Smartling API request: GET %s", url)
+            logger.info(
+                "Smartling API response: %s %s",
+                response.status_code,
+                f"{response.elapsed.total_seconds()}s",
+            )
+
+            # Only 200 responses contain a ZIP file, everything else is an error
+            if response.status_code != 200:
+                try:
+                    response_json = response.json()
+                except requests.exceptions.JSONDecodeError as e:
+                    raise InvalidResponse(
+                        f"Response was not valid JSON: {response.text}"
+                    ) from e
+
+                serializer = ResponseSerializer(data=response_json)
+
+                try:
+                    serializer.is_valid(raise_exception=True)
+                except rest_framework.serializers.ValidationError as e:
+                    raise InvalidResponse(
+                        f"Response did not match expected format: {serializer.initial_data}"  # noqa: E501
+                    ) from e
+
+                try:
+                    response.raise_for_status()
+                except HTTPError as e:
+                    code, errors = serializer.response_errors
+                    raise FailedResponse(code=code, errors=errors) from e
+
+            # Ok, cool, the response body is a ZIP file
+            # TODO buffer to a temporary file instead of a BytesIO for large files
+
+            buffer = BytesIO()
+            for chunk in response.iter_content(chunk_size=8192):
+                buffer.write(chunk)
+            buffer.seek(0)
+
+            with ZipFile(buffer) as zf:
+                yield zf
 
 
 client = cast(SmartlingAPIClient, SimpleLazyObject(SmartlingAPIClient))

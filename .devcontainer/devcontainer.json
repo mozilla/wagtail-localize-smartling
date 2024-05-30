@@ -4,12 +4,9 @@
   "name": "wagtail-localize-smartling",
   "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
   "features": {
-    "ghcr.io/devcontainers-contrib/features/flit:2": {
-      "version": "latest"
-    },
-    "ghcr.io/devcontainers-contrib/features/tox:2": {
-      "version": "latest"
-    }
+    "ghcr.io/devcontainers-contrib/features/flit:2": {},
+    "ghcr.io/devcontainers-contrib/features/tox:2": {},
+    "ghcr.io/devcontainers-contrib/features/redis-homebrew:1": {}
   },
   "postCreateCommand": {
     "pythonDeps": "pip install --user --editable .[test]"

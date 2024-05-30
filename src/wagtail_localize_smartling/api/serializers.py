@@ -141,6 +141,9 @@ class ResponseSerializer(
 # Response serializers for specific API endpoints #
 ###################################################
 
+# TODO trim these down to just the fields we actually use so that we're not
+#      being unnecessarily fussy
+
 
 class AuthenticateResponseSerializer(
     ResponseSerializer,
@@ -208,17 +211,7 @@ class CreateJobResponseSerializer(ResponseSerializer):
     )
     jobName = serializers.CharField()
     jobNumber = serializers.CharField(allow_null=True)
-    jobStatus = serializers.ChoiceField(
-        choices=[  # TODO factor out to enum
-            "DRAFT",
-            "AWAITING_AUTHORIZATION",
-            "IN_PROGRESS",
-            "COMPLETED",
-            "CANCELLED",
-            "CLOSED",
-            "DELETED",
-        ]
-    )
+    jobStatus = serializers.ChoiceField(choices=types.JobStatus.values)
     lastCompletedDate = serializers.DateTimeField(
         default_timezone=timezone.utc,
         allow_null=True,
@@ -227,11 +220,11 @@ class CreateJobResponseSerializer(ResponseSerializer):
         default_timezone=timezone.utc,
         allow_null=True,
     )
-    modifiedByUserUid = serializers.CharField()
+    modifiedByUserUid = serializers.CharField(allow_null=True)
     modifiedDate = serializers.DateTimeField(default_timezone=timezone.utc)
     targetLocaleIds = serializers.ListField(child=serializers.CharField())
     translationJobUid = serializers.CharField()
-    referenceNumber = serializers.CharField(allow_blank=True)
+    referenceNumber = serializers.CharField(allow_null=True, allow_blank=True)
     issues = IssuesCountSerializer(allow_null=True)
 
 

@@ -3,9 +3,7 @@ Tests for the wagtail-localize translation components functionality when
 submitting a page for translation
 """
 
-import json
 
-from urllib.parse import quote, urljoin
 
 import pytest
 
@@ -18,15 +16,9 @@ from wagtail_localize.models import (
     TranslationSource,
     get_edit_url,
 )
-from wagtail_localize_smartling.api.types import (
-    GetProjectDetailsResponseData,
-    ListJobsResponseData,
-    TargetLocaleData,
-)
 from wagtail_localize_smartling.models import Job
 
-from tests.testapp.factories import InfoPageFactory
-from tests.testapp.models import InfoPage
+from testapp.factories import InfoPageFactory
 
 
 @pytest.mark.parametrize(
@@ -36,23 +28,13 @@ from tests.testapp.models import InfoPage
         [("de", "fr")],
     ],
 )
-@pytest.mark.parametrize(
-    ["name", "description", "due_date"],
-    [
-        ("Foo", "Bar", None),
-    ],
-)
 @pytest.mark.django_db()
 def test_no_existing_jobs_no_child_pages(
     client,
-    description,
-    due_date,
-    dummy_smartling_settings,
-    name,
-    responses,
     root_page,
     superuser,
     target_locales,
+    smartling_settings,
 ):
     page = InfoPageFactory(parent=root_page, title="Component test page")
 
@@ -71,40 +53,18 @@ def test_no_existing_jobs_no_child_pages(
     )
     client.force_login(superuser)
 
-    # Mock response to indicate no existing jobs have the same name
-    responses.get(
-        f"https://api.smartling.com/jobs-api/v3/projects/{quote(dummy_smartling_settings['PROJECT_ID'])}/jobs?jobName={quote(name)}",
-        body=json.dumps(
-            {
-                "response": {
-                    "code": "SUCCESS",
-                    "data": ListJobsResponseData(items=[]),
-                }
-            }
-        ),
-    )
-
     get_response = client.get(submit_url)
     assert get_response.status_code == 200
 
     component_mgr = get_response.context["components"]
     assert len(component_mgr.components) == 1
 
-    component_form = component_mgr.components[0][2]
-    assert component_form.fields["name"].initial == "Component test page"
-    assert component_form.fields["description"].initial == (
-        "Automatically-created Wagtail translation job for "
-        f'"{page}": {urljoin("http://testserver/", page_edit_url)}'
-    )
-
     post_response = client.post(
         submit_url,
         data={
             "locales": target_locale_ids,
-            f"{component_form_prefix}-enabled": name,
-            f"{component_form_prefix}-name": name,
-            f"{component_form_prefix}-description": description,
-            f"{component_form_prefix}-due_date": due_date or "",
+            f"{component_form_prefix}-enabled": True,
+            f"{component_form_prefix}-due_date": "",
         },
     )
 
@@ -142,7 +102,4 @@ def test_no_existing_jobs_no_child_pages(
     }
     assert job.first_synced_at is None
     assert job.last_synced_at is None
-    assert job.name == name
-    assert job.description == description
-    assert job.due_date == due_date
-    assert job.reference_number == f"translationsource_id:{job.translation_source.pk}"
+    assert job.due_date is None

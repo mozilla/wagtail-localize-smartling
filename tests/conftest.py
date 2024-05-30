@@ -5,7 +5,6 @@ from urllib.parse import quote
 
 import pytest
 
-from django.test.client import Client
 from wagtail.coreutils import get_supported_content_language_variant
 from wagtail.models import Locale, Page
 from wagtail_localize.models import LocaleSynchronization
@@ -17,7 +16,7 @@ from wagtail_localize_smartling.api.types import (
 )
 from wagtail_localize_smartling.models import Project
 
-from tests.testapp.factories import SuperUserFactory
+from testapp.factories import UserFactory
 
 
 @pytest.fixture(autouse=True)
@@ -49,12 +48,12 @@ def root_page():
 
 
 @pytest.fixture()
-def superuser(client: Client):
-    return SuperUserFactory()
+def superuser():
+    return UserFactory(is_superuser=True)
 
 
 @pytest.fixture()
-def dummy_smartling_settings(settings, responses):
+def smartling_settings(settings, responses):
     project_id = "dummy_smartling_project_id"
     user_identifier = "dummy_smartling_user"
     user_secret = "dummy_smartling_secret"  # noqa: S105

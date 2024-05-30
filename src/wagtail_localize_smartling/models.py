@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from functools import lru_cache
 from typing import Iterable, Optional, Set
+from urllib.parse import urljoin
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
@@ -11,13 +12,15 @@ from django.db.models.manager import Manager
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.panels import FieldPanel
+from wagtail.admin.utils import get_admin_base_url
 from wagtail_localize.components import register_translation_component
 from wagtail_localize.models import Translation, TranslationSource
 from wagtail_localize.tasks import ImmediateBackend, background
 
-from . import utils
 from .api.client import client
+from .api.types import JobStatus
 from .forms import JobForm
+from .sync import sync_job
 
 
 logger = logging.getLogger(__name__)
@@ -28,6 +31,7 @@ class SyncedModel(models.Model):
     last_synced_at = models.DateTimeField(null=True, editable=False)
 
     class Meta:
+        ordering = (models.F("first_synced_at").desc(nulls_first=True), "-pk")
         abstract = True
 
 
@@ -100,6 +104,9 @@ class Project(SyncedModel):
 
         project.target_locales.exclude(locale_id__in=seen_target_locale_ids).delete()
 
+        # TODO log an error if the locales in the project and
+        # WAGTAIL_CONTENT_LANGUAGES don't match
+
         logger.info("Synced project %s", project)
         return project
 
@@ -125,7 +132,6 @@ class ProjectTargetLocale(models.Model):
 @register_translation_component(
     # TODO better labels
     heading=_("Send translation to Smartling"),
-    help_text=_("You can modify Smartling job details"),
     enable_text=_("Send to Smartling"),
     disable_text=_("Do not send to Smartling"),
 )
@@ -151,23 +157,100 @@ class Job(SyncedModel):
     translations = models.ManyToManyField(Translation, related_name="smartling_jobs")
 
     # Smartling job config fields
-    name = models.CharField(max_length=170)
-    description = models.TextField(blank=True)
+    name = models.CharField(max_length=170, editable=False)
+    description = models.TextField(blank=True, editable=False)
     due_date = models.DateTimeField(blank=True, null=True)
-    reference_number = models.CharField(max_length=255, blank=True, editable=False)
 
-    # # Smartling API-derived fields
-    # translation_job_uid = models.CharField(max_length=64, editable=False)
+    # Smartling API-derived fields
+    translation_job_uid = models.CharField(max_length=64, editable=False)
+    status = models.CharField(
+        max_length=32,
+        choices=JobStatus.choices,
+        default=JobStatus.UNSYNCED,
+        editable=False,
+    )
+
+    # NB - `file_uri`` isn't a field that the Smartling API returns. The
+    # intended way to get this information is from the sourceFiles value in the
+    # job details data or via the dedicated endpoint that lists file within a
+    # job. However, we only ever have one file per job, so we store the URI of
+    # that file here for convenience once it's been added.
+    #
+    # Refs:
+    #   https://api-reference.smartling.com/#tag/Jobs/operation/getJobDetails
+    #   https://api-reference.smartling.com/#tag/Jobs/operation/getJobFilesList
+    #
+    file_uri = models.CharField(max_length=255, blank=True, editable=False)
 
     base_form_class = JobForm
-    panels = [
-        FieldPanel("name"),
-        FieldPanel("description"),
-        FieldPanel("due_date"),
-    ]
+    panels = [FieldPanel("due_date")]
+
+    class Meta(SyncedModel.Meta):
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(
+                        status=JobStatus.UNSYNCED,
+                        first_synced_at__isnull=True,
+                        last_synced_at__isnull=True,
+                    )
+                    | (
+                        ~models.Q(status=JobStatus.UNSYNCED)
+                        & models.Q(
+                            first_synced_at__isnull=False,
+                            last_synced_at__isnull=False,
+                        )
+                    )
+                ),
+                name="status_consistent_with_sync_dates",
+            ),
+        ]
 
     def __str__(self):
         return self.name
+
+    @staticmethod
+    def get_default_name(
+        translation_source: TranslationSource,
+        translations: Iterable[Translation],
+    ) -> str:
+        """
+        Default name to use for the job in Smartling. These don't need to be
+        human readable, but they do need to be unique. So, we concatenate the
+        translation key, TranslationSource PK, target locale codes and a
+        timestamp.
+        """
+        return (
+            f"{translation_source.object.translation_key}:"
+            f"{translation_source.pk}:"
+            f"{':'.join(sorted(t.target_locale.language_code for t in translations))}:"
+            f"{timezone.now().isoformat(timespec='seconds')}"
+        )
+
+    @staticmethod
+    def get_default_description(
+        translation_source: TranslationSource,
+        translations: Iterable[Translation],
+    ) -> str:
+        """
+        Default description to use for the job in Smartling. This is
+        human-readable and contains a link to the edit view for the translatable
+        model.
+        """
+        source_instance = translation_source.get_source_instance()
+        ct_name = type(source_instance)._meta.verbose_name
+        edit_url = urljoin(
+            get_admin_base_url() or "",
+            translation_source.get_source_instance_edit_url(),
+        )
+
+        description = (
+            "Automatically-created Wagtail translation job for "
+            f"{ct_name} "
+            f'"{source_instance}". '
+            f"The source content can be edited here: {edit_url}"
+        )
+        return description
 
     @classmethod
     def get_or_create_from_source_and_translation_data(
@@ -176,8 +259,6 @@ class Job(SyncedModel):
         translations: Iterable[Translation],
         *,
         user: AbstractBaseUser,
-        name: str,
-        description: str,
         due_date: Optional[datetime],
     ) -> None:
         """
@@ -192,18 +273,19 @@ class Job(SyncedModel):
             project=Project.get_current(),
             translation_source=translation_source,
             user=user,
-            name=name,
-            description=description,
+            name=cls.get_default_name(translation_source, translations),
+            description=cls.get_default_description(translation_source, translations),
             due_date=due_date,
-            reference_number=f"translationsource_id:{translation_source.pk}",
         )
         job.translations.set(translations)
 
         if isinstance(background, ImmediateBackend):
             # Don't enqueue anything slow if we're using the dummy background
             # worker, let the `sync_smartling` management command pick things up
-            # on a schedule instead
+            # on a schedule instead.
             return
 
-        # TODO if we get here we've got a proper background worker, so enqueue
-        # the API-related stuff
+        # If we get here we've got a proper background worker, so we can safely
+        # enqueue the syncing of the job.
+        # TODO configurable retry policy
+        background.enqueue(sync_job, args=(job.pk,), kwargs={})

@@ -1,4 +1,12 @@
+import logging
+
 from django.core.management import BaseCommand
+
+from wagtail_localize_smartling.models import Job
+from wagtail_localize_smartling.sync import SyncJobException, sync_job
+
+
+logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
@@ -10,5 +18,9 @@ class Command(BaseCommand):
     """
 
     def handle(self, *args, **kwargs) -> None:
-        # TODO
-        pass
+        # TODO skip jobs in finalised state so this doesnt' grow forever
+        for job_id in Job.objects.values_list("pk", flat=True):
+            try:
+                sync_job(job_id)
+            except SyncJobException:
+                logger.exception("Error syncing job with ID %s", job_id)

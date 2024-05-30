@@ -1,31 +1,22 @@
 from typing import Any, Dict
 
-from django.core.exceptions import ValidationError
+from django.utils.translation import gettext_lazy as _
 from wagtail.admin.forms import WagtailAdminModelForm
-
-from .api.client import client
-from .utils import default_job_description, default_job_name
 
 
 class JobForm(WagtailAdminModelForm):
-    def __init__(self, *args, source_object_instance, user, **kwargs):
+    """
+    Custom ModelForm for the Job model. We need to add the "user" key to the
+    validated data _and_ set the attribute on the instance because of the way
+    wagtail-localize's translation components work.
+    """
+
+    def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["name"].initial = default_job_name(source_object_instance)
-        self.fields["description"].initial = default_job_description(
-            source_object_instance
+        self.fields["due_date"].help_text = _(
+            "Optional due date for the translation Smartling translation job"
         )
         self.user = user
-
-    def clean_name(self):
-        """
-        Validate the job name by checking that no job with the same name already
-        exists.
-        """
-        name = self.cleaned_data["name"]
-        jobs_data = client.list_jobs(name=name)
-        if any(j["jobName"] == name for j in jobs_data["items"]):
-            raise ValidationError("A job with this name already exists")
-        return name
 
     def clean(self) -> Dict[str, Any]:
         data = super().clean()

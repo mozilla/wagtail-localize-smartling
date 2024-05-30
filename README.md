@@ -33,7 +33,9 @@ An extension for wagtail-localize that integrates with the Smartling translation
 TODO:
 - Document settings
 - Document requirements for setting up the Smartling project:
-  - Country and region codes must match exactly
+  - Country and region codes must match exactly between
+    WAGTAIL_CONTENT_LANGUAGES and the Smartling settings (except for case, this is
+    accounted for)
 - Need to set up scheduled command
 
 -->
