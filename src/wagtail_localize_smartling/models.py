@@ -128,7 +128,6 @@ class ProjectTargetLocale(models.Model):
         return f"{self.description}"
 
 
-
 @register_translation_component(
     # TODO better labels
     heading=_("Send translation to Smartling"),

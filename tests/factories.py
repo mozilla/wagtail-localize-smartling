@@ -3,13 +3,11 @@ from typing import Any
 import factory
 import factory.django
 
-from django.conf import settings
 from wagtail.models import Locale
 from wagtail_localize.models import Translation
 from wagtail_localize_smartling import models as wls_models
-from wagtail_localize_smartling.api.types import JobStatus
 
-from testapp.factories import TranslationFactory, TranslationSourceFactory, UserFactory
+from testapp.factories import TranslationSourceFactory, UserFactory
 
 
 class ProjectFactory(factory.django.DjangoModelFactory):

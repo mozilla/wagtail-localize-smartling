@@ -3,8 +3,6 @@ Tests for the wagtail-localize translation components functionality when
 submitting a page for translation
 """
 
-
-
 import pytest
 
 from django.contrib.contenttypes.models import ContentType

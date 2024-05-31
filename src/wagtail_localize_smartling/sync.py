@@ -38,6 +38,7 @@ PENDING_STATUSES = (
 )
 TRANSLATED_STATUSES = (JobStatus.COMPLETED, JobStatus.CLOSED)
 UNTRANSLATED_STATUSES = (JobStatus.CANCELLED, JobStatus.DELETED)
+FINAL_STATUSES = TRANSLATED_STATUSES + UNTRANSLATED_STATUSES
 
 
 @transaction.atomic(durable=True)
@@ -150,17 +151,12 @@ def _sync(job: "Job") -> None:
     if initial_status in PENDING_STATUSES:
         if updated_status in PENDING_STATUSES:
             logger.info("Job still pending, no further action required")
-            return
-
-        if updated_status in TRANSLATED_STATUSES:
+        elif updated_status in TRANSLATED_STATUSES:
             _download_and_apply_translations(job)
         elif updated_status in UNTRANSLATED_STATUSES:
-            # TODO log a warning or something. Is there any other action we
-            # could take here?
-            pass
+            logger.warning("Job is finalised but not translated")
     else:
         logger.info("Job already finalised, no further action required")
-        return
 
 
 def _download_and_apply_translations(job: "Job") -> None:

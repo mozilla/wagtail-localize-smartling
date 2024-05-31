@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("wagtail_localize_smartling", "0002_job_status_job_translation_job_uid"),
     ]

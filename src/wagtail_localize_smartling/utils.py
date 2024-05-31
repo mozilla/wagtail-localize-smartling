@@ -24,6 +24,7 @@ def default_job_description(instance: models.Model) -> str:
 
     return description
 
+
 def format_smartling_locale_id(locale_id: str) -> str:
     """
     Format a locale ID for the Smartling API. Wagtail/Django use lower case

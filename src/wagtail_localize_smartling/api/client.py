@@ -6,7 +6,6 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from functools import cached_property
 from io import BytesIO
-from tempfile import TemporaryFile
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -26,7 +25,6 @@ import requests
 import requests.exceptions
 import rest_framework.serializers
 
-from django.conf import settings as django_settings
 from django.utils import timezone
 from django.utils.functional import SimpleLazyObject
 from requests.exceptions import HTTPError
@@ -84,6 +82,7 @@ class FailedResponse(SmartlingAPIError):
             f"{self.code}\n"
             f"{textwrap.indent(pprint.pformat(self.errors, indent=2), prefix='  ')}"
         )
+
 
 class JobNotFound(SmartlingAPIError):
     pass
