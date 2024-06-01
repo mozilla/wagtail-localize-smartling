@@ -60,11 +60,14 @@ test = [
     "responses==0.25.0",
     "ruff==0.4.5",
     "tox",
+    "tox-gh-actions",
     "wagtail-factories==4.2.1"
 ]
 
 [project.urls]
-Home = "https://github.com/mozilla/wagtail-localize-smartling"
+Repository = "https://github.com/mozilla/wagtail-localize-smartling"
+Issues = "https://github.com/mozilla/wagtail-localize-smartling/issues"
+Changelog = "https://github.com/mozilla/wagtail-localize-smartling/blob/main/CHANGELOG.md"
 
 [tool.flit.module]
 name = "wagtail_localize_smartling"

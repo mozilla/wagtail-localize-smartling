@@ -5,6 +5,7 @@
 - [ ] Job callbacks
 - [ ] Django system checks
 - [ ] Signals
+- [ ] PyPI publishing from CI
 - [ ] Indicate Smartling translation status on translation pages:
     - [ ] Synced translation edit page (target)
     - [ ] Normal Wagtail edit page (source)

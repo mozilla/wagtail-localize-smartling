@@ -268,6 +268,8 @@ class Job(SyncedModel):
         Jobs are only created if there's no pending or completed job for the provided
         TranslationSource.
         """
+        # TODO make sure the source locale matches the Smartling project's language
+
         job = Job.objects.create(
             project=Project.get_current(),
             translation_source=translation_source,

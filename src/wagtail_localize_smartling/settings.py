@@ -16,8 +16,8 @@ class SmartlingSettings:
     PROJECT_ID: str
     USER_IDENTIFIER: str
     USER_SECRET: str
-    ENVIRONMENT: Literal["production", "staging"]
-    API_TIMEOUT_SECONDS: float
+    ENVIRONMENT: Literal["production", "staging"] = "production"
+    API_TIMEOUT_SECONDS: float = 5.0
 
 
 def _init_settings() -> SmartlingSettings:
