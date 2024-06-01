@@ -18,6 +18,9 @@ class Command(BaseCommand):
     """
 
     def handle(self, *args, **kwargs) -> None:
+        # TODO make sure we only use jobs in the current project
+        # TODO create TODO.md for known edge cases
+        # TODO how do we measure compatible countries/locales?
         for job_id in Job.objects.exclude(status__in=FINAL_STATUSES).values_list(
             "pk", flat=True
         ):

@@ -90,7 +90,7 @@ class JobNotFound(SmartlingAPIError):
 
 # API client
 
-# TODO allow customization of serializerrs to account for custom fields
+# TODO allow customization of serializers to account for custom fields
 
 RD = TypeVar("RD", bound=dict)
 
