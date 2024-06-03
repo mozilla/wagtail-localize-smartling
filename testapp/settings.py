@@ -33,8 +33,8 @@ ALLOWED_HOSTS = ["localhost", "testserver"]
 
 INSTALLED_APPS = [
     "testapp",
-    "wagtail_localize_smartling",
     "wagtail.contrib.search_promotions",
+    "wagtail_localize_smartling",
     "wagtail_localize",
     "wagtail_localize.locales",
     "wagtail.contrib.forms",
@@ -113,7 +113,7 @@ PASSWORD_HASHERS = ("django.contrib.auth.hashers.MD5PasswordHasher",)
 
 DATABASES = {
     "default": dj_database_url.config(
-        default="sqlite:///test_wagtail_localize_smartling.db"
+        default="sqlite:///wagtail_localize_smartling.db"
     ),
 }
 
@@ -203,4 +203,5 @@ WAGTAIL_LOCALIZE_SMARTLING = {
     "PROJECT_ID": os.getenv("SMARTLING_PROJECT_ID", ""),
     "USER_IDENTIFIER": os.getenv("SMARTLING_USER_IDENTIFIER", ""),
     "USER_SECRET": os.getenv("SMARTLING_USER_SECRET", ""),
+    "REQUIRED": True,
 }

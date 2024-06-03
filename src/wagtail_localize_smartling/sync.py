@@ -38,7 +38,7 @@ PENDING_STATUSES = (
 )
 TRANSLATED_STATUSES = (JobStatus.COMPLETED, JobStatus.CLOSED)
 UNTRANSLATED_STATUSES = (JobStatus.CANCELLED, JobStatus.DELETED)
-FINAL_STATUSES = TRANSLATED_STATUSES + UNTRANSLATED_STATUSES
+FINAL_STATUSES = (JobStatus.CLOSED, JobStatus.DELETED)
 
 
 @transaction.atomic(durable=True)
@@ -95,6 +95,7 @@ def _initial_sync(job: "Job") -> None:
         job_name=job.name,
         target_locale_ids=target_locale_ids,
         description=job.description,
+        reference_number=job.reference_number,
         due_date=job.due_date,
     )
 
@@ -137,10 +138,13 @@ def _sync(job: "Job") -> None:
         updated_status = JobStatus.DELETED
     else:
         updated_status = job_data["jobStatus"]
+        job.description = job_data["description"]
+        job.reference_number = job_data["referenceNumber"] or ""
+        job.due_date = job_data["dueDate"]
 
     job.status = updated_status
     job.last_synced_at = timezone.now()
-    job.save(update_fields=["status", "last_synced_at"])
+    job.save()
 
     if updated_status == initial_status:
         logger.info("No change in status, no further action required")
@@ -153,6 +157,8 @@ def _sync(job: "Job") -> None:
             logger.info("Job still pending, no further action required")
         elif updated_status in TRANSLATED_STATUSES:
             _download_and_apply_translations(job)
+            job.translations_imported_at = job.last_synced_at
+            job.save(update_fields=["translations_imported_at"])
         elif updated_status in UNTRANSLATED_STATUSES:
             logger.warning("Job is finalised but not translated")
     else:
@@ -192,3 +198,4 @@ def _download_and_apply_translations(job: "Job") -> None:
                 po_file = polib.pofile(f.read().decode("utf-8"))
                 translation.import_po(po_file)
                 logger.info("Imported translations for %s", translation)
+

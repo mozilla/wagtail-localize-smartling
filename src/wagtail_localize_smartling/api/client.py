@@ -292,6 +292,7 @@ class SmartlingAPIClient:
         job_name: str,
         target_locale_ids: Optional[List[str]] = None,
         description: Optional[str] = None,
+        reference_number: Optional[str] = None,
         due_date: Optional[datetime] = None,
         callback_url: Optional[str] = None,
         callback_method: Optional[Literal["GET", "POST"]] = None,
@@ -308,6 +309,8 @@ class SmartlingAPIClient:
             params["targetLocaleIds"] = target_locale_ids
         if description is not None:
             params["description"] = description
+        if reference_number is not None:
+            params["referenceNumber"] = reference_number
         if due_date is not None:
             params["dueDate"] = due_date.isoformat()
         if callback_url is not None:

@@ -2,7 +2,7 @@ import logging
 
 from django.core.management import BaseCommand
 
-from wagtail_localize_smartling.models import Job
+from wagtail_localize_smartling.models import Job, Project
 from wagtail_localize_smartling.sync import FINAL_STATUSES, SyncJobException, sync_job
 
 
@@ -18,12 +18,12 @@ class Command(BaseCommand):
     """
 
     def handle(self, *args, **kwargs) -> None:
-        # TODO make sure we only use jobs in the current project
-        # TODO create TODO.md for known edge cases
         # TODO how do we measure compatible countries/locales?
-        for job_id in Job.objects.exclude(status__in=FINAL_STATUSES).values_list(
-            "pk", flat=True
-        ):
+        project = Project.get_current()
+
+        for job_id in Job.objects.exclude(
+            project=project, status__in=FINAL_STATUSES
+        ).values_list("pk", flat=True):
             try:
                 sync_job(job_id)
             except SyncJobException:

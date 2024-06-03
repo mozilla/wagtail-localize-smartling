@@ -65,8 +65,7 @@ def smartling_settings(settings, responses):
         "USER_SECRET": user_secret,
     }
 
-    # Mock API responses that always get used for authentication and getting
-    # project details
+    # Mock API response for authentication
     responses.post(
         "https://api.smartling.com/auth-api/v2/authenticate",
         body=json.dumps(
@@ -84,6 +83,17 @@ def smartling_settings(settings, responses):
             }
         ),
     )
+    # Reset the API client so that the authenticate response gets consumed
+    client.access_token = None
+    client.refresh_token = None
+
+    return settings.WAGTAIL_LOCALIZE_SMARTLING
+
+
+@pytest.fixture()
+def smartling_project(responses, smartling_settings):
+    # Mock API request for retreiving project details
+    project_id = smartling_settings["PROJECT_ID"]
     responses.get(
         f"https://api.smartling.com/projects-api/v2/projects/{quote(project_id)}?includeDisabledLocales=true",
         body=json.dumps(
@@ -116,12 +126,6 @@ def smartling_settings(settings, responses):
         ),
     )
 
-    # Reset the API client so that the authenticate response gets consumed
-    client.access_token = None
-    client.refresh_token = None
-
-    # Reset cached value of Project.get_current() so the project details
-    # response always gets consumed
+    # Reset Project.get_current() cache so the response always gets consumed
     Project.get_current.cache_clear()
-
-    return settings.WAGTAIL_LOCALIZE_SMARTLING
+    return Project.get_current()

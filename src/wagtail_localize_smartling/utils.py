@@ -1,28 +1,16 @@
-from urllib.parse import urljoin
+from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 from django.db import models
 from wagtail.models import Site
 from wagtail_localize.models import get_edit_url
 
+from .api.types import JobStatus
+from .settings import settings as smartling_settings
 
-def default_job_name(instance: models.Model) -> str:
-    return str(instance)
 
-
-def default_job_description(instance: models.Model) -> str:
-    edit_url = ""
-    try:
-        default_site = Site.objects.get(is_default_site=True)
-    except Site.DoesNotExist:
-        pass
-    else:
-        edit_url = urljoin(default_site.root_url, get_edit_url(instance))
-
-    description = f'Automatically-created Wagtail translation job for "{instance}"'
-    if edit_url:
-        description += f": {edit_url}"
-
-    return description
+if TYPE_CHECKING:
+    from .models import Job
 
 
 def format_smartling_locale_id(locale_id: str) -> str:
@@ -44,3 +32,15 @@ def format_wagtail_locale_id(locale_id: str) -> str:
     The opposite of format_smartling_locale_id, return everything lower case.
     """
     return locale_id.lower()
+
+
+def format_smartling_job_url(job: "Job") -> str:
+    print(job.status)
+    if job.status in (JobStatus.UNSYNCED, JobStatus.DELETED):
+        # Can't generate a link for a job that doesn't exist in Smartling
+        return ""
+    pid = quote(job.project.project_id)
+    jid = quote(job.translation_job_uid)
+    return (
+        f"https://dashboard.smartling.com/app/projects/{pid}/account-jobs/{pid}:{jid}"
+    )

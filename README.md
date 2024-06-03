@@ -30,7 +30,20 @@ integrates with the Smartling translation platform.
     python -m pip install wagtail-localize-smartling
     ```
 
-2. Add `"wagtail_localize_smartling"` to `INSTALLED_APPS` in your Django settings.
+2.  Add `"wagtail_localize_smartling"` to `INSTALLED_APPS` in your Django
+    settings. Make sure it's before `"wagtail_localize"` and
+    `"wagtail_localize.locales"`:
+
+    ```python
+    INSTALLED_APPS = [
+        ...
+        "wagtail_localize_smartling",
+        "wagtail_localize",
+        "wagtail_localize.locales",
+        ...
+    ]
+    ```
+
 3. Configure the plugin in your Django settings:
 
    ```python
@@ -40,8 +53,9 @@ integrates with the Smartling translation platform.
         "USER_IDENTIFIER": "<user_identifier>",
         "USER_SECRET": "<user_secret>",
         # Optional settings and their default values
-        "ENVIRONMENT": "production"  # Set this to "staging" to use Smartling's staging API
-        "API_TIMEOUT_SECONDS": 5.0  # Timeout in seconds for requests to the Smartling API
+        "REQUIRED": False,  # Set this to True to always send translations to Smartling
+        "ENVIRONMENT": "production",  # Set this to "staging" to use Smartling's staging API
+        "API_TIMEOUT_SECONDS": 5.0,  # Timeout in seconds for requests to the Smartling API
     }
     ```
 

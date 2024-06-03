@@ -27,12 +27,12 @@ from testapp.factories import InfoPageFactory
     ],
 )
 @pytest.mark.django_db()
-def test_no_existing_jobs_no_child_pages(
+def test_submitting_for_translation_with_no_existing_jobs_no_child_pages(
     client,
     root_page,
     superuser,
     target_locales,
-    smartling_settings,
+    smartling_project
 ):
     page = InfoPageFactory(parent=root_page, title="Component test page")
 
@@ -101,3 +101,8 @@ def test_no_existing_jobs_no_child_pages(
     assert job.first_synced_at is None
     assert job.last_synced_at is None
     assert job.due_date is None
+
+
+# TODO test REQUIRED or not
+# TODO test existing jobs in various states
+# TODO test child pages in various states of translation

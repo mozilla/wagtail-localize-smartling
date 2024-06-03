@@ -20,6 +20,7 @@ from wagtail_localize.tasks import ImmediateBackend, background
 from .api.client import client
 from .api.types import JobStatus
 from .forms import JobForm
+from .settings import settings as smartling_settings
 from .sync import sync_job
 
 
@@ -129,7 +130,7 @@ class ProjectTargetLocale(models.Model):
 
 
 @register_translation_component(
-    # TODO better labels
+    required=smartling_settings.REQUIRED,
     heading=_("Send translation to Smartling"),
     enable_text=_("Send to Smartling"),
     disable_text=_("Do not send to Smartling"),
@@ -140,9 +141,8 @@ class Job(SyncedModel):
     Translation objects in Wagtail.
     """
 
-    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="jobs")
-
     # wagtail-localize fields
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -153,11 +153,16 @@ class Job(SyncedModel):
         on_delete=models.CASCADE,
         related_name="smartling_jobs",
     )
-    translations = models.ManyToManyField(Translation, related_name="smartling_jobs")
+    translations = models.ManyToManyField(
+        Translation,
+        related_name="smartling_jobs",
+    )
 
     # Smartling job config fields
+
     name = models.CharField(max_length=170, editable=False)
     description = models.TextField(blank=True, editable=False)
+    reference_number = models.CharField(max_length=170, editable=False)
     due_date = models.DateTimeField(blank=True, null=True)
 
     # Smartling API-derived fields
@@ -168,6 +173,11 @@ class Job(SyncedModel):
         default=JobStatus.UNSYNCED,
         editable=False,
     )
+
+    # Our fields
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="jobs")
+    translations_imported_at = models.DateTimeField(null=True, editable=False)
 
     # NB - `file_uri`` isn't a field that the Smartling API returns. The
     # intended way to get this information is from the sourceFiles value in the
@@ -181,6 +191,7 @@ class Job(SyncedModel):
     #
     file_uri = models.CharField(max_length=255, blank=True, editable=False)
 
+
     base_form_class = JobForm
     panels = [FieldPanel("due_date")]
 
@@ -192,6 +203,7 @@ class Job(SyncedModel):
                         status=JobStatus.UNSYNCED,
                         first_synced_at__isnull=True,
                         last_synced_at__isnull=True,
+                        translation_job_uid="",
                     )
                     | (
                         ~models.Q(status=JobStatus.UNSYNCED)
@@ -199,6 +211,7 @@ class Job(SyncedModel):
                             first_synced_at__isnull=False,
                             last_synced_at__isnull=False,
                         )
+                        & ~models.Q(translation_job_uid="")
                     )
                 ),
                 name="status_consistent_with_sync_dates",
@@ -225,6 +238,19 @@ class Job(SyncedModel):
             f"{':'.join(sorted(t.target_locale.language_code for t in translations))}:"
             f"{timezone.now().isoformat(timespec='seconds')}"
         )
+
+    @staticmethod
+    def get_default_reference_number(
+        translation_source: TranslationSource,
+        translations: Iterable[Translation],
+    ) -> str:
+        """
+        Default reference number to use for the job in Smartling. This is just
+        the translation_key for the source object. Setting this lets us easily
+        look up all the Smartling jobs associated with a particular source
+        object.
+        """
+        return f"{translation_source.object.translation_key}"
 
     @staticmethod
     def get_default_description(
@@ -269,6 +295,8 @@ class Job(SyncedModel):
         TranslationSource.
         """
         # TODO make sure the source locale matches the Smartling project's language
+        # TODO lookup existing jobs
+        # TODO make sure existing job lookup only refers to current project
 
         job = Job.objects.create(
             project=Project.get_current(),
@@ -276,6 +304,9 @@ class Job(SyncedModel):
             user=user,
             name=cls.get_default_name(translation_source, translations),
             description=cls.get_default_description(translation_source, translations),
+            reference_number=cls.get_default_reference_number(
+                translation_source, translations
+            ),
             due_date=due_date,
         )
         job.translations.set(translations)
