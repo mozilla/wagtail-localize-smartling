@@ -10,34 +10,6 @@ from wagtail_localize_smartling import models as wls_models
 from testapp.factories import TranslationSourceFactory, UserFactory
 
 
-class ProjectFactory(factory.django.DjangoModelFactory):
-    class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
-        model = wls_models.Project
-
-    account_uid = factory.Faker("random_letters", length=16)
-    archived = False
-    project_id = factory.Faker("random_letters", length=16)
-    name = factory.Sequence(lambda n: f"Project {n}")
-    type_code = "APPLICATION_RESOURCES"
-    source_locale_description = factory.SelfAttribute("source_locale_id")
-    source_locale_id = "en-US"
-
-    @factory.post_generation
-    def target_locales(obj: wls_models.Project, create: bool, extracted: Any, **kwargs):  # pyright: ignore[reportGeneralTypeIssues]
-        if create and not extracted:
-            ProjectTargetLocaleFactory(project=obj, locale_id="de-DE")
-            ProjectTargetLocaleFactory(project=obj, locale_id="fr-FR")
-
-
-class ProjectTargetLocaleFactory(factory.django.DjangoModelFactory):
-    class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
-        model = wls_models.ProjectTargetLocale
-
-    project = factory.SubFactory(ProjectFactory)
-    description = factory.SelfAttribute("locale_id")
-    enabled = True
-
-
 class JobFactory(factory.django.DjangoModelFactory):
     """
     When calling this factory, you must pass in a source_instance kwarg that is
@@ -52,7 +24,7 @@ class JobFactory(factory.django.DjangoModelFactory):
     class Params:
         unsynced = factory.Trait(translation_job_uid="")
 
-    project = factory.SubFactory(ProjectFactory)
+    project = factory.LazyFunction(wls_models.Project.get_current)
 
     user = factory.SubFactory(UserFactory)
     translation_source = factory.SubFactory(
