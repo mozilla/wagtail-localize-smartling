@@ -45,6 +45,7 @@ dependencies = [
 ]
 [project.optional-dependencies]
 test = [
+    "beautifulsoup4==4.12.3",
     "coverage==7.5.1",
     "dj-database-url==2.1.0",
     "django-stubs",

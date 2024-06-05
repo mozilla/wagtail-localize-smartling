@@ -26,7 +26,6 @@ def smartling_edit_translation_message(context):
     inclusion_context["show_message"] = bool(jobs)
 
     # TODO handle multiple jobs
-    print(jobs)
     job = list(jobs)[-1]
 
     message = _(

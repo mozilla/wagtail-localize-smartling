@@ -9,6 +9,7 @@ https://docs.djangoproject.com/en/stable/ref/settings/
 """
 
 import os
+import sys
 
 import dj_database_url
 
@@ -200,8 +201,8 @@ LOGGING = {
 # Smartling settings
 
 WAGTAIL_LOCALIZE_SMARTLING = {
-    "PROJECT_ID": os.getenv("SMARTLING_PROJECT_ID", ""),
-    "USER_IDENTIFIER": os.getenv("SMARTLING_USER_IDENTIFIER", ""),
-    "USER_SECRET": os.getenv("SMARTLING_USER_SECRET", ""),
-    "REQUIRED": True,
+    "PROJECT_ID": os.getenv("SMARTLING_PROJECT_ID", "test-project-id"),
+    "USER_IDENTIFIER": os.getenv("SMARTLING_USER_IDENTIFIER", "test-user-identifier"),
+    "USER_SECRET": os.getenv("SMARTLING_USER_SECRET", "test-user-secret"),
+    "REQUIRED": os.getenv("SMARTLING_REQUIRED", "false").lower() == "true",
 }

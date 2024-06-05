@@ -53,18 +53,7 @@ def superuser():
 
 
 @pytest.fixture()
-def smartling_settings(settings, responses):
-    project_id = "dummy_smartling_project_id"
-    user_identifier = "dummy_smartling_user"
-    user_secret = "dummy_smartling_secret"  # noqa: S105
-
-    # Django settings
-    settings.WAGTAIL_LOCALIZE_SMARTLING = {
-        "PROJECT_ID": project_id,
-        "USER_IDENTIFIER": user_identifier,
-        "USER_SECRET": user_secret,
-    }
-
+def smartling_auth(responses):
     # Mock API response for authentication
     responses.post(
         "https://api.smartling.com/auth-api/v2/authenticate",
@@ -83,17 +72,16 @@ def smartling_settings(settings, responses):
             }
         ),
     )
+
     # Reset the API client so that the authenticate response gets consumed
     client.access_token = None
     client.refresh_token = None
 
-    return settings.WAGTAIL_LOCALIZE_SMARTLING
-
 
 @pytest.fixture()
-def smartling_project(responses, smartling_settings):
+def smartling_project(responses, settings, smartling_auth):
     # Mock API request for retreiving project details
-    project_id = smartling_settings["PROJECT_ID"]
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
     responses.get(
         f"https://api.smartling.com/projects-api/v2/projects/{quote(project_id)}?includeDisabledLocales=true",
         body=json.dumps(

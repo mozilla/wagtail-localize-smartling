@@ -7,7 +7,7 @@ from tests.factories import JobFactory
 
 
 @pytest.mark.django_db()
-def test_sync_smartling(smartling_settings):
+def test_sync_smartling():
     unsynced_job_page = InfoPageFactory()
     unsynced_job = JobFactory(source_instance=unsynced_job_page, unsynced=True)
 

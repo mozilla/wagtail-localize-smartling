@@ -42,6 +42,7 @@ class Project(SyncedModel):
     these, it's synced from the Smartling API based on the PROJECT_ID setting.
     """
 
+    environment = models.CharField(max_length=16)
     account_uid = models.CharField(max_length=16)
     archived = models.BooleanField()
     project_id = models.CharField(max_length=16)
@@ -53,7 +54,14 @@ class Project(SyncedModel):
     target_locales: Manager["ProjectTargetLocale"]
 
     class Meta(SyncedModel.Meta):
-        unique_together = ["account_uid", "project_id"]
+        unique_together = ["environment", "account_uid", "project_id"]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(environment="production")
+                | models.Q(environment="staging"),
+                name="project_environment",
+            )
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.project_id})"
@@ -72,11 +80,13 @@ class Project(SyncedModel):
 
         try:
             project = cls.objects.get(
+                environment=smartling_settings.ENVIRONMENT,
                 account_uid=project_details["accountUid"],
                 project_id=project_details["projectId"],
             )
         except Project.DoesNotExist:
             project = cls(
+                environment=smartling_settings.ENVIRONMENT,
                 account_uid=project_details["accountUid"],
                 project_id=project_details["projectId"],
                 first_synced_at=now,
@@ -104,9 +114,6 @@ class Project(SyncedModel):
             )
 
         project.target_locales.exclude(locale_id__in=seen_target_locale_ids).delete()
-
-        # TODO log an error if the locales in the project and
-        # WAGTAIL_CONTENT_LANGUAGES don't match
 
         logger.info("Synced project %s", project)
         return project
@@ -166,6 +173,7 @@ class Job(SyncedModel):
     due_date = models.DateTimeField(blank=True, null=True)
 
     # Smartling API-derived fields
+
     translation_job_uid = models.CharField(max_length=64, editable=False)
     status = models.CharField(
         max_length=32,
@@ -178,7 +186,6 @@ class Job(SyncedModel):
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="jobs")
     translations_imported_at = models.DateTimeField(null=True, editable=False)
-
     # NB - `file_uri`` isn't a field that the Smartling API returns. The
     # intended way to get this information is from the sourceFiles value in the
     # job details data or via the dedicated endpoint that lists file within a
@@ -294,6 +301,7 @@ class Job(SyncedModel):
         Jobs are only created if there's no pending or completed job for the provided
         TranslationSource.
         """
+        # TODO only submit locales that match Smartling target locales
         # TODO make sure the source locale matches the Smartling project's language
         # TODO lookup existing jobs
         # TODO make sure existing job lookup only refers to current project
@@ -319,5 +327,4 @@ class Job(SyncedModel):
 
         # If we get here we've got a proper background worker, so we can safely
         # enqueue the syncing of the job.
-        # TODO configurable retry policy
         background.enqueue(sync_job, args=(job.pk,), kwargs={})
