@@ -203,6 +203,7 @@ class Job(SyncedModel):
     panels = [FieldPanel("due_date")]
 
     class Meta(SyncedModel.Meta):
+        default_permissions = ("view",)
         constraints = [
             models.CheckConstraint(
                 check=(

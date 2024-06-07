@@ -2,7 +2,6 @@
 # - Target locale compatibility
 
 # Cases TODO:
-# - Golden path
 # - Auth error (no project)
 # - Incorrect project ID (no project)
 # - Suggested source locale is synced from another locale

@@ -99,6 +99,5 @@ def test_submitting_for_translation_with_no_existing_jobs_no_child_pages(
     assert job.due_date is None
 
 
-# TODO test REQUIRED or not
 # TODO test existing jobs in various states
 # TODO test child pages in various states of translation

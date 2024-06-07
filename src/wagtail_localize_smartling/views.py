@@ -6,9 +6,10 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import TemplateView
 from wagtail.admin.views.generic import WagtailAdminTemplateMixin
+from wagtail.admin.views.reports import ReportView
 from wagtail.models import Locale
 
-from .models import Project
+from .models import Job, Project
 from .utils import (
     format_smartling_project_url,
     get_wagtail_source_locale,
@@ -74,3 +75,13 @@ class SmartlingStatusView(WagtailAdminTemplateMixin, TemplateView):  # pyright: 
                 context["suggested_source_locale_exists"] = False
 
         return super().get_context_data(**context)
+
+
+class JobReportView(ReportView):
+    title = _("Smartling jobs")
+    template_name = "wagtail_localize_smartling/admin/job_report.html"
+
+    def get_queryset(self):
+        return Job.objects.select_related("translation_source").prefetch_related(
+            "translations__target_locale"
+        )
