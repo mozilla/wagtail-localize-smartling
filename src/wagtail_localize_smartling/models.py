@@ -43,11 +43,11 @@ class Project(SyncedModel):
     """
 
     environment = models.CharField(max_length=16)
-    account_uid = models.CharField(max_length=16)
+    account_uid = models.CharField(max_length=32)
     archived = models.BooleanField()
     project_id = models.CharField(max_length=16)
     name = models.CharField(max_length=255)
-    type_code = models.CharField(max_length=16)
+    type_code = models.CharField(max_length=32)
     source_locale_description = models.CharField(max_length=255)
     source_locale_id = models.CharField(max_length=16)
 
