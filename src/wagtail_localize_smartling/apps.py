@@ -6,3 +6,6 @@ class WagtailLocalizeSmartlingAppConfig(AppConfig):
     label = "wagtail_localize_smartling"
     name = "wagtail_localize_smartling"
     verbose_name = "Wagtail Localize Smartling"
+
+    def ready(self):
+        from . import checks, signals  # noqa: F401
