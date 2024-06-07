@@ -203,6 +203,5 @@ def _download_and_apply_translations(job: "Job") -> None:
                     sender=Job,
                     instance=job,
                     translation=translation,
-                    target_instance=translation.get_target_instance(),
                 )
                 logger.info("Imported translations for %s", translation)

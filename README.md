@@ -171,5 +171,5 @@ Signal kwargs:
 
 - `sender`: The `wagtail_localize_smartling.models.Job` class
 - `instance`: The `Job` instance for which translation are being imported
-- `translation`: The `wagtail_localize.models.Translation` instance the translations are being imported to
-- `target_instance`: The model instance that `translation` is for (i.e. the instance returned by `translation.get_target_instance()`)
+- `translation`: The `wagtail_localize.models.Translation` instance the translations are being imported to.
+  Use `translation.get_target_instance()` to get the model instance that the translation is for (e.g. a page or snippet)
