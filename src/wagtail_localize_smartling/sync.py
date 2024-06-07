@@ -198,4 +198,3 @@ def _download_and_apply_translations(job: "Job") -> None:
                 po_file = polib.pofile(f.read().decode("utf-8"))
                 translation.import_po(po_file)
                 logger.info("Imported translations for %s", translation)
-

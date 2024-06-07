@@ -2,7 +2,6 @@ import logging
 
 from typing import Any, Dict
 
-from django.http import HttpRequest, HttpResponse
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import TemplateView

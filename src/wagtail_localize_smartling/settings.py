@@ -50,9 +50,9 @@ def _init_settings() -> SmartlingSettings:
         settings_kwargs["REQUIRED"] = bool(settings_dict["REQUIRED"])
 
     if "ENVIRONMENT" in settings_dict:
-        if (
-            (environment := settings_dict["ENVIRONMENT"])
-            not in ("production", "staging")
+        if (environment := settings_dict["ENVIRONMENT"]) not in (
+            "production",
+            "staging",
         ):
             raise ImproperlyConfigured(
                 f"{setting_name}['ENVIRONMENT'] must be 'production' or 'staging'"

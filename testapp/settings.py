@@ -9,7 +9,6 @@ https://docs.djangoproject.com/en/stable/ref/settings/
 """
 
 import os
-import sys
 
 import dj_database_url
 

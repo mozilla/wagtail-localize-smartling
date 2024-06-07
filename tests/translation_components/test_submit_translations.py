@@ -28,11 +28,7 @@ from testapp.factories import InfoPageFactory
 )
 @pytest.mark.django_db()
 def test_submitting_for_translation_with_no_existing_jobs_no_child_pages(
-    client,
-    root_page,
-    superuser,
-    target_locales,
-    smartling_project
+    client, root_page, superuser, target_locales, smartling_project
 ):
     page = InfoPageFactory(parent=root_page, title="Component test page")
 

@@ -199,7 +199,6 @@ class Job(SyncedModel):
     #
     file_uri = models.CharField(max_length=255, blank=True, editable=False)
 
-
     base_form_class = JobForm
     panels = [FieldPanel("due_date")]
 

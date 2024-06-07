@@ -1,13 +1,12 @@
 from typing import TYPE_CHECKING, Optional, Tuple
 from urllib.parse import quote, urljoin
 
-from django.db import models
 from wagtail.coreutils import (
     get_content_languages,
     get_supported_content_language_variant,
 )
 from wagtail.models import Locale
-from wagtail_localize.models import LocaleSynchronization, get_edit_url
+from wagtail_localize.models import LocaleSynchronization
 
 from .api.types import JobStatus
 from .settings import settings as smartling_settings
@@ -103,8 +102,7 @@ def suggest_source_locale(project: "Project") -> Optional[Tuple[str, str]]:
 
     project = Project.get_current()
     try:
-        language_code = get_supported_content_language_variant(
-            project.source_locale_id)
+        language_code = get_supported_content_language_variant(project.source_locale_id)
     except LookupError:
         return None
 

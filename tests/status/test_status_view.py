@@ -36,8 +36,11 @@ def test_everything_working(client, superuser, smartling_project):
     # Project metadata
     assert f"Project ID {smartling_project.project_id}" in text
     assert f"Project name {smartling_project.name}" in text
-    assert f"Source locale {
-        smartling_project.source_locale_description}" in text
+    assert (
+        f"Source locale {
+        smartling_project.source_locale_description}"
+        in text
+    )
 
     # Source locale
     assert "The source locale is compatible with Smartling" in text
