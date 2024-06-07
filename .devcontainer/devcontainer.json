@@ -26,7 +26,12 @@
         "redhat.vscode-yaml",
         "tamasfe.even-better-toml",
         "the-compiler.python-tox"
-      ]
+      ],
+      "settings": {
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        }
+      }
     }
   }
 }

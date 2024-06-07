@@ -6,10 +6,12 @@ import polib
 
 from django.db import transaction
 from django.utils import timezone
+from wagtail_localize.models import Translation
 
 from . import utils
 from .api.client import client
 from .api.types import JobStatus
+from .signals import translation_imported
 
 
 if TYPE_CHECKING:
@@ -183,7 +185,7 @@ def _download_and_apply_translations(job: "Job") -> None:
                 )
 
             try:
-                translation = job.translations.get(
+                translation: Translation = job.translations.get(
                     target_locale__language_code=utils.format_wagtail_locale_id(
                         smartling_locale_id
                     )
@@ -197,4 +199,9 @@ def _download_and_apply_translations(job: "Job") -> None:
             with translations_zip.open(zipinfo) as f:
                 po_file = polib.pofile(f.read().decode("utf-8"))
                 translation.import_po(po_file)
+                translation_imported.send(
+                    sender=Job,
+                    instance=job,
+                    translation=translation,
+                )
                 logger.info("Imported translations for %s", translation)

@@ -162,9 +162,14 @@ flowchart LR
 
 ```
 
-
-
 ## Signals
 
-<!-- TODO -->
-- `translation_imported`
+This app provides a single `wagtail_localize.signals.translation_imported`
+signal that is sent when translation are imported from Smartling.
+
+Signal kwargs:
+
+- `sender`: The `wagtail_localize_smartling.models.Job` class
+- `instance`: The `Job` instance for which translation are being imported
+- `translation`: The `wagtail_localize.models.Translation` instance the translations are being imported to.
+  Use `translation.get_target_instance()` to get the model instance that the translation is for (e.g. a page or snippet)
