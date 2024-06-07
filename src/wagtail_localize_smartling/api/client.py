@@ -354,6 +354,7 @@ class SmartlingAPIClient:
         # then translated again), then the second job would contain no
         # strings because they're all part of the first job. You can't
         # authorize a job with no strings, so it'd be effectively stuck.
+        # TODO make this more unique, including page identifier
         file_uri = f"job_{job.pk}.po"
         self._request(
             method="POST",
@@ -402,7 +403,7 @@ class SmartlingAPIClient:
             params={
                 "fileUri": job.file_uri,
                 "retrievalType": "published",
-                "includeOriginalStrings": True,  # TODO make this configurable?
+                "includeOriginalStrings": False,
             },
             stream=True,
             timeout=smartling_settings.API_TIMEOUT_SECONDS,

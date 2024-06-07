@@ -18,7 +18,6 @@ class Command(BaseCommand):
     """
 
     def handle(self, *args, **kwargs) -> None:
-        # TODO how do we measure compatible countries/locales?
         project = Project.get_current()
 
         for job_id in Job.objects.exclude(

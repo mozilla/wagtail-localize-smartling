@@ -78,6 +78,8 @@ def get_wagtail_source_locale(project: "Project") -> Optional[Locale]:
 
     project = Project.get_current()
 
+    # TODO factor in LANGUAGE_CODE
+
     try:
         locale = Locale.objects.get_for_language(project.source_locale_id)  # pyright: ignore[reportAttributeAccessIssue]
     except Locale.DoesNotExist:

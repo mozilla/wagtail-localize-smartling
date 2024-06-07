@@ -160,6 +160,7 @@ class Job(SyncedModel):
         on_delete=models.CASCADE,
         related_name="smartling_jobs",
     )
+    # TODO record status of imported translations per `Translation`
     translations = models.ManyToManyField(
         Translation,
         related_name="smartling_jobs",

@@ -37,7 +37,7 @@ def smartling_edit_translation_message(context):
         buttons.append(
             admin_messages.button(
                 smartling_url,
-                "View Smartling job",
+                _("View job in Smartling"),
                 new_window=True,
             ),
         )

@@ -75,8 +75,3 @@ class SmartlingStatusView(WagtailAdminTemplateMixin, TemplateView):  # pyright: 
                 context["suggested_source_locale_exists"] = False
 
         return super().get_context_data(**context)
-
-
-def job_callback(request: HttpRequest) -> HttpResponse:
-    # TODO
-    pass
