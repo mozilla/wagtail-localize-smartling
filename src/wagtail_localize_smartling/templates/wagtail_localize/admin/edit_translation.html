@@ -1,0 +1,7 @@
+{% extends "wagtail_localize/admin/edit_translation.html" %}
+{% load wagtail_localize_smartling_admin_tags %}
+
+{% block content %}
+    {% smartling_edit_translation_message %}
+    {{ block.super }}
+{% endblock content %}

@@ -1,0 +1,43 @@
+{% extends 'wagtailadmin/reports/base_report.html' %}
+{% load i18n wagtailadmin_tags wagtail_localize_smartling_admin_tags %}
+
+{% block results %}
+  {% if object_list %}
+    <table class="listing">
+      <thead>
+        <tr>
+          <th>{% translate 'Source object' %}</th>
+          <th>{% translate 'Target locales' %}</th>
+          <th>{% translate 'Due date' %}</th>
+          <th>{% translate 'Status' %}</th>
+          <th>{% translate 'First synced at' %}</th>
+          <th>{% translate 'Last synced at' %}</th>
+          <th>{% translate 'Created by' %}</th>
+          <th>{% translate 'Smartling link' %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in object_list %}
+        <tr>
+          <td><a href="{{ job.translation_source.get_source_instance_edit_url }}" title="Job {{ job.name }}">{{ job.translation_source.get_source_instance }}</a></td>
+          <td>
+            <ul>
+                {% for tx in job.translations.all %}
+                  <li>{{ tx.target_locale.language_code }}</li>
+                {% endfor %}
+            </ul>
+          </td>
+          <td>{{ job.due_date|date:"SHORT_DATE_FORMAT" }}</td>
+          <td>{{ job.get_status_display }}</td>
+          <td>{{ job.first_synced_at|date:"SHORT_DATETIME_FORMAT" }}</td>
+          <td>{{ job.last_synced_at|date:"SHORT_DATETIME_FORMAT" }}</td>
+          <td>{% include "wagtailadmin/shared/user_avatar.html" with user=job.user %}</td>
+          <td>{% smartling_job_url job as sjurl %}<a href="{{ sjurl }}">{% translate "View in Smartling"%}</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>{% trans "No jobs found." %}</p>
+  {% endif %}
+{% endblock %}

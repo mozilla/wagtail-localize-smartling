@@ -1,0 +1,80 @@
+{% extends "wagtailadmin/generic/inspect.html" %}
+{% load wagtailadmin_tags i18n %}
+
+{% block main_content %}
+    <div class="w-mt-8">
+        {% translate "Project metadata" as metadata_heading %}
+        {% panel id="project-metadata" heading=metadata_heading %}
+            {% if project %}
+                {# Project metadata #}
+                <dl>
+                    <dt>{% translate "Project ID" %}</dt><dd>{{ project.project_id }}</dd>
+                    <dt>{% translate "Project name" %}</dt><dd>{{ project.name }}</dd>
+                    <dt>{% translate "Source locale" %}</dt><dd>{{ project.source_locale_description }}</dd>
+                    <dt>{% translate "Target locales" %}</dt><dd><ul>{% for tl in target_locales %}<li>{{ tl.description }}{% if not tl.enabled %} <i>(disabled}</i>{% endif %}</li>{% endfor %}</ul></dd>
+                </dl>
+                <p>
+                    <a href="{{ project_url }}" class="button button-secondary" target="_blank">
+                        {% translate "View project in Smartling" %}
+                    </a>
+            {% else %}
+                {# Error message if we can't get the project metadata for any reason #}
+                <div class="help-block help-critical">
+                    <svg class="icon icon-warning icon" aria-hidden="true"><use href="#icon-warning"></use></svg>
+                    {% blocktranslate %}
+                        <p>
+                            Could not load the Smartling project. Check your
+                            <code>WAGTAIL_LOCALIZE_SMARTLING</code> settings. The server's
+                            error logs may contain more information.
+                        </p>
+                        <p>Translations will not be submitted to Smartling until this is resolved.</p>
+                    {% endblocktranslate %}
+                </div>
+            {% endif %}
+        {% endpanel %}
+
+        {% if project %}
+            {% translate "Compatibility" as compatibility_heading %}
+            {% panel id="configuration" heading=compatibility_heading %}
+                <h2>Locales</h2>
+
+                <h3>Source locale</h3>
+                {% if wagtail_source_locale %}
+                    {# Information about the source locale #}
+                    <p>
+                        {% url "wagtaillocales:edit" pk=wagtail_source_locale.pk as locale_url %}
+                        {% blocktranslate with locale_url=locale_url wagtail_language_code=wagtail_source_locale.language_code smartling_language_code=project.source_locale_id %}
+                        The source locale is compatible with Smartling. The <a href="{{ locale_url }}">Wagtail <code>{{ wagtail_language_code }}</code> locale</a> will be mapped to the Smartling <code>{{ smartling_language_code }}</code> language.
+                        {% endblocktranslate %}
+                    </p>
+                {% else %}
+                    {# Error messages about source locale #}
+                    <div class="help-block help-critical">
+                        <svg class="icon icon-warning icon" aria-hidden="true"><use href="#icon-warning"></use></svg>
+                        {% blocktranslate with smartling_language_code=project.source_locale_id %}
+                            <p>
+                                The source locale is <strong>not</strong> compatible with the Smartling project's source locale (<code>{{ smartling_language_code }}</code>).
+                            </p>
+                            <p>Translations will not be submitted to Smartling until this is resolved.</p>
+                        {% endblocktranslate %}
+                        {% if suggested_source_locale %}
+                            {% if suggested_source_locale_exists %}
+                                {# Source locale exists, but is misconfigured #}
+                                <p>{% blocktranslate with url=suggested_source_locale.url label=suggested_source_locale.label %}The existing <a href="{{ url }}">{{ label }} locale</a> is suitable, but is currently set to sync from another locale.{% endblocktranslate%}</p>
+                            {% else %}
+                                {# Source locale doesn't exist, but can be created #}
+                                {% url "wagtaillocales:add" as add_locale_url %}
+                                <p>{% blocktranslate with url=add_locale_url label=suggested_source_locale.label %}<a href="{{ url }}">Create a new locale</a> with the {{ label }} language to resolve this.{% endblocktranslate%}</p>
+                            {% endif %}
+                        {% else %}
+                            {# Source locale doesn't exist, can't be created because it needs adding to WAGTAIL_CONTENT_LANGUAGES first #}
+                            <p>{% translate "No suitable language code was found in <code>WAGTAIL_CONTENT_LANGUAGES</code>."%}</p>
+                        {% endif %}
+                    </div>
+                {% endif %}
+
+                {# TODO target locales #}
+            {% endpanel %}
+        {% endif %}
+    </div>
+{% endblock main_content %}

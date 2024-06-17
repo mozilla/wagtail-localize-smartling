@@ -1,81 +1,175 @@
 # Wagtail Localize Smartling
 
-An extension for wagtail-localize that integrates with the Smartling translation platform.
 
-[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
+[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 [![PyPI version](https://badge.fury.io/py/wagtail-localize-smartling.svg)](https://badge.fury.io/py/wagtail-localize-smartling)
-[![Localize Smartling CI](https://github.com/bcdickinson/wagtail-localize-smartling/actions/workflows/test.yml/badge.svg)](https://github.com/bcdickinson/wagtail-localize-smartling/actions/workflows/test.yml)
+[![CI](https://github.com/mozilla/wagtail-localize-smartling/actions/workflows/test.yml/badge.svg)](https://github.com/mozilla/wagtail-localize-smartling/actions/workflows/test.yml)
+
+An extension for [Wagtail Localize](https://wagtail-localize.org/stable/) that
+integrates with the Smartling translation platform.
 
 ## Links
 
-- [Documentation](https://github.com/bcdickinson/wagtail-localize-smartling/blob/main/README.md)
-- [Changelog](https://github.com/bcdickinson/wagtail-localize-smartling/blob/main/CHANGELOG.md)
-- [Contributing](https://github.com/bcdickinson/wagtail-localize-smartling/blob/main/CONTRIBUTING.md)
-- [Discussions](https://github.com/bcdickinson/wagtail-localize-smartling/discussions)
-- [Security](https://github.com/bcdickinson/wagtail-localize-smartling/security)
+- [Documentation](https://github.com/mozilla/wagtail-localize-smartling/blob/main/README.md)
+- [Changelog](https://github.com/mozilla/wagtail-localize-smartling/blob/main/CHANGELOG.md)
+- [Contributing](https://github.com/mozilla/wagtail-localize-smartling/blob/main/CONTRIBUTING.md)
+- [Security](https://github.com/mozilla/wagtail-localize-smartling/security)
+- [Smartling API documentation](https://api-reference.smartling.com/)
 
 ## Supported versions
 
-- Python ...
-- Django ...
-- Wagtail ...
+- Python 3.8+
+- Django 4.2+
+- Wagtail 5.2+
 
 ## Installation
 
-- `python -m pip install wagtail-localize-smartling`
-- ...
+1. Install the package from PyPI:
 
-## Contributing
+    ```sh
+    python -m pip install wagtail-localize-smartling
+    ```
 
-### Install
+2.  Add `"wagtail_localize_smartling"` to `INSTALLED_APPS` in your Django
+    settings. Make sure it's before `"wagtail_localize"` and
+    `"wagtail_localize.locales"`:
 
-To make changes to this project, first clone this repository:
+    ```python
+    INSTALLED_APPS = [
+        ...
+        "wagtail_localize_smartling",
+        "wagtail_localize",
+        "wagtail_localize.locales",
+        ...
+    ]
+    ```
+
+3. Configure the plugin in your Django settings:
+
+   ```python
+    WAGTAIL_LOCALIZE_SMARTLING = {
+        # Required settings (get these from "Account settings" > "API" in the Smartling dashboard)
+        "PROJECT_ID": "<project_id>",
+        "USER_IDENTIFIER": "<user_identifier>",
+        "USER_SECRET": "<user_secret>",
+        # Optional settings and their default values
+        "REQUIRED": False,  # Set this to True to always send translations to Smartling
+        "ENVIRONMENT": "production",  # Set this to "staging" to use Smartling's staging API
+        "API_TIMEOUT_SECONDS": 5.0,  # Timeout in seconds for requests to the Smartling API
+    }
+    ```
+
+4. Run migrations:
+
+    ```sh
+    ./manage.py migrate
+    ```
+
+## Setup
+
+### Smartling project setup
+
+For the plugin to work with a Smartling project, the Django/Wagtail internationalization- and localization-related settings must be compatible with the project's language settings:
+
+- Only Wagtail content authored in the same language as the Smartling project's source language can be translated.
+- The language tags in [`WAGTAIL_CONTENT_LANGUAGES`](https://docs.wagtail.org/en/stable/reference/settings.html#wagtail-content-languages) must be exact, case-insensitive matches for the Smartling projects target locales. For example, if your Smartling project targets `fr-FR`, then you must have `"fr-fr"` in your `WAGTAIL_CONTENT_LANGUAGES`, not just `"fr"`.
+
+### Synchronization
+
+The plugin provides a `sync_smartling` management command that:
+
+- Creates jobs in Smartling for new content that's awaiting translation
+- Checks the status of pending translation jobs
+- Downloads and applies translations for completed jobs
+
+This command should be set to run periodically via `cron` or similiar:
 
 ```sh
-git clone https://github.com/bcdickinson/wagtail-localize-smartling.git
-cd wagtail-localize-smartling
+./manage.py sync_smartling
 ```
 
-With your preferred virtualenv activated, install testing dependencies:
+We recommend running this regularly, around once every 10 minutes.
 
-#### Using pip
+### Callbacks
 
-```sh
-python -m pip install --upgrade pip>=21.3
-python -m pip install -e '.[test]' -U
+As well as the `sync_smartling` management command, the plugin sets the `callbackUrl` field on the Smartling jobs it creates to the URL of webhook handler view. This handler will proactively download and apply translations from completed jobs without waiting for the next `sync_smartling` run. This URL is based on the `WAGTAILADMIN_BASE_URL` setting, so it's important that's set and accessible from the internet.
+
+> [!WARNING]
+> Callbacks should not be relied on as the only method for downloading translations. Always make sure the `sync_smartling` command is run regularly to ensure your translations are up-to-date.
+
+
+## Usage
+
+### Submitting new content for translation
+<!-- TODO -->
+
+### Updating translations
+<!-- TODO -->
+
+
+## How it works
+<!-- TODO -->
+
+
+## Workflow
+
+<!-- TODO make sure this is fleshed out properly -->
+
+### Submitting pages for Smartling translation
+
+```mermaid
+flowchart LR
+
+    submitPageForTranslation["Page submitted for translation in Wagtail"]
+    submitToSmartling{"
+        User choses to submit
+        translation job to Smartling?
+    "}
+    enterSmartlingJobConfig["User enters Smartling job config"]
+    pendingSmartlingJobCreated["A pending Smartling job is created in Wagtail"]
+    wagtailSyncedTranslationEditView["
+        User is redirected to Wagtail's
+        synced translation edit view
+    "]
+
+    submitPageForTranslation-->submitToSmartling
+    submitToSmartling-->|Yes|enterSmartlingJobConfig
+    enterSmartlingJobConfig-->pendingSmartlingJobCreated
+    pendingSmartlingJobCreated-->wagtailSyncedTranslationEditView
+    submitToSmartling-->|No|wagtailSyncedTranslationEditView
 ```
 
-#### Using flit
+### Smartling sync
 
-```sh
-python -m pip install flit
-flit install
+`django-admin sync_smartling`, the below flowchart describes the logic run for each job
+
+```mermaid
+flowchart LR
+
+    jobSentToSmartling{"Has the job been
+    sent to Smartling yet?"}
+    sendJobToSmartling["Send job to Smartling"]
+    jobFinished{"Is the job finalised?"}
+    updateJobFromSmartling["Update job from Smartling"]
+    fin["End"]
+
+    jobSentToSmartling-->|Yes|jobFinished
+    jobSentToSmartling-->|No|sendJobToSmartling
+    sendJobToSmartling-->fin
+    jobFinished-->|Yes|fin
+    jobFinished-->|No|updateJobFromSmartling
+
+
 ```
 
-### pre-commit
+## Signals
 
-Note that this project uses [pre-commit](https://github.com/pre-commit/pre-commit).
-It is included in the project testing requirements. To set up locally:
+This app provides a single `wagtail_localize.signals.translation_imported`
+signal that is sent when translation are imported from Smartling.
 
-```shell
-# go to the project directory
-$ cd wagtail-localize-smartling
-# initialize pre-commit
-$ pre-commit install
+Signal kwargs:
 
-# Optional, run all checks once for this, then the checks will run only on the changed files
-$ git ls-files --others --cached --exclude-standard | xargs pre-commit run --files
-```
-
-### How to run tests
-
-Now you can run tests as shown below:
-
-```sh
-tox
-```
-
-or, you can run them for a specific environment `tox -e python3.11-django4.2-wagtail5.1` or specific test
-`tox -e python3.11-django4.2-wagtail5.1-sqlite wagtail-localize-smartling.tests.test_file.TestClass.test_method`
-
-To run the test app interactively, use `tox -e interactive`, visit `http://127.0.0.1:8020/admin/` and log in with `admin`/`changeme`.
+- `sender`: The `wagtail_localize_smartling.models.Job` class
+- `instance`: The `Job` instance for which translation are being imported
+- `translation`: The `wagtail_localize.models.Translation` instance the translations are being imported to.
+  Use `translation.get_target_instance()` to get the model instance that the translation is for (e.g. a page or snippet)

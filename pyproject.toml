@@ -9,7 +9,7 @@ name = "wagtail-localize-smartling"
 authors = [
     { name = "Ben Dickinson", email = "ben.dickinson@torchbox.com" },
 ]
-description = "An extension for wagtail-localize that integrates with the Smartling translation platform."
+description = "An extension for wagtail-localize that integrates with the Smartling translation platform"
 readme = "README.md"
 license = { file = "LICENSE" }
 classifiers = [
@@ -39,47 +39,44 @@ dynamic = [
 dependencies = [
     "Django>=4.2",
     "Wagtail>=5.2",
-    "wagtail-localize>=1.0.0",
     "djangorestframework>=3",
     "requests",
+    "wagtail-localize>=1.0.0",
 ]
 [project.optional-dependencies]
 test = [
+    "beautifulsoup4==4.12.3",
     "coverage==7.5.1",
     "dj-database-url==2.1.0",
+    "django-stubs",
+    "djangorestframework-stubs",
     "pre-commit==3.4.0",
-    "pyright==1.1.361",
+    "pyright==1.1.365",
     "pytest-cov==5.0.0",
     "pytest-django==4.8.0",
+    "pytest-responses==0.5.1",
+    "pytest-xdist==3.6.1",
     "pytest==8.1.1",
+    "python-dotenv==1.0.1",
     "responses==0.25.0",
-    "ruff",
+    "ruff==0.4.5",
     "tox",
+    "tox-gh-actions",
+    "wagtail-factories==4.2.1"
 ]
 
 [project.urls]
-Home = "https://github.com/bcdickinson/wagtail-localize-smartling"
+Repository = "https://github.com/mozilla/wagtail-localize-smartling"
+Issues = "https://github.com/mozilla/wagtail-localize-smartling/issues"
+Changelog = "https://github.com/mozilla/wagtail-localize-smartling/blob/main/CHANGELOG.md"
 
 [tool.flit.module]
 name = "wagtail_localize_smartling"
 
-[tool.flit.sdist]
-exclude = [
-    "wagtail_localize_smartling/static_src",
-    "wagtail_localize_smartling/test",
-    "wagtail_localize_smartling/static/wagtail_localize_smartling/js/.gitignore",
-    "testmanage.py",
-    ".*",
-    "*.js",
-    "*.json",
-    "*.ini",
-    "*.yml",
-]
-
 [tool.pytest.ini_options]
 pythonpath = ['.']
 django_find_project = false
-DJANGO_SETTINGS_MODULE = "tests.testapp.settings"
+DJANGO_SETTINGS_MODULE = "testapp.settings"
 
 [tool.pyright]
 typeCheckingMode = "standard"
@@ -87,3 +84,49 @@ reportUnnecessaryTypeIgnoreComment = true
 # Make sure we're checking against the minimum supported Python version by
 # default. CI will check against all supported versions for us.
 pythonVersion = "3.8"
+
+
+[tool.ruff]
+extend-exclude = [
+    "LC_MESSAGES",
+    "locale",
+]
+
+[tool.ruff.lint]
+select = [
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "DJ",     # flake8-django
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "I",      # isort
+    "RUF100", # unused noqa
+    "S",      # flake8-bandit
+    "UP",     # pyupgrade
+    "W",      # warning
+]
+fixable = [
+    "C4",
+    "E",
+    "F",
+    "I",
+    "UP",
+]
+
+[tool.ruff.lint.isort]
+lines-after-imports = 2
+lines-between-types = 1
+
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",    # asserts allowed in tests
+    "ARG",     # unused function args (pytest fixtures)
+    "FBT",     # booleans as positional arguments (@pytest.mark.parametrize)
+    "PLR2004", # magic value used in comparison
+    "S311",    # standard pseudo-random generators are not suitable for cryptographic purposes
+]
+
+
+[tool.ruff.format]
+docstring-code-format = true

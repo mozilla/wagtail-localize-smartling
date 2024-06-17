@@ -1,0 +1,9 @@
+{% load wagtailadmin_tags %}
+
+{% if show_message %}
+    <div class="messages">
+        <ul>
+            <li class="warning">{% icon name="warning" classname="messages-icon" %}{{ message }}</li>
+        </ul>
+    </div>
+{% endif %}
