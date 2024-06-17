@@ -86,7 +86,7 @@ def get_users_for_filter(user):
     User = get_user_model()
     return User.objects.filter(
         pk__in=Job.objects.values_list("user", flat=True)
-    ).order_by(User.USERNAME_FIELD)
+    ).order_by(User.USERNAME_FIELD)  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class JobReportFilterSet(WagtailFilterSet):
