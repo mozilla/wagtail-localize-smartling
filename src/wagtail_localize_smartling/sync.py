@@ -11,6 +11,7 @@ from wagtail_localize.models import Translation
 from . import utils
 from .api.client import client
 from .api.types import JobStatus
+from .settings import settings as smartling_settings
 from .signals import translation_imported
 
 
@@ -90,6 +91,14 @@ def _initial_sync(job: "Job") -> None:
             "target_locale__language_code", flat=True
         )
     ]
+
+    # Apply any custom mapping defined in settings
+    if (locale_mapper_fn := smartling_settings.LOCALE_MAPPING_CALLBACK) is not None:
+        target_locale_ids = [
+            mapped_locale_id
+            for target_locale_id in target_locale_ids
+            if (mapped_locale_id := locale_mapper_fn(target_locale_id))
+        ]
 
     # TODO validate target_locale_ids against the Project's target locales
 
