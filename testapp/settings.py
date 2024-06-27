@@ -205,3 +205,9 @@ WAGTAIL_LOCALIZE_SMARTLING = {
     "USER_SECRET": os.getenv("SMARTLING_USER_SECRET", "test-user-secret"),
     "REQUIRED": os.getenv("SMARTLING_REQUIRED", "false").lower() == "true",
 }
+
+
+def map_project_locale_to_smartling(locale: str) -> str:
+    if locale == "fr":
+        return "fr-FR"
+    return locale
