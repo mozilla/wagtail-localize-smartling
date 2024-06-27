@@ -1,7 +1,7 @@
 import dataclasses
 import logging
 
-from typing import Callable, Literal, Optional, cast
+from typing import Literal, cast
 
 from django.conf import settings as django_settings
 from django.core.exceptions import ImproperlyConfigured
@@ -20,7 +20,12 @@ class SmartlingSettings:
     REQUIRED: bool = False
     ENVIRONMENT: Literal["production", "staging"] = "production"
     API_TIMEOUT_SECONDS: float = 5.0
-    LOCALE_MAPPING_CALLBACK: Optional[Callable[[str], str]] = None
+    LOCALE_TO_SMARTLING_LOCALE: "dict[str, str]" = dataclasses.field(
+        default_factory=dict
+    )
+    SMARTLING_LOCALE_TO_LOCALE: "dict[str, str]" = dataclasses.field(
+        default_factory=dict
+    )
 
 
 def _init_settings() -> SmartlingSettings:
@@ -76,12 +81,50 @@ def _init_settings() -> SmartlingSettings:
             )
         settings_kwargs["API_TIMEOUT_SECONDS"] = api_timeout_seconds
 
+    if (
+        "LOCALE_MAPPING_CALLBACK" in settings_dict
+        and "LOCALE_TO_SMARTLING_LOCALE" in settings_dict
+    ):
+        raise ImproperlyConfigured(
+            f"{setting_name} cannot have both LOCALE_MAPPING_CALLBACK "
+            f"and LOCALE_TO_SMARTLING_LOCALE"
+        )
+
     if "LOCALE_MAPPING_CALLBACK" in settings_dict:
         func_or_path = settings_dict["LOCALE_MAPPING_CALLBACK"]
         if isinstance(func_or_path, str):
             func_or_path = import_string(func_or_path)
 
-        settings_kwargs["LOCALE_MAPPING_CALLBACK"] = func_or_path
+        LOCALE_TO_SMARTLING_LOCALE: dict[str, str] = {}
+        SMARTLING_LOCALE_TO_LOCALE: dict[str, str] = {}
+
+        for locale_id, _locale in getattr(
+            django_settings, "WAGTAIL_CONTENT_LANGUAGES", []
+        ):
+            if mapped_locale_id := func_or_path(locale_id):
+                LOCALE_TO_SMARTLING_LOCALE[locale_id] = mapped_locale_id
+                SMARTLING_LOCALE_TO_LOCALE[mapped_locale_id] = locale_id
+
+        settings_kwargs["LOCALE_TO_SMARTLING_LOCALE"] = LOCALE_TO_SMARTLING_LOCALE
+        settings_kwargs["SMARTLING_LOCALE_TO_LOCALE"] = SMARTLING_LOCALE_TO_LOCALE
+
+    elif "LOCALE_TO_SMARTLING_LOCALE" in settings_dict:
+        if not isinstance(settings_dict["LOCALE_TO_SMARTLING_LOCALE"], dict):
+            raise ImproperlyConfigured(
+                f"{setting_name}['LOCALE_TO_SMARTLING_LOCALE'] must be a dictionary "
+                f"with the Wagtail locale id as key and the Smartling locale as value"
+            )
+        LOCALE_TO_SMARTLING_LOCALE = settings_dict["LOCALE_TO_SMARTLING_LOCALE"].copy()
+        for locale_id, _locale in getattr(
+            django_settings, "WAGTAIL_CONTENT_LANGUAGES", []
+        ):
+            if locale_id not in LOCALE_TO_SMARTLING_LOCALE:
+                LOCALE_TO_SMARTLING_LOCALE[locale_id] = locale_id
+
+        settings_kwargs["LOCALE_TO_SMARTLING_LOCALE"] = LOCALE_TO_SMARTLING_LOCALE
+        settings_kwargs["SMARTLING_LOCALE_TO_LOCALE"] = {
+            v: k for k, v in LOCALE_TO_SMARTLING_LOCALE.items()
+        }
 
     return SmartlingSettings(**settings_kwargs)
 

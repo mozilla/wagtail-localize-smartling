@@ -93,11 +93,12 @@ def _initial_sync(job: "Job") -> None:
     ]
 
     # Apply any custom mapping defined in settings
-    if (locale_mapper_fn := smartling_settings.LOCALE_MAPPING_CALLBACK) is not None:
+    if smartling_settings.LOCALE_TO_SMARTLING_LOCALE:
         target_locale_ids = [
-            mapped_locale_id
+            smartling_settings.LOCALE_TO_SMARTLING_LOCALE.get(
+                target_locale_id, target_locale_id
+            )
             for target_locale_id in target_locale_ids
-            if (mapped_locale_id := locale_mapper_fn(target_locale_id))
         ]
 
     # TODO validate target_locale_ids against the Project's target locales
@@ -193,15 +194,26 @@ def _download_and_apply_translations(job: "Job") -> None:
                     f"File URI mismatch: expected {job.file_uri}, got {file_uri}"
                 )
 
+            if (
+                mapped_locale_id := smartling_settings.SMARTLING_LOCALE_TO_LOCALE.get(
+                    smartling_locale_id
+                )
+            ) is None:
+                logger.error(
+                    "Cannot match Smartling locale %s to configured locales, skipping",
+                    smartling_locale_id,
+                )
+                continue
+
             try:
                 translation: Translation = job.translations.get(
                     target_locale__language_code=utils.format_wagtail_locale_id(
-                        smartling_locale_id
+                        mapped_locale_id
                     )
                 )
             except job.translations.model.DoesNotExist:
                 logger.error(
-                    "Translation not found for locale %s, skipping", smartling_locale_id
+                    "Translation not found for locale %s, skipping", mapped_locale_id
                 )
                 continue
 
