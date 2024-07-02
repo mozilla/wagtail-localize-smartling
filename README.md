@@ -59,6 +59,35 @@ integrates with the Smartling translation platform.
     }
     ```
 
+If your project locales do not match those in Smartling (e.g. `ro` in your project, `ro-RO` in Smartling),
+then you can provide a Wagtail locale id to Smartling locale id mapping via the `LOCALE_TO_SMARTLING_LOCALE` setting:
+
+```python
+WAGTAIL_LOCALIZE_SMARTLING = {
+    "LOCALE_TO_SMARTLING_LOCALE": {
+        "ro": "ro-RO"
+    }
+}
+```
+
+or you can specify a callable or a dotted path to a callable in the `LOCALE_MAPPING_CALLBACK` setting
+
+```python
+def map_project_locale_to_smartling(locale: str) -> str:
+    if locale == "ro":
+        return "ro-RO"
+    return locale
+
+
+WAGTAIL_LOCALIZE_SMARTLING = {
+    # ...
+    "LOCALE_MAPPING_CALLBACK": "settings.map_project_locale_to_smartling"
+}
+```
+
+The callback receives a `WAGTAIL_CONTENT_LANGUAGES` local code string and is expected to return
+a valid mapped locale id (or the original locale id).
+
 4. Run migrations:
 
     ```sh
