@@ -101,7 +101,8 @@ a valid mapped locale id (or the original locale id).
 For the plugin to work with a Smartling project, the Django/Wagtail internationalization- and localization-related settings must be compatible with the project's language settings:
 
 - Only Wagtail content authored in the same language as the Smartling project's source language can be translated.
-- The language tags in [`WAGTAIL_CONTENT_LANGUAGES`](https://docs.wagtail.org/en/stable/reference/settings.html#wagtail-content-languages) must be exact, case-insensitive matches for the Smartling projects target locales. For example, if your Smartling project targets `fr-FR`, then you must have `"fr-fr"` in your `WAGTAIL_CONTENT_LANGUAGES`, not just `"fr"`.
+- Ideally, the language tags in [`WAGTAIL_CONTENT_LANGUAGES`](https://docs.wagtail.org/en/stable/reference/settings.html#wagtail-content-languages) should be the exact, case-insensitive matches for the Smartling projects target locales. For example, if your Smartling project targets `fr-FR`, then you must have `"fr-fr"` in your `WAGTAIL_CONTENT_LANGUAGES`, not just `"fr"`.
+  However, if that is not possible, use the `LOCALE_TO_SMARTLING_LOCALE` or `LOCALE_MAPPING_CALLBACK` settings to map your Wagtail language codes to the Smartling language codes.
 
 ### Synchronization
 

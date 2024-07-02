@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2024-07-02
+
+### Added
+
+- Ability to map Wagtail [`WAGTAIL_CONTENT_LANGUAGES`](https://docs.wagtail.org/en/stable/reference/settings.html#wagtail-content-languages) locales to Smartling locales ([#6](https://github.com/mozilla/wagtail-localize-smartling/pull/6))
+
 ## [0.1.0] - 2024-06-17
 
 Initial minimum lovable version.
