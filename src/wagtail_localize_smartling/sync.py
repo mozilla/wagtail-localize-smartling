@@ -195,10 +195,15 @@ def _download_and_apply_translations(job: "Job") -> None:
                 )
 
             if (
-                mapped_locale_id := smartling_settings.SMARTLING_LOCALE_TO_LOCALE.get(
-                    smartling_locale_id
+                smartling_settings.SMARTLING_LOCALE_TO_LOCALE
+                and (
+                    mapped_locale_id
+                    := smartling_settings.SMARTLING_LOCALE_TO_LOCALE.get(
+                        smartling_locale_id
+                    )
                 )
-            ) is None:
+                is None
+            ):
                 logger.error(
                     "Cannot match Smartling locale %s to configured locales, skipping",
                     smartling_locale_id,
