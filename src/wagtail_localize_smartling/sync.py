@@ -209,6 +209,8 @@ def _download_and_apply_translations(job: "Job") -> None:
                     smartling_locale_id,
                 )
                 continue
+            else:
+                mapped_locale_id = smartling_locale_id
 
             try:
                 translation: Translation = job.translations.get(
