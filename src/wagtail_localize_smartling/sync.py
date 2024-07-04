@@ -228,7 +228,7 @@ def _download_and_apply_translations(job: "Job") -> None:
                 po_file = polib.pofile(f.read().decode("utf-8"))
                 translation.import_po(po_file)
                 translation_imported.send(
-                    sender=Job,
+                    sender=job.__class__,
                     instance=job,
                     translation=translation,
                 )
