@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2024-07-08
+
+### Changed
+
+- Bugfix to ensure sync.py does not not fail after successfully importing translation
+
 ## [0.2.2] - 2024-07-03
 
 ### Added
@@ -19,7 +25,6 @@ Initial minimum lovable version.
 
 <!-- TEMPLATE - keep below to copy for new releases -->
 <!--
-
 
 ## [x.y.z] - YYYY-MM-DD
 
