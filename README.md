@@ -203,10 +203,10 @@ Signal kwargs:
 ## Cutting a new release
 
 1. Bump the version in <https://github.com/mozilla/wagtail-localize-smartling/blob/main/src/wagtail_localize_smartling/__init__.py>
-2. Update CHANGELOG
+2. Update CHANGELOG.md
 3. Commit and land the changes in main (via a PR, or committing to main if you're _sure_ this won't cause clashes)
-4. Tag the release as `vX.Y.Z` on main. Remember to push up the new tag if you made it locally (`git push --tags`)
+4. Tag the release as `vX.Y.Z` on `main` – or make a tag via the GH UI in Step 6. (Remember to push up the new tag if you made it locally, with `git push --tags`)
 5. Add a new Release via <https://github.com/mozilla/wagtail-localize-smartling/releases>
-6. Select the new tag, add the title and description
+6. Select (or create) the new tag, add the title and description
 7. Ensure the new Release is marked as latest (see checkboxes below the Release description)
 8. Publish the new Release within GitHub - automation will take of the rest and push it up to PyPI
