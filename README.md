@@ -1,6 +1,5 @@
 # Wagtail Localize Smartling
 
-
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 [![PyPI version](https://badge.fury.io/py/wagtail-localize-smartling.svg)](https://badge.fury.io/py/wagtail-localize-smartling)
 [![CI](https://github.com/mozilla/wagtail-localize-smartling/actions/workflows/test.yml/badge.svg)](https://github.com/mozilla/wagtail-localize-smartling/actions/workflows/test.yml)
@@ -30,7 +29,7 @@ integrates with the Smartling translation platform.
     python -m pip install wagtail-localize-smartling
     ```
 
-2.  Add `"wagtail_localize_smartling"` to `INSTALLED_APPS` in your Django
+2. Add `"wagtail_localize_smartling"` to `INSTALLED_APPS` in your Django
     settings. Make sure it's before `"wagtail_localize"` and
     `"wagtail_localize.locales"`:
 
@@ -127,7 +126,6 @@ As well as the `sync_smartling` management command, the plugin sets the `callbac
 > [!WARNING]
 > Callbacks should not be relied on as the only method for downloading translations. Always make sure the `sync_smartling` command is run regularly to ensure your translations are up-to-date.
 
-
 ## Usage
 
 ### Submitting new content for translation
@@ -136,10 +134,8 @@ As well as the `sync_smartling` management command, the plugin sets the `callbac
 ### Updating translations
 <!-- TODO -->
 
-
 ## How it works
 <!-- TODO -->
-
 
 ## Workflow
 
@@ -203,3 +199,14 @@ Signal kwargs:
 - `instance`: The `Job` instance for which translation are being imported
 - `translation`: The `wagtail_localize.models.Translation` instance the translations are being imported to.
   Use `translation.get_target_instance()` to get the model instance that the translation is for (e.g. a page or snippet)
+
+## Cutting a new release
+
+1. Bump the version in <https://github.com/mozilla/wagtail-localize-smartling/blob/main/src/wagtail_localize_smartling/__init__.py>
+2. Update CHANGELOG.md
+3. Commit and land the changes in main (via a PR, or committing to main if you're _sure_ this won't cause clashes)
+4. Tag the release as `vX.Y.Z` on `main` – or make a tag via the GH UI in Step 6. (Remember to push up the new tag if you made it locally, with `git push --tags`)
+5. Add a new Release via <https://github.com/mozilla/wagtail-localize-smartling/releases>
+6. Select (or create) the new tag, add the title and description
+7. Ensure the new Release is marked as latest (see checkboxes below the Release description)
+8. Publish the new Release within GitHub - automation will take of the rest and push it up to PyPI
