@@ -4,8 +4,8 @@ from django import template
 from django.utils.translation import gettext as _
 from wagtail.admin import messages as admin_messages
 from wagtail_localize_smartling.models import Job
-
-from ..utils import format_smartling_job_url
+from wagtail_localize_smartling.sync import UNTRANSLATED_STATUSES
+from wagtail_localize_smartling.utils import format_smartling_job_url
 
 
 register = template.Library()
@@ -22,7 +22,7 @@ def smartling_edit_translation_message(context):
     }
 
     translation = context["translation"]
-    jobs = translation.smartling_jobs.all()
+    jobs = translation.smartling_jobs.exclude(status__in=UNTRANSLATED_STATUSES)
 
     jobs_exists = bool(jobs)
     inclusion_context["show_message"] = jobs_exists
