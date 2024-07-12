@@ -2,12 +2,13 @@
 
 ## Features
 
-- [ ] Django system checks
-- [ ] Signals
-- [ ] PyPI publishing from CI
+- [x] Django system checks
+- [x] Signals
+- [x] PyPI publishing from CI
 - [x] Indicate Smartling translation status on translation pages:
     - [x] Synced translation edit page (target)
-- [ ] Job listing and job details in Wagtail admin
+- [x] Job listing in Wagtail admin (Reports > Smartling jobs)
+  - [ ] and job details in Wagtail admin
 - [x] Runtime checks/warnings for compatibility of
       `Locale`s/`WAGTAIL_CONTENT_LANGUAGES`/`LANGUAGE_CODE` with the configured
       Smartling project. Dashboard/overview page to surface errors.
