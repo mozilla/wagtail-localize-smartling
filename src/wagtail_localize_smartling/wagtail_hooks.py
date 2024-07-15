@@ -21,6 +21,6 @@ def register_smartling_settings_menu_item():
     )
 
 
-@hooks.register("register_admin_viewset")
+@hooks.register("register_admin_viewset")  # pyright: ignore[reportOptionalCall]
 def register_viewset():
     return smartling_job_viewset

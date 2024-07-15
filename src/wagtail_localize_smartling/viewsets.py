@@ -101,25 +101,27 @@ class JobIndexView(generic.IndexView):
         ]
         return columns
 
-
-class JobViewSet(ModelViewSet):
-    model = Job
-    index_view_class = JobIndexView
-    permission_policy = JobPermissionPolicy(Job)
-    filterset_class = JobReportFilterSet
-    list_display = ("get_status_display", "", "last_synced_at", "user")
-    form_fields = ["status"]
-    icon = "wagtail-localize-language"
-    add_to_admin_menu = True
-    menu_label = _("Smartling jobs")
-    copy_view_enabled = False
-    inspect_view_enabled = True
-
     def get_queryset(self):
         queryset = super().get_queryset()
         return queryset.select_related("translation_source").prefetch_related(
             "translations__target_locale"
         )
+
+
+class JobViewSet(ModelViewSet):
+    model = Job
+    index_view_class = JobIndexView
+    filterset_class = JobReportFilterSet  # pyright: ignore[reportAssignmentType]
+    form_fields = ["status"]
+    icon = "wagtail-localize-language"
+    add_to_admin_menu = True
+    menu_label = _("Smartling jobs")  # pyright: ignore[reportAssignmentType]
+    copy_view_enabled = False
+    inspect_view_enabled = True
+
+    @property
+    def permission_policy(self):
+        return JobPermissionPolicy(self.model)
 
 
 smartling_job_viewset = JobViewSet("smartling-jobs")
