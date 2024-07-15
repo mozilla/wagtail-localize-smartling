@@ -4,6 +4,7 @@ from wagtail import hooks
 from wagtail.admin.menu import MenuItem
 
 from . import admin_urls
+from .viewsets import smartling_job_viewset
 
 
 @hooks.register("register_admin_urls")  # pyright: ignore[reportOptionalCall]
@@ -27,3 +28,8 @@ def register_report_menu_item():
         reverse("wagtail_localize_smartling:jobs_report"),
         icon_name="wagtail-localize-language",
     )
+
+
+@hooks.register("register_admin_viewset")
+def register_viewset():
+    return smartling_job_viewset
