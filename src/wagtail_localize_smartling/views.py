@@ -2,19 +2,13 @@ import logging
 
 from typing import Any, Dict
 
-import django_filters
-
-from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import TemplateView
-from wagtail.admin.filters import WagtailFilterSet
 from wagtail.admin.views.generic import WagtailAdminTemplateMixin
-from wagtail.admin.views.reports import ReportView
 from wagtail.models import Locale
 
-from .api.types import JobStatus
-from .models import Job, Project
+from .models import Project
 from .utils import (
     format_smartling_project_url,
     get_wagtail_source_locale,
@@ -80,34 +74,3 @@ class SmartlingStatusView(WagtailAdminTemplateMixin, TemplateView):  # pyright: 
                 context["suggested_source_locale_exists"] = False
 
         return super().get_context_data(**context)
-
-
-def get_users_for_filter(user):
-    User = get_user_model()
-    return User.objects.filter(
-        pk__in=Job.objects.values_list("user", flat=True)
-    ).order_by(User.USERNAME_FIELD)  # pyright: ignore[reportAttributeAccessIssue]
-
-
-class JobReportFilterSet(WagtailFilterSet):
-    status = django_filters.ChoiceFilter(choices=JobStatus.choices)
-    user = django_filters.ModelChoiceFilter(
-        label=_("User"),
-        field_name="user",
-        queryset=lambda request: get_users_for_filter(request.user),
-    )
-
-    class Meta:
-        model = Job
-        fields = ["status"]
-
-
-class JobReportView(ReportView):
-    title = _("Smartling jobs")
-    template_name = "wagtail_localize_smartling/admin/job_report.html"
-    filterset_class = JobReportFilterSet
-
-    def get_queryset(self):
-        return Job.objects.select_related("translation_source").prefetch_related(
-            "translations__target_locale"
-        )

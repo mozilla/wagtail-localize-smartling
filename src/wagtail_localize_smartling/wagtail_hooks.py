@@ -21,15 +21,6 @@ def register_smartling_settings_menu_item():
     )
 
 
-@hooks.register("register_reports_menu_item")  # pyright: ignore[reportOptionalCall]
-def register_report_menu_item():
-    return MenuItem(
-        _("Smartling jobs"),
-        reverse("wagtail_localize_smartling:jobs_report"),
-        icon_name="wagtail-localize-language",
-    )
-
-
 @hooks.register("register_admin_viewset")
 def register_viewset():
     return smartling_job_viewset
