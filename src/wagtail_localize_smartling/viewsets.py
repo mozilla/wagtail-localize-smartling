@@ -1,7 +1,9 @@
 import django_filters
 
 from django.contrib.auth import get_user_model
+from django.urls import reverse
 from django.utils.functional import cached_property
+from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.filters import WagtailFilterSet
 from wagtail.admin.ui.tables import Column, DateColumn, TitleColumn, UserColumn
@@ -11,6 +13,7 @@ from wagtail.permission_policies import ModelPermissionPolicy
 
 from .api.types import JobStatus
 from .models import Job
+from .templatetags.wagtail_localize_smartling_admin_tags import smartling_job_url
 
 
 def get_users_for_filter(user):
@@ -108,9 +111,85 @@ class JobIndexView(generic.IndexView):
         )
 
 
+class JobInspectView(generic.InspectView):
+    def get_fields(self):
+        return [
+            "translation_source",
+            "translations",
+            "user",
+            "reference_number",
+            "status",
+            "due_date",
+            "first_synced_at",
+            "last_synced_at",
+            "description",
+            "translations_imported_at",
+        ]
+
+    def get_breadcrumbs_items(self):
+        items = []
+        if self.index_url_name:
+            items.append(
+                {
+                    "url": reverse(self.index_url_name),
+                    "label": _("Smartling jobs"),
+                }
+            )
+        items.append(
+            {
+                "url": "",
+                "label": _("Inspect"),
+                "sublabel": self.object.reference_number,
+            }
+        )
+        return self.breadcrumbs_items + items
+
+    def get_field_display_value(self, field_name, field):
+        # allow customising field display in the inspect class
+        value_func = getattr(self, f"get_{field_name}_display_value", None)
+        if value_func is not None:
+            return value_func()
+
+        return super().get_field_display_value(field_name, field)
+
+    def get_reference_number_display_value(self):
+        if smartling_url := smartling_job_url(self.object):
+            return format_html(
+                '<a href="{}" title="Reference {}" target="_blank">{}</a>',
+                smartling_url,
+                self.object.reference_number,
+                _("View job in Smartling"),
+            )
+        return self.object.reference_number
+
+    def get_translation_source_display_value(self):
+        return format_html(
+            '<a href="{}">{}</a>',
+            self.object.translation_source.get_source_instance_edit_url(),
+            self.object.translation_source.get_source_instance(),
+        )
+
+    def get_translations_display_value(self):
+        content_html = format_html_join(
+            "\n",
+            '<li><a href="{}">{}</a> - {}</li>',
+            (
+                (
+                    translation.get_target_instance_edit_url(),
+                    str(translation.get_target_instance()),
+                    translation.target_locale.get_display_name(),
+                )
+                for translation in self.object.translations.all()
+            ),
+        )
+
+        return format_html("<ul>{}</ul>", content_html)
+
+
 class JobViewSet(ModelViewSet):
     model = Job
     index_view_class = JobIndexView
+    inspect_view_class = JobInspectView
     filterset_class = JobReportFilterSet  # pyright: ignore[reportAssignmentType]
     form_fields = ["status"]
     icon = "wagtail-localize-language"
