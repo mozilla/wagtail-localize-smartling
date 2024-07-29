@@ -69,7 +69,7 @@ WAGTAIL_LOCALIZE_SMARTLING = {
 }
 ```
 
-or you can specify a callable or a dotted path to a callable in the `LOCALE_MAPPING_CALLBACK` setting
+... or you can specify a callable or a dotted path to a callable in the `LOCALE_MAPPING_CALLBACK` setting:
 
 ```python
 def map_project_locale_to_smartling(locale: str) -> str:

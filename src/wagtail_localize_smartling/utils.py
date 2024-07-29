@@ -21,12 +21,20 @@ def format_smartling_locale_id(locale_id: str) -> str:
     Format a locale ID for the Smartling API. Wagtail/Django use lower case
     (e.g. "en-us") whereas Smartling uses lower case for the language code and
     upper case for the region, if any (e.g. "en-US").
+
+    Also, this applies any mapping defined by the LOCALE_MAPPING_CALLBACK or
+    LOCALE_TO_SMARTLING_LOCALE settings.
     """
+    # Apply any mapping defined in settings
+    locale_id = smartling_settings.LOCALE_TO_SMARTLING_LOCALE.get(locale_id, locale_id)
+
+    # Reformat to match Smartling's format/casing
     original_parts = locale_id.split("-")
     if len(original_parts) == 1:
         return original_parts[0].lower()
     elif len(original_parts) == 2:
         return f"{original_parts[0].lower()}-{original_parts[1].upper()}"
+
     raise ValueError("Invalid locale ID")
 
 
@@ -34,6 +42,9 @@ def format_wagtail_locale_id(locale_id: str) -> str:
     """
     The opposite of format_smartling_locale_id, return everything lower case.
     """
+    # Apply any mapping defined in settings
+    locale_id = smartling_settings.SMARTLING_LOCALE_TO_LOCALE.get(locale_id, locale_id)
+
     return locale_id.lower()
 
 

@@ -1,7 +1,7 @@
 import dataclasses
 import logging
 
-from typing import Literal, cast
+from typing import Callable, Literal, Optional, cast
 
 from django.conf import settings as django_settings
 from django.core.exceptions import ImproperlyConfigured

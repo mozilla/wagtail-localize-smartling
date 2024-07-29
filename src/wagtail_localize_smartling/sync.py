@@ -92,17 +92,6 @@ def _initial_sync(job: "Job") -> None:
         )
     ]
 
-    # Apply any custom mapping defined in settings
-    if smartling_settings.LOCALE_TO_SMARTLING_LOCALE:
-        target_locale_ids = [
-            smartling_settings.LOCALE_TO_SMARTLING_LOCALE.get(
-                target_locale_id, target_locale_id
-            )
-            for target_locale_id in target_locale_ids
-        ]
-
-    # TODO validate target_locale_ids against the Project's target locales
-
     job_data = client.create_job(
         job_name=job.name,
         target_locale_ids=target_locale_ids,
@@ -194,33 +183,14 @@ def _download_and_apply_translations(job: "Job") -> None:
                     f"File URI mismatch: expected {job.file_uri}, got {file_uri}"
                 )
 
-            if (
-                smartling_settings.SMARTLING_LOCALE_TO_LOCALE
-                and (
-                    mapped_locale_id
-                    := smartling_settings.SMARTLING_LOCALE_TO_LOCALE.get(
-                        smartling_locale_id
-                    )
-                )
-                is None
-            ):
-                logger.error(
-                    "Cannot match Smartling locale %s to configured locales, skipping",
-                    smartling_locale_id,
-                )
-                continue
-            else:
-                mapped_locale_id = smartling_locale_id
-
+            wagtail_locale_id = utils.format_wagtail_locale_id(smartling_locale_id)
             try:
                 translation: Translation = job.translations.get(
-                    target_locale__language_code=utils.format_wagtail_locale_id(
-                        mapped_locale_id
-                    )
+                    target_locale__language_code=wagtail_locale_id
                 )
             except job.translations.model.DoesNotExist:
                 logger.error(
-                    "Translation not found for locale %s, skipping", mapped_locale_id
+                    "Translation not found for locale %s, skipping", wagtail_locale_id
                 )
                 continue
 
