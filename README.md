@@ -58,31 +58,31 @@ integrates with the Smartling translation platform.
     }
     ```
 
-If your project locales do not match those in Smartling (e.g. `ro` in your project, `ro-RO` in Smartling),
-then you can provide a Wagtail locale id to Smartling locale id mapping via the `LOCALE_TO_SMARTLING_LOCALE` setting:
+    If your project locales do not match those in Smartling (e.g. `ro` in your project, `ro-RO` in Smartling),
+    then you can provide a Wagtail locale id to Smartling locale id mapping via the `LOCALE_TO_SMARTLING_LOCALE` setting:
 
-```python
-WAGTAIL_LOCALIZE_SMARTLING = {
-    "LOCALE_TO_SMARTLING_LOCALE": {
-        "ro": "ro-RO"
+    ```python
+    WAGTAIL_LOCALIZE_SMARTLING = {
+        "LOCALE_TO_SMARTLING_LOCALE": {
+            "ro": "ro-RO"
+        }
     }
-}
-```
+    ```
 
-... or you can specify a callable or a dotted path to a callable in the `LOCALE_MAPPING_CALLBACK` setting:
+    ... or you can specify a callable or a dotted path to a callable in the `LOCALE_MAPPING_CALLBACK` setting:
 
-```python
-def map_project_locale_to_smartling(locale: str) -> str:
-    if locale == "ro":
-        return "ro-RO"
-    return locale
+    ```python
+    def map_project_locale_to_smartling(locale: str) -> str:
+        if locale == "ro":
+            return "ro-RO"
+        return locale
 
 
-WAGTAIL_LOCALIZE_SMARTLING = {
-    # ...
-    "LOCALE_MAPPING_CALLBACK": "settings.map_project_locale_to_smartling"
-}
-```
+    WAGTAIL_LOCALIZE_SMARTLING = {
+        # ...
+        "LOCALE_MAPPING_CALLBACK": "settings.map_project_locale_to_smartling"
+    }
+    ```
 
     Note that by default, when syncing translations, the project will attempt to reformat a mixed-case, Smartling-style language code (e.g. `zh-CN`) into a core Django all-lowercase style (`zh-cn`). Depending on how lang codes are set up in your project, this behaviour may not be appropriate. You can disable it via the `REFORMAT_LANGUAGE_CODES` setting, which defaults to `True`:
 
