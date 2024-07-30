@@ -84,8 +84,17 @@ WAGTAIL_LOCALIZE_SMARTLING = {
 }
 ```
 
+    Note that by default, when syncing translations, the project will attempt to reformat a mixed-case, Smartling-style language code (e.g. `zh-CN`) into a core Django all-lowercase style (`zh-cn`). Depending on how lang codes are set up in your project, this behaviour may not be appropriate. You can disable it via the `REFORMAT_LANGUAGE_CODES` setting, which defaults to `True`:
+
+    ```python
+    WAGTAIL_LOCALIZE_SMARTLING = {
+        # ...
+        "REFORMAT_LANGUAGE_CODES": False
+    }
+
 The callback receives a `WAGTAIL_CONTENT_LANGUAGES` local code string and is expected to return
 a valid mapped locale id (or the original locale id).
+    ```
 
 4. Run migrations:
 

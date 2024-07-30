@@ -22,11 +22,16 @@ def format_smartling_locale_id(locale_id: str) -> str:
     (e.g. "en-us") whereas Smartling uses lower case for the language code and
     upper case for the region, if any (e.g. "en-US").
 
+    This behaviour is not applied if the REFORMAT_LANGUAGE_CODES setting is False
+
     Also, this applies any mapping defined by the LOCALE_MAPPING_CALLBACK or
     LOCALE_TO_SMARTLING_LOCALE settings.
     """
     # Apply any mapping defined in settings
     locale_id = smartling_settings.LOCALE_TO_SMARTLING_LOCALE.get(locale_id, locale_id)
+
+    if smartling_settings.REFORMAT_LANGUAGE_CODES is False:
+        return locale_id
 
     # Reformat to match Smartling's format/casing
     original_parts = locale_id.split("-")
@@ -41,9 +46,14 @@ def format_smartling_locale_id(locale_id: str) -> str:
 def format_wagtail_locale_id(locale_id: str) -> str:
     """
     The opposite of format_smartling_locale_id, return everything lower case.
+
+    This behaviour is not applied if the REFORMAT_LANGUAGE_CODES setting is False
     """
     # Apply any mapping defined in settings
     locale_id = smartling_settings.SMARTLING_LOCALE_TO_LOCALE.get(locale_id, locale_id)
+
+    if smartling_settings.REFORMAT_LANGUAGE_CODES is False:
+        return locale_id
 
     return locale_id.lower()
 
