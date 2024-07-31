@@ -36,7 +36,7 @@ class FileURIMismatch(SyncJobException):
 
 PENDING_STATUSES = (
     JobStatus.DRAFT,
-    JobStatus.AWAITING_AUTHORISATION,
+    JobStatus.AWAITING_AUTHORIZATION,
     JobStatus.IN_PROGRESS,
 )
 TRANSLATED_STATUSES = (JobStatus.COMPLETED, JobStatus.CLOSED)

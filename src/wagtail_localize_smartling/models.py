@@ -138,9 +138,9 @@ class ProjectTargetLocale(models.Model):
 
 @register_translation_component(
     required=smartling_settings.REQUIRED,
-    heading=_("Send translation to Smartling"),
-    enable_text=_("Send to Smartling"),
-    disable_text=_("Do not send to Smartling"),
+    heading=_("Mark translation for Smartling processing"),
+    enable_text=_("Click to mark for Smartling processing"),
+    disable_text=_("Click to skip Smartling processing"),
 )
 class Job(SyncedModel):
     """

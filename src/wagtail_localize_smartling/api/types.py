@@ -54,7 +54,7 @@ class ListJobsResponseData(TypedDict):
 class JobStatus(models.TextChoices):
     UNSYNCED = ("UNSYNCED", _("Unsynced"))
     DRAFT = ("DRAFT", _("Draft"))
-    AWAITING_AUTHORISATION = ("AWAITING_AUTHORIZATION", _("Awaiting authorization"))
+    AWAITING_AUTHORIZATION = ("AWAITING_AUTHORIZATION", _("Awaiting authorization"))
     IN_PROGRESS = ("IN_PROGRESS", _("In progress"))
     COMPLETED = ("COMPLETED", _("Completed"))
     CANCELLED = ("CANCELLED", _("Cancelled"))
