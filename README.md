@@ -19,7 +19,7 @@ integrates with the Smartling translation platform.
 
 - Python 3.8+
 - Django 4.2+
-- Wagtail 5.2+
+- Wagtail 6.1+
 
 ## Installation
 
