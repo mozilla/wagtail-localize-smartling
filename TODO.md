@@ -8,7 +8,7 @@
 - [x] Indicate Smartling translation status on translation pages:
     - [x] Synced translation edit page (target)
 - [x] Job listing in Wagtail admin (Reports > Smartling jobs)
-  - [ ] and job details in Wagtail admin
+  - [x] and job details in Wagtail admin
 - [x] Runtime checks/warnings for compatibility of
       `Locale`s/`WAGTAIL_CONTENT_LANGUAGES`/`LANGUAGE_CODE` with the configured
       Smartling project. Dashboard/overview page to surface errors.
