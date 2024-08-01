@@ -26,6 +26,7 @@ class SmartlingSettings:
     SMARTLING_LOCALE_TO_LOCALE: "dict[str, str]" = dataclasses.field(
         default_factory=dict
     )
+    REFORMAT_LANGUAGE_CODES: bool = True
 
 
 def _init_settings() -> SmartlingSettings:
@@ -125,6 +126,11 @@ def _init_settings() -> SmartlingSettings:
         settings_kwargs["SMARTLING_LOCALE_TO_LOCALE"] = {
             v: k for k, v in LOCALE_TO_SMARTLING_LOCALE.items()
         }
+
+    if "REFORMAT_LANGUAGE_CODES" in settings_dict:
+        settings_kwargs["REFORMAT_LANGUAGE_CODES"] = bool(
+            settings_dict["REFORMAT_LANGUAGE_CODES"]
+        )
 
     return SmartlingSettings(**settings_kwargs)
 
