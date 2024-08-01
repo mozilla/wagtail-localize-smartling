@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2024-08-01
+
+### Changed
+
+- The minimum required Wagtail version is now 6.1
+- Switched the Smartling Jobs report to use Wagtail's `ModelViewSet` ([#17](https://github.com/mozilla/wagtail-localize-smartling/pull/14) @zerolab)
+- Tidied up messaging for translations managed in Smartling
+- Improved the translation component language
+- Locale mapping is applied consistently ([#16](https://github.com/mozilla/wagtail-localize-smartling/pull/16) @bcdickinson)
+
+### Added
+
+- Added option to disable case change when converting from Smartling to project locale ([#17](https://github.com/mozilla/wagtail-localize-smartling/pull/18) @stevejalim)
+
 ## [0.2.3] - 2024-07-08
 
 ### Changed
