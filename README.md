@@ -58,8 +58,9 @@ integrates with the Smartling translation platform.
     }
     ```
 
-    If your project locales do not match those in Smartling (e.g. `ro` in your project, `ro-RO` in Smartling),
-    then you can provide a Wagtail locale id to Smartling locale id mapping via the `LOCALE_TO_SMARTLING_LOCALE` setting:
+    If your project's locales do not match those in Smartling (e.g. `ro` in your
+    project, `ro-RO` in Smartling), then you can provide a Wagtail locale ID to
+    Smartling locale ID mapping via the `LOCALE_TO_SMARTLING_LOCALE` setting:
 
     ```python
     WAGTAIL_LOCALIZE_SMARTLING = {
@@ -69,7 +70,8 @@ integrates with the Smartling translation platform.
     }
     ```
 
-    ... or you can specify a callable or a dotted path to a callable in the `LOCALE_MAPPING_CALLBACK` setting:
+    ... or you can specify a callable or a dotted path to a callable in the
+    `LOCALE_MAPPING_CALLBACK` setting:
 
     ```python
     def map_project_locale_to_smartling(locale: str) -> str:
@@ -84,7 +86,15 @@ integrates with the Smartling translation platform.
     }
     ```
 
-    Note that by default, when syncing translations, the project will attempt to reformat a mixed-case, Smartling-style language code (e.g. `zh-CN`) into a core Django all-lowercase style (`zh-cn`). Depending on how lang codes are set up in your project, this behaviour may not be appropriate. You can disable it via the `REFORMAT_LANGUAGE_CODES` setting, which defaults to `True`:
+    The callback receives a `WAGTAIL_CONTENT_LANGUAGES` local code string and is
+    expected to return a valid mapped locale ID (or the original locale ID).
+
+    Note that by default, when syncing translations the project will attempt to
+    reformat a mixed-case, Smartling-style language code (e.g. `zh-CN`) into a
+    Django-style all-lowercase code (e.g. `zh-cn`). Depending on how languade
+    codes are set up in your project, this behaviour may not be appropriate. You
+    can disable it by settings the `REFORMAT_LANGUAGE_CODES` setting to `False`
+    (the default is `True`):
 
     ```python
     WAGTAIL_LOCALIZE_SMARTLING = {
@@ -92,8 +102,6 @@ integrates with the Smartling translation platform.
         "REFORMAT_LANGUAGE_CODES": False
     }
 
-The callback receives a `WAGTAIL_CONTENT_LANGUAGES` local code string and is expected to return
-a valid mapped locale id (or the original locale id).
     ```
 
 4. Run migrations:
