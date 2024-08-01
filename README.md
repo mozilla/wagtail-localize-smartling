@@ -91,7 +91,7 @@ integrates with the Smartling translation platform.
 
     Note that by default, when syncing translations the project will attempt to
     reformat a mixed-case, Smartling-style language code (e.g. `zh-CN`) into a
-    Django-style all-lowercase code (e.g. `zh-cn`). Depending on how languade
+    Django-style all-lowercase code (e.g. `zh-cn`). Depending on how language
     codes are set up in your project, this behaviour may not be appropriate. You
     can disable it by settings the `REFORMAT_LANGUAGE_CODES` setting to `False`
     (the default is `True`):
