@@ -11,7 +11,6 @@ from wagtail_localize.models import Translation
 from . import utils
 from .api.client import client
 from .api.types import JobStatus
-from .settings import settings as smartling_settings
 from .signals import translation_imported
 
 

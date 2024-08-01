@@ -30,9 +30,6 @@ def format_smartling_locale_id(locale_id: str) -> str:
     # Apply any mapping defined in settings
     locale_id = smartling_settings.LOCALE_TO_SMARTLING_LOCALE.get(locale_id, locale_id)
 
-    if smartling_settings.REFORMAT_LANGUAGE_CODES is False:
-        return locale_id
-
     # Reformat to match Smartling's format/casing
     original_parts = locale_id.split("-")
     if len(original_parts) == 1:
@@ -52,7 +49,7 @@ def format_wagtail_locale_id(locale_id: str) -> str:
     # Apply any mapping defined in settings
     locale_id = smartling_settings.SMARTLING_LOCALE_TO_LOCALE.get(locale_id, locale_id)
 
-    if smartling_settings.REFORMAT_LANGUAGE_CODES is False:
+    if not smartling_settings.REFORMAT_LANGUAGE_CODES:
         return locale_id
 
     return locale_id.lower()

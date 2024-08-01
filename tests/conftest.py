@@ -1,6 +1,8 @@
+import dataclasses
 import json
 
 from pathlib import Path
+from typing import cast
 from urllib.parse import quote
 
 import pytest
@@ -117,3 +119,32 @@ def smartling_project(responses, settings, smartling_auth):
     # Reset Project.get_current() cache so the response always gets consumed
     Project.get_current.cache_clear()
     return Project.get_current()
+
+
+@pytest.fixture
+def smartling_settings():
+    """
+    Fixture that allows patching of the SmartlingSettings singleton object per test
+    """
+    from wagtail_localize_smartling import settings
+
+    # Unwrap the SimpleLazyObject to get the actual settings object
+    original_settings = cast(settings.SmartlingSettings, settings.settings._wrapped)  # pyright: ignore[reportAttributeAccessIssue]
+
+    # Create a mutable version of the settings object
+    settings_dict = dataclasses.asdict(original_settings)
+
+    class MutableSettings:
+        __slots__ = tuple(settings_dict.keys())
+
+    mutable_settings = MutableSettings()
+    for k, v in settings_dict.items():
+        setattr(mutable_settings, k, v)
+
+    # Patch the SimpleLazyObject to use the mutable settings
+    settings.settings._wrapped = mutable_settings  # pyright: ignore[reportAttributeAccessIssue]
+
+    yield mutable_settings
+
+    # Restore the original settings object
+    settings.settings._wrapped = original_settings  # pyright: ignore[reportAttributeAccessIssue]
