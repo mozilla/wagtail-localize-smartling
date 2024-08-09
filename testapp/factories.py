@@ -1,5 +1,3 @@
-from typing import Optional
-
 import factory
 import factory.django
 import wagtail_factories
@@ -59,7 +57,7 @@ class InfoPageFactory(wagtail_factories.PageFactory):
     def site(
         obj: InfoPage,  # pyright: ignore[reportGeneralTypeIssues]
         create: bool,
-        extracted: Optional[Site],
+        extracted: Site | None,
         **kwargs,
     ):
         """

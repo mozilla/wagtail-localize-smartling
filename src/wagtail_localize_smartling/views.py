@@ -1,6 +1,6 @@
 import logging
 
-from typing import Any, Dict
+from typing import Any
 
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -34,7 +34,7 @@ class SmartlingStatusView(WagtailAdminTemplateMixin, TemplateView):  # pyright: 
             logger.exception("Failed to get current Smartling project")
             project = None
 
-        context: Dict[str, Any] = {
+        context: dict[str, Any] = {
             "project": project,
         }
 
