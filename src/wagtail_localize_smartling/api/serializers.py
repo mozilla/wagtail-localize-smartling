@@ -1,6 +1,6 @@
-from datetime import timezone
+from datetime import UTC
 from functools import cached_property
-from typing import Any, ClassVar, Dict, List, Tuple, Type
+from typing import Any, ClassVar
 
 from rest_framework import serializers
 
@@ -48,7 +48,7 @@ class ResponseSerializerMetaclass(serializers.SerializerMetaclass):
         if any(isinstance(b, ResponseSerializerMetaclass) for b in bases):
             # This a ResponseSerializer subclass, so loop over attrs and strip
             # off any fields and nested serializers
-            data_serializer_fields: Dict[str, serializers.Field] = {}
+            data_serializer_fields: dict[str, serializers.Field] = {}
             for attr_name, attr in list(attrs.items()):
                 if isinstance(attr, serializers.Field):
                     data_serializer_fields[attr_name] = attrs.pop(attr_name)
@@ -111,7 +111,7 @@ class InnerResponseSerializer(serializers.Serializer):
     # Pyright a headache though.
     errors = ErrorSerializer(required=False, many=True)  # pyright: ignore[reportIncompatibleMethodOverride, reportAssignmentType]
 
-    def validate(self, attrs: Dict[str, Any]):
+    def validate(self, attrs: dict[str, Any]):
         if "data" in attrs and "errors" in attrs:
             raise serializers.ValidationError("data and errors cannot both be present")
         return attrs
@@ -123,14 +123,14 @@ class ResponseSerializer(
 ):
     # response = ...__InnerResponseSerializer() <- Created by ResponseSerializerMetaclass  # noqa: E501
 
-    _data_serializer_class: ClassVar[Type[serializers.Serializer]]
+    _data_serializer_class: ClassVar[type[serializers.Serializer]]
 
     @cached_property
-    def response_data(self) -> Dict[str, Any]:
+    def response_data(self) -> dict[str, Any]:
         return self.validated_data["response"]["data"]
 
     @cached_property
-    def response_errors(self) -> Tuple[str, List[types.SmartlingAPIErrorDict]]:
+    def response_errors(self) -> tuple[str, list[types.SmartlingAPIErrorDict]]:
         return (
             self.validated_data["response"]["code"],
             self.validated_data["response"]["errors"],
@@ -198,30 +198,30 @@ class CreateJobResponseSerializer(ResponseSerializer):
     callbackMethod = serializers.ChoiceField(choices=["GET", "POST"], allow_null=True)
     callbackUrl = serializers.URLField(allow_null=True)
     createdByUserUid = serializers.CharField()
-    createdDate = serializers.DateTimeField(default_timezone=timezone.utc)
+    createdDate = serializers.DateTimeField(default_timezone=UTC)
     description = serializers.CharField(allow_blank=True)
-    dueDate = serializers.DateTimeField(default_timezone=timezone.utc, allow_null=True)
+    dueDate = serializers.DateTimeField(default_timezone=UTC, allow_null=True)
     firstCompletedDate = serializers.DateTimeField(
-        default_timezone=timezone.utc,
+        default_timezone=UTC,
         allow_null=True,
     )
     firstAuthorizedDate = serializers.DateTimeField(
-        default_timezone=timezone.utc,
+        default_timezone=UTC,
         allow_null=True,
     )
     jobName = serializers.CharField()
     jobNumber = serializers.CharField(allow_null=True)
     jobStatus = serializers.ChoiceField(choices=types.JobStatus.values)
     lastCompletedDate = serializers.DateTimeField(
-        default_timezone=timezone.utc,
+        default_timezone=UTC,
         allow_null=True,
     )
     lastAuthorizedDate = serializers.DateTimeField(
-        default_timezone=timezone.utc,
+        default_timezone=UTC,
         allow_null=True,
     )
     modifiedByUserUid = serializers.CharField(allow_null=True)
-    modifiedDate = serializers.DateTimeField(default_timezone=timezone.utc)
+    modifiedDate = serializers.DateTimeField(default_timezone=UTC)
     targetLocaleIds = serializers.ListField(child=serializers.CharField())
     translationJobUid = serializers.CharField()
     referenceNumber = serializers.CharField(allow_null=True, allow_blank=True)

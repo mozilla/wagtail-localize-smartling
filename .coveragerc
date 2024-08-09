@@ -1,7 +1,8 @@
 [run]
 branch = True
+concurrency = multiprocessing, thread
 include = src/wagtail_localize_smartling/*
-omit = */migrations/*,*/tests/*
+omit = **/migrations/*,tests/*,testapp/*
 
 [paths]
 source =

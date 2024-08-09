@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, List, Literal, Optional, TypedDict
+from typing import Any, Literal, TypedDict
 
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -40,7 +40,7 @@ class GetProjectDetailsResponseData(TypedDict):
     projectTypeCode: str
     sourceLocaleDescription: str
     sourceLocaleId: str
-    targetLocales: List[TargetLocaleData]
+    targetLocales: list[TargetLocaleData]
 
 
 class ListJobsItem(TypedDict):
@@ -48,7 +48,7 @@ class ListJobsItem(TypedDict):
 
 
 class ListJobsResponseData(TypedDict):
-    items: List[ListJobsItem]
+    items: list[ListJobsItem]
 
 
 class JobStatus(models.TextChoices):
@@ -74,25 +74,25 @@ class IssuesCountData(TypedDict):
 
 
 class CreateJobResponseData(TypedDict):
-    callbackMethod: Optional[str]
-    callbackUrl: Optional[str]
+    callbackMethod: str | None
+    callbackUrl: str | None
     createdByUserUid: str
     createdDate: datetime
     description: str
-    dueDate: Optional[datetime]
-    firstCompletedDate: Optional[datetime]
-    firstAuthorizedDate: Optional[datetime]
+    dueDate: datetime | None
+    firstCompletedDate: datetime | None
+    firstAuthorizedDate: datetime | None
     jobName: str
-    jobNumber: Optional[str]
+    jobNumber: str | None
     jobStatus: JobStatus
-    lastCompletedDate: Optional[datetime]
-    lastAuthorizedDate: Optional[datetime]
-    modifiedByUserUid: Optional[str]
+    lastCompletedDate: datetime | None
+    lastAuthorizedDate: datetime | None
+    modifiedByUserUid: str | None
     modifiedDate: datetime
-    targetLocaleIds: List[str]
+    targetLocaleIds: list[str]
     translationJobUid: str
-    referenceNumber: Optional[str]
-    issues: Optional[IssuesCountData]
+    referenceNumber: str | None
+    issues: IssuesCountData | None
 
 
 class SourceFileData(TypedDict):
@@ -102,5 +102,5 @@ class SourceFileData(TypedDict):
 
 
 class GetJobDetailsResponseData(CreateJobResponseData):
-    priority: Optional[int]
-    sourceFiles: List[SourceFileData]
+    priority: int | None
+    sourceFiles: list[SourceFileData]

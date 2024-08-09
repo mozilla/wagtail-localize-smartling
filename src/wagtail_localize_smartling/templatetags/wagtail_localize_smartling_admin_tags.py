@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 
 from django import template
 from django.utils.translation import gettext as _
@@ -17,7 +17,7 @@ register = template.Library()
     takes_context=True,
 )
 def smartling_edit_translation_message(context):
-    inclusion_context: Dict[str, Any] = {
+    inclusion_context: dict[str, Any] = {
         "show_message": False,
     }
 

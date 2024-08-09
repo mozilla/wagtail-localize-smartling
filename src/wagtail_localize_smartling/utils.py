@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING
 from urllib.parse import quote, urljoin
 
 from wagtail.coreutils import (
@@ -82,7 +82,7 @@ def format_smartling_job_url(job: "Job") -> str:
 
 
 # TODO test
-def get_wagtail_source_locale(project: "Project") -> Optional[Locale]:
+def get_wagtail_source_locale(project: "Project") -> Locale | None:
     """
     Returns the Wagtail Locale that is compatible with the Smartling project's
     source locale if one exists, None otherwise.
@@ -108,7 +108,7 @@ def get_wagtail_source_locale(project: "Project") -> Optional[Locale]:
 
 
 # TODO test
-def suggest_source_locale(project: "Project") -> Optional[Tuple[str, str]]:
+def suggest_source_locale(project: "Project") -> tuple[str, str] | None:
     """
     Return a tuple of language code and label for a suggested Locale from
     WAGTAIL_CONTENT_LANGUAGES that would match the Smartling project's source
