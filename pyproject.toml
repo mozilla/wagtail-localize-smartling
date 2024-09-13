@@ -81,7 +81,7 @@ typeCheckingMode = "standard"
 reportUnnecessaryTypeIgnoreComment = true
 # Make sure we're checking against the minimum supported Python version by
 # default. CI will check against all supported versions for us.
-pythonVersion = "3.8"
+pythonVersion = "3.11"
 
 
 [tool.ruff]
