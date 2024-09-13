@@ -15,6 +15,7 @@ from wagtail_localize.models import (
     TranslationSource,
     get_edit_url,
 )
+
 from wagtail_localize_smartling.api.types import JobStatus
 from wagtail_localize_smartling.models import Job
 
