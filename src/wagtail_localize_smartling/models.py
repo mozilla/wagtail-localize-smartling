@@ -165,6 +165,7 @@ class Job(SyncedModel):
         Translation,
         related_name="smartling_jobs",
     )
+    content_hash = models.CharField(max_length=64, blank=True)
 
     # Smartling job config fields
 
