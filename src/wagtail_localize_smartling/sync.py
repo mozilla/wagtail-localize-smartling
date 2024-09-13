@@ -11,6 +11,7 @@ from wagtail_localize.models import Translation
 from . import utils
 from .api.client import client
 from .api.types import JobStatus
+from .constants import PENDING_STATUSES, TRANSLATED_STATUSES, UNTRANSLATED_STATUSES
 from .signals import translation_imported
 
 
@@ -31,16 +32,6 @@ class JobNotFound(SyncJobException):
 
 class FileURIMismatch(SyncJobException):
     pass
-
-
-PENDING_STATUSES = (
-    JobStatus.DRAFT,
-    JobStatus.AWAITING_AUTHORIZATION,
-    JobStatus.IN_PROGRESS,
-)
-TRANSLATED_STATUSES = (JobStatus.COMPLETED, JobStatus.CLOSED)
-UNTRANSLATED_STATUSES = (JobStatus.CANCELLED, JobStatus.DELETED)
-FINAL_STATUSES = (JobStatus.CLOSED, JobStatus.DELETED)
 
 
 @transaction.atomic(durable=True)
