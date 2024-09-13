@@ -19,9 +19,11 @@ from wagtail_localize.tasks import ImmediateBackend, background
 
 from .api.client import client
 from .api.types import JobStatus
+from .constants import PENDING_STATUSES
 from .forms import JobForm
 from .settings import settings as smartling_settings
 from .sync import sync_job
+from .utils import compute_content_hash
 
 
 logger = logging.getLogger(__name__)
@@ -308,8 +310,20 @@ class Job(SyncedModel):
         # TODO lookup existing jobs
         # TODO make sure existing job lookup only refers to current project
 
+        project = Project.get_current()
+        content_hash = compute_content_hash(translation_source.export_po())
+
+        # Check whether we have any pending jobs for the same translation source content
+        if Job.objects.filter(
+            project=project,
+            translation_source=translation_source,
+            content_hash=content_hash,
+            status__in=PENDING_STATUSES,
+        ).exists():
+            return
+
         job = Job.objects.create(
-            project=Project.get_current(),
+            project=project,
             translation_source=translation_source,
             user=user,
             name=cls.get_default_name(translation_source, translations),
@@ -318,6 +332,7 @@ class Job(SyncedModel):
                 translation_source, translations
             ),
             due_date=due_date,
+            content_hash=content_hash,
         )
         job.translations.set(translations)
 
