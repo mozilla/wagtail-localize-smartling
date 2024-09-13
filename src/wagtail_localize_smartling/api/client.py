@@ -2,6 +2,7 @@ import logging
 import pprint
 import textwrap
 
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from functools import cached_property
@@ -9,12 +10,7 @@ from io import BytesIO
 from typing import (
     TYPE_CHECKING,
     Any,
-    Dict,
-    Generator,
-    List,
     Literal,
-    Optional,
-    Type,
     TypeVar,
     cast,
 )
@@ -73,7 +69,7 @@ class FailedResponse(SmartlingAPIError):
     unsuccessful for some reason.
     """
 
-    def __init__(self, *, code: str, errors: List[types.SmartlingAPIErrorDict]):
+    def __init__(self, *, code: str, errors: list[types.SmartlingAPIErrorDict]):
         self.code = code
         self.errors = errors
 
@@ -98,8 +94,8 @@ RD = TypeVar("RD", bound=dict)
 class SmartlingAPIClient:
     def __init__(self):
         self.token_type: str = "Bearer"
-        self.access_token: Optional[str] = None
-        self.refresh_token: Optional[str] = None
+        self.access_token: str | None = None
+        self.refresh_token: str | None = None
 
         # Set expiry times in the past, initially
         a_day_ago = timezone.now() - timedelta(days=1)
@@ -109,7 +105,7 @@ class SmartlingAPIClient:
     # Utilities
 
     @property
-    def _headers(self) -> Dict[str, str]:
+    def _headers(self) -> dict[str, str]:
         now = timezone.now()
         if self.access_token is None or (self.access_token_expires_at <= now):
             if self.refresh_token is not None and self.refresh_token_expires_at > now:
@@ -201,10 +197,10 @@ class SmartlingAPIClient:
         *,
         method: Literal["GET", "POST"],
         path: str,
-        response_serializer_class: Type[ResponseSerializer],
+        response_serializer_class: type[ResponseSerializer],
         send_headers: bool = True,
         **kwargs,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         url = urljoin(self._base_url, path)
         headers = self._headers if send_headers else {}
 
@@ -272,7 +268,7 @@ class SmartlingAPIClient:
             ),
         )
 
-    def list_jobs(self, *, name: Optional[str] = None) -> types.ListJobsResponseData:
+    def list_jobs(self, *, name: str | None = None) -> types.ListJobsResponseData:
         params = {}
         if name is not None:
             params["jobName"] = name
@@ -290,19 +286,19 @@ class SmartlingAPIClient:
         self,
         *,
         job_name: str,
-        target_locale_ids: Optional[List[str]] = None,
-        description: Optional[str] = None,
-        reference_number: Optional[str] = None,
-        due_date: Optional[datetime] = None,
-        callback_url: Optional[str] = None,
-        callback_method: Optional[Literal["GET", "POST"]] = None,
+        target_locale_ids: list[str] | None = None,
+        description: str | None = None,
+        reference_number: str | None = None,
+        due_date: datetime | None = None,
+        callback_url: str | None = None,
+        callback_method: Literal["GET", "POST"] | None = None,
     ) -> types.CreateJobResponseData:
         if (callback_url is None) != (callback_method is None):
             raise ValueError(
                 "Both callback_url and callback_method must be provided, or neither"
             )
 
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "jobName": job_name,
         }
         if target_locale_ids is not None:
@@ -373,7 +369,7 @@ class SmartlingAPIClient:
     def add_file_to_job(self, *, job: "Job"):
         # TODO handle 202 responses for files that get added asynchronously
 
-        body: Dict[str, Any] = {
+        body: dict[str, Any] = {
             "fileUri": job.file_uri,
             "targetLocaleIds": [
                 utils.format_smartling_locale_id(t.target_locale.language_code)

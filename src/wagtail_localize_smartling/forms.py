@@ -1,4 +1,4 @@
-from typing import Any, Dict, cast
+from typing import Any, cast
 
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.forms import WagtailAdminModelForm
@@ -18,8 +18,8 @@ class JobForm(WagtailAdminModelForm):
         )
         self.user = user
 
-    def clean(self) -> Dict[str, Any]:
-        data = cast(Dict[str, Any], super().clean())
+    def clean(self) -> dict[str, Any]:
+        data = cast(dict[str, Any], super().clean())
         data["user"] = self.user
         return data
 

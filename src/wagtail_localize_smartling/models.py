@@ -1,8 +1,8 @@
 import logging
 
+from collections.abc import Iterable
 from datetime import datetime
 from functools import lru_cache
-from typing import Iterable, Optional, Set
 from urllib.parse import urljoin
 
 from django.conf import settings
@@ -101,7 +101,7 @@ class Project(SyncedModel):
         project.last_synced_at = now
         project.save()
 
-        seen_target_locale_ids: Set[str] = set()
+        seen_target_locale_ids: set[str] = set()
         for target_locale_data in project_details["targetLocales"]:
             seen_target_locale_ids.add(target_locale_data["localeId"])
             ProjectTargetLocale.objects.update_or_create(
@@ -292,7 +292,7 @@ class Job(SyncedModel):
         translations: Iterable[Translation],
         *,
         user: AbstractBaseUser,
-        due_date: Optional[datetime],
+        due_date: datetime | None,
     ) -> None:
         """
         This is the main entrypoint for creating Jobs. Jobs created here are in
