@@ -124,6 +124,7 @@ class JobInspectView(generic.InspectView):
             "last_synced_at",
             "description",
             "translations_imported_at",
+            "content_hash",
         ]
 
     def get_breadcrumbs_items(self):
