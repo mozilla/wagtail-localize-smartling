@@ -3,6 +3,7 @@ from typing import Any
 from django import template
 from django.utils.translation import gettext as _
 from wagtail.admin import messages as admin_messages
+
 from wagtail_localize_smartling.models import Job
 from wagtail_localize_smartling.sync import UNTRANSLATED_STATUSES
 from wagtail_localize_smartling.utils import format_smartling_job_url

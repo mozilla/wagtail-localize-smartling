@@ -2,6 +2,7 @@ import pytest
 
 from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
+
 from wagtail_localize_smartling.settings import _init_settings
 
 

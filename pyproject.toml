@@ -57,7 +57,7 @@ test = [
     "pytest==8.3.2",
     "python-dotenv==1.0.1",
     "responses==0.25.0",
-    "ruff==0.5.7",
+    "ruff==0.6.4",  # keep in sync with pre-commit.yaml
     "tox",
     "tox-gh-actions",
     "wagtail-factories==4.2.1"
@@ -81,7 +81,7 @@ typeCheckingMode = "standard"
 reportUnnecessaryTypeIgnoreComment = true
 # Make sure we're checking against the minimum supported Python version by
 # default. CI will check against all supported versions for us.
-pythonVersion = "3.8"
+pythonVersion = "3.11"
 
 
 [tool.ruff]
@@ -114,6 +114,7 @@ fixable = [
 [tool.ruff.lint.isort]
 lines-after-imports = 2
 lines-between-types = 1
+known-local-folder = ["src", "tests", "testapp"]
 
 
 [tool.ruff.lint.per-file-ignores]

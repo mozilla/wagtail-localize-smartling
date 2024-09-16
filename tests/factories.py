@@ -5,6 +5,7 @@ import factory.django
 
 from wagtail.models import Locale
 from wagtail_localize.models import Translation
+
 from wagtail_localize_smartling import models as wls_models
 
 from testapp.factories import TranslationSourceFactory, UserFactory

@@ -10,6 +10,7 @@ import pytest
 from wagtail.coreutils import get_supported_content_language_variant
 from wagtail.models import Locale, Page
 from wagtail_localize.models import LocaleSynchronization
+
 from wagtail_localize_smartling.api.client import client
 from wagtail_localize_smartling.api.types import (
     AuthenticateResponseData,
