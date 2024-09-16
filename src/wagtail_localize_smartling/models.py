@@ -19,7 +19,7 @@ from wagtail_localize.tasks import ImmediateBackend, background
 
 from .api.client import client
 from .api.types import JobStatus
-from .constants import PENDING_STATUSES
+from .constants import UNSYNCED_OR_PENDING_STATUSES
 from .forms import JobForm
 from .settings import settings as smartling_settings
 from .sync import sync_job
@@ -318,7 +318,7 @@ class Job(SyncedModel):
             project=project,
             translation_source=translation_source,
             content_hash=content_hash,
-            status__in=PENDING_STATUSES,
+            status__in=UNSYNCED_OR_PENDING_STATUSES,
         ).exists():
             return
 
