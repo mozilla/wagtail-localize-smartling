@@ -87,12 +87,12 @@ class SmartlingStatusView(WagtailAdminTemplateMixin, TemplateView):  # pyright: 
         return super().get_context_data(**context)
 
 
-class SmartlingRetryJobView(  # pyright: ignore[reportIncompatibleMethodOverride]
+class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverride]
     PermissionCheckedMixin, WagtailAdminTemplateMixin, TemplateView
 ):
     _show_breadcrumbs = True
-    page_title = _("Retry Smartling job")
-    template_name = "wagtail_localize_smartling/admin/retry_job.html"
+    page_title = _("Resubmit to Smartling")
+    template_name = "wagtail_localize_smartling/admin/resubmit_job.html"
     header_icon = "wagtail-localize-language"
     object: Job
     permission_policy = ModelPermissionPolicy(Job)
@@ -103,7 +103,7 @@ class SmartlingRetryJobView(  # pyright: ignore[reportIncompatibleMethodOverride
         # TODO: link to the report view
         return super().get_breadcrumbs_items() + [
             {"url": self.jobs_report_url, "label": _("Smartling jobs")},
-            {"url": "", "label": _("Retry job")},
+            {"url": "", "label": self.page_title},
         ]
 
     def get_object(self):
@@ -139,7 +139,7 @@ class SmartlingRetryJobView(  # pyright: ignore[reportIncompatibleMethodOverride
 
     @property
     def confirmation_message(self):
-        return _("Are you sure you want to retry this job?")
+        return _("Are you sure you want to resubmit this job?")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
