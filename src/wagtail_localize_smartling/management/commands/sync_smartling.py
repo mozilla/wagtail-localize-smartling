@@ -2,8 +2,9 @@ import logging
 
 from django.core.management import BaseCommand
 
+from wagtail_localize_smartling.constants import FINAL_STATUSES
 from wagtail_localize_smartling.models import Job, Project
-from wagtail_localize_smartling.sync import FINAL_STATUSES, SyncJobException, sync_job
+from wagtail_localize_smartling.sync import SyncJobException, sync_job
 
 
 logger = logging.getLogger(__name__)

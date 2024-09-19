@@ -1,3 +1,5 @@
+import hashlib
+
 from typing import TYPE_CHECKING
 from urllib.parse import quote, urljoin
 
@@ -13,6 +15,8 @@ from .settings import settings as smartling_settings
 
 
 if TYPE_CHECKING:
+    from polib import POFile
+
     from .models import Job, Project
 
 
@@ -125,3 +129,15 @@ def suggest_source_locale(project: "Project") -> tuple[str, str] | None:
 
     content_languages = get_content_languages()
     return (language_code, content_languages[language_code])
+
+
+def compute_content_hash(pofile: "POFile") -> str:
+    """
+    Generates a hash from a generated PO file. We use this to reliably
+    check the translation source content before creating a Smartling Job
+    """
+    strings = []
+    for entry in pofile:
+        strings.append(f"{entry.msgctxt}: {entry.msgid}")
+
+    return hashlib.sha256("".join(strings).encode()).hexdigest()
