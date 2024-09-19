@@ -4,12 +4,20 @@ from wagtail import hooks
 from wagtail.admin.menu import MenuItem
 
 from . import admin_urls
+from .views import SmartlingRetryJobView
 from .viewsets import smartling_job_viewset
 
 
 @hooks.register("register_admin_urls")  # pyright: ignore[reportOptionalCall]
 def register_admin_urls():
-    return [path("smartling/", include(admin_urls))]
+    return [
+        path("smartling/", include(admin_urls)),
+        path(
+            "smartling-jobs/retry/<int:job_id>/",
+            SmartlingRetryJobView.as_view(),
+            name="wagtail_localize_smartling_retry_job",
+        ),
+    ]
 
 
 @hooks.register("register_settings_menu_item")  # pyright: ignore[reportOptionalCall]
