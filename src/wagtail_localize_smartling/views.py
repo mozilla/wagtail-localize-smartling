@@ -115,6 +115,18 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
         if self.object.status not in UNTRANSLATED_STATUSES:
             return permission_denied(request)
 
+        # Check that the given Job is the latest. We can use any of its translations
+        translation = self.object.translations.first()
+        if translation is None:
+            # should cover the case where the translation was converted back to an alias
+            return permission_denied(request)
+
+        # Jobs are ordered by `first_synced_at`, with null values coming at the top
+        # then pk descending.
+        latest_job = translation.smartling_jobs.values_list("pk", flat=True)[0]  # pyright: ignore[reportAttributeAccessIssue]
+        if latest_job != self.object.pk:
+            return permission_denied(request)
+
         self.jobs_report_url = reverse("wagtail_localize_smartling_jobs:index")
         return super().dispatch(request, *args, **kwargs)
 
