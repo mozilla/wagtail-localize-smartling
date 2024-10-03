@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 import pytest
 
+from django.contrib.auth.models import Permission
 from wagtail.coreutils import get_supported_content_language_variant
 from wagtail.models import Locale, Page
 from wagtail_localize.models import LocaleSynchronization
@@ -53,6 +54,25 @@ def root_page():
 @pytest.fixture()
 def superuser():
     return UserFactory(is_superuser=True)
+
+
+@pytest.fixture()
+def regular_user():
+    user = UserFactory(is_superuser=False)
+    user.user_permissions.add(Permission.objects.get(codename="access_admin"))
+    return user
+
+
+@pytest.fixture()
+def smartling_reporter():
+    user = UserFactory(is_superuser=False)
+    user.user_permissions.add(Permission.objects.get(codename="access_admin"))
+    user.user_permissions.add(
+        Permission.objects.get(
+            content_type__app_label="wagtail_localize_smartling", codename="view_job"
+        )
+    )
+    return user
 
 
 @pytest.fixture()

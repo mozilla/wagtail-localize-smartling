@@ -24,10 +24,10 @@
 
 ### `wagtail-localize-smartling` issues
 
-- [ ] Duplicate jobs get created under some circumstances:
+- [x] Duplicate jobs get created under some circumstances:
     - submitting parent pages including subtree when child pages are already translated
     - translating a page, converting it back to an alias, submitting it for translation again
-- [ ] It's possible for multiple Smartling jobs to end up with identical content
+- [x] It's possible for multiple Smartling jobs to end up with identical content
       if translations are submitted/updated more than once in between runs of
       `sync_smartling`. This seems to be OK for a single target language. Is it OK for
 multiple target languages?

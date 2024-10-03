@@ -96,7 +96,7 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
     header_icon = "wagtail-localize-language"
     object: Job
     permission_policy = ModelPermissionPolicy(Job)
-    any_permission_required = ["add", "change", "delete", "view"]
+    permission_required = "view"
     jobs_report_url: str = ""
 
     def get_breadcrumbs_items(self):
@@ -111,7 +111,6 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
 
     def dispatch(self, request, *args, **kwargs):
         self.object = self.get_object()
-        # TODO: check this is the latest for the source
         if self.object.status not in UNTRANSLATED_STATUSES:
             return permission_denied(request)
 
