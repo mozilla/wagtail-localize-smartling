@@ -104,19 +104,29 @@ def test_submitting_for_translation_with_no_existing_jobs_no_child_pages(
     assert job.due_date is None
 
 
+MESSAGE_MANAGED = (
+    "This translation is managed by Smartling. Changes made here will be "
+    "lost the next time translations are imported from Smartling. "
+    "Job status: STATUS_PLACEHOLDER"
+)
+MESSAGE_RESUBMIT = (
+    "The latest Smartling job for this translation was STATUS_PLACEHOLDER_LOWER"
+)
+
+
 @pytest.mark.parametrize(
-    "status,show_message",
+    "status,message",
     [
-        (JobStatus.UNSYNCED, True),
-        (JobStatus.AWAITING_AUTHORIZATION, True),
-        (JobStatus.IN_PROGRESS, True),
-        (JobStatus.COMPLETED, True),
-        (JobStatus.CANCELLED, False),
-        (JobStatus.DELETED, False),
+        (JobStatus.UNSYNCED, MESSAGE_MANAGED),
+        (JobStatus.AWAITING_AUTHORIZATION, MESSAGE_MANAGED),
+        (JobStatus.IN_PROGRESS, MESSAGE_MANAGED),
+        (JobStatus.COMPLETED, MESSAGE_MANAGED),
+        (JobStatus.CANCELLED, MESSAGE_RESUBMIT),
+        (JobStatus.DELETED, MESSAGE_RESUBMIT),
     ],
 )
 def test_managed_by_message_on_translation(
-    client, root_page, superuser, smartling_project, status, show_message
+    client, root_page, superuser, smartling_project, status, message
 ):
     client.force_login(superuser)
 
@@ -175,15 +185,11 @@ def test_managed_by_message_on_translation(
     job.save(update_fields=update_fields)
 
     response = client.get(redirect_url)
-    expected = (
-        "This translation is managed by Smartling. Changes made here will be "
-        "lost the next time translations are imported from Smartling. "
-        f"Job status: {job.get_status_display()}"  # pyright: ignore[reportAttributeAccessIssue]
-    )
-    if show_message:
-        assert expected in response.content.decode("utf-8")
-    else:
-        assert expected not in response.content.decode("utf-8")
+    status_display = job.get_status_display()  # pyright: ignore[reportAttributeAccessIssue]
+    expected_message = message.replace(
+        "STATUS_PLACEHOLDER_LOWER", status_display.lower()
+    ).replace("STATUS_PLACEHOLDER", status_display)
+    assert expected_message in response.content.decode("utf-8")
 
 
 # TODO test existing jobs in various states

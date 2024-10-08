@@ -203,5 +203,9 @@ class JobViewSet(ModelViewSet):
     def permission_policy(self):
         return JobPermissionPolicy(self.model)
 
+    @cached_property
+    def url_namespace(self):  # # pyright: ignore[reportIncompatibleVariableOverride]
+        return "wagtail_localize_smartling_jobs"
+
 
 smartling_job_viewset = JobViewSet("smartling-jobs")

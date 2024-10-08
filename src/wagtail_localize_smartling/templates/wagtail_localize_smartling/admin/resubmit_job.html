@@ -1,0 +1,16 @@
+{% extends "wagtailadmin/generic/base.html" %}
+{% load i18n %}
+
+{% block main_content %}
+    <div class="w-mt-6">
+        <p>
+            {{ view.confirmation_message }}
+            {% if view_url %}{{ view_url }}{% endif %}
+        </p>
+        <form method="POST">
+            {% csrf_token %}
+            <button type="submit" class="button">{% trans 'Yes, resubmit' %}</button>
+            <a href="{{ view.get_success_url }}" class="button button-secondary">{% trans "No, don't resubmit" %}</a>
+        </form>
+    </div>
+{% endblock %}
