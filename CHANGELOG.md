@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2024-08-01
+
+### Changed
+
+- Small CI fixes (#24) - @zerolab
+- Tooling updates (Python, Django, Wagtail versions), and coverage summary (#21) - @zerolab
+
+### Added
+
+- Support resubmit cancelled/deleted jobs (#29) - @zerolab
+- Support unique jobs/job IDs (#27) - @zerolab
+
 ## [0.3.0] - 2024-08-01
 
 ### Changed
