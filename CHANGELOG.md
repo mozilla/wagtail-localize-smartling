@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.4.0] - 2024-08-01
+## [0.5.0] - 2024-10-22
+
+### Added
+
+- Adds Job description callback (#32) - @zerolab
+
+## [0.4.0] - 2024-10-14
 
 ### Changed
 
