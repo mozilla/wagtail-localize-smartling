@@ -1,55 +1,19 @@
 import pytest
 
 from django.urls import reverse
-from django.utils import timezone
 from pytest_django.asserts import assertRedirects
-from wagtail.models import Locale
-from wagtail_localize.models import Translation, TranslationSource
 
 from wagtail_localize_smartling.api.types import JobStatus
 from wagtail_localize_smartling.models import Job
 from wagtail_localize_smartling.templatetags.wagtail_localize_smartling_admin_tags import (  # noqa: E501
     smartling_job_url,
 )
-from wagtail_localize_smartling.utils import compute_content_hash
-
-from testapp.factories import InfoPageFactory
 
 
 pytestmark = pytest.mark.django_db
 
 
 WAGTAIL_ADMIN_HOME = reverse("wagtailadmin_home")
-
-
-@pytest.fixture
-def smartling_job(smartling_project, superuser, root_page):
-    page = InfoPageFactory(parent=root_page, title="Component test page")
-    translation_source, created = TranslationSource.get_or_create_from_instance(page)
-    page_translation = Translation.objects.create(
-        source=translation_source,
-        target_locale=Locale.objects.get(language_code="fr"),
-    )
-
-    now = timezone.now()
-    job = Job.objects.create(
-        project=smartling_project,
-        translation_source=translation_source,
-        user=superuser,
-        name=Job.get_default_name(translation_source, [page_translation]),
-        description=Job.get_default_description(translation_source, [page_translation]),
-        reference_number=Job.get_default_reference_number(
-            translation_source, [page_translation]
-        ),
-        content_hash=compute_content_hash(translation_source.export_po()),
-        first_synced_at=now,
-        last_synced_at=now,
-        status=JobStatus.DRAFT,
-        translation_job_uid="job_to_be_cancelled",
-    )
-    job.translations.set([page_translation])
-
-    return job
 
 
 @pytest.fixture

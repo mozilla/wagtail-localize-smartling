@@ -1,13 +1,17 @@
 import dataclasses
 import logging
 
-from typing import Literal, cast
+from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING, Literal, cast
 
 from django.conf import settings as django_settings
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.functional import SimpleLazyObject
 from django.utils.module_loading import import_string
 
+
+if TYPE_CHECKING:
+    from wagtail_localize.models import Translation, TranslationSource
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +31,9 @@ class SmartlingSettings:
         default_factory=dict
     )
     REFORMAT_LANGUAGE_CODES: bool = True
+    JOB_DESCRIPTION_CALLBACK: (
+        Callable[[str, "TranslationSource", Iterable["Translation"]], str] | None
+    ) = None
 
 
 def _init_settings() -> SmartlingSettings:
@@ -131,6 +138,14 @@ def _init_settings() -> SmartlingSettings:
         settings_kwargs["REFORMAT_LANGUAGE_CODES"] = bool(
             settings_dict["REFORMAT_LANGUAGE_CODES"]
         )
+
+    if "JOB_DESCRIPTION_CALLBACK" in settings_dict:
+        func_or_path = settings_dict["JOB_DESCRIPTION_CALLBACK"]
+        if isinstance(func_or_path, str):
+            func_or_path = import_string(func_or_path)
+
+        if callable(func_or_path):
+            settings_kwargs["JOB_DESCRIPTION_CALLBACK"] = func_or_path
 
     return SmartlingSettings(**settings_kwargs)
 

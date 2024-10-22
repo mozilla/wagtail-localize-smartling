@@ -264,7 +264,7 @@ class Job(SyncedModel):
         return f"{translation_source.object.translation_key}"
 
     @staticmethod
-    def get_default_description(
+    def get_description(
         translation_source: TranslationSource,
         translations: Iterable[Translation],
     ) -> str:
@@ -272,6 +272,10 @@ class Job(SyncedModel):
         Default description to use for the job in Smartling. This is
         human-readable and contains a link to the edit view for the translatable
         model.
+
+        If the JOB_DESCRIPTION_CALLBACK setting is set to a function or importable
+        string, it will be called with the default description, the translation source
+        and the target translations. It is expected to return a string.
         """
         source_instance = translation_source.get_source_instance()
         ct_name = type(source_instance)._meta.verbose_name
@@ -286,6 +290,10 @@ class Job(SyncedModel):
             f'"{source_instance}". '
             f"The source content can be edited here: {edit_url}"
         )
+
+        if callback_fn := smartling_settings.JOB_DESCRIPTION_CALLBACK:
+            description = callback_fn(description, source_instance, translations)
+
         return description
 
     @classmethod
@@ -327,7 +335,7 @@ class Job(SyncedModel):
             translation_source=translation_source,
             user=user,
             name=cls.get_default_name(translation_source, translations),
-            description=cls.get_default_description(translation_source, translations),
+            description=cls.get_description(translation_source, translations),
             reference_number=cls.get_default_reference_number(
                 translation_source, translations
             ),
