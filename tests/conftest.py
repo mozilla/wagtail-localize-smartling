@@ -2,7 +2,7 @@ import dataclasses
 import json
 
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from urllib.parse import quote
 
 import pytest
@@ -21,6 +21,10 @@ from wagtail_localize_smartling.api.types import (
 from wagtail_localize_smartling.models import Project
 
 from testapp.factories import UserFactory
+
+
+if TYPE_CHECKING:
+    from wagtail_localize_smartling.models import Job
 
 
 @pytest.fixture(autouse=True)
@@ -169,3 +173,44 @@ def smartling_settings():
 
     # Restore the original settings object
     settings.settings._wrapped = original_settings  # pyright: ignore[reportAttributeAccessIssue]
+
+
+@pytest.fixture
+def smartling_job(smartling_project, superuser, root_page) -> "Job":
+    from django.utils import timezone
+    from wagtail.models import Locale
+    from wagtail_localize.models import Translation, TranslationSource
+
+    from wagtail_localize_smartling.api.types import JobStatus
+    from wagtail_localize_smartling.models import Job
+    from wagtail_localize_smartling.utils import compute_content_hash
+
+    from testapp.factories import InfoPageFactory
+
+    # setup
+    page = InfoPageFactory(parent=root_page, title="Component test page")
+    translation_source, created = TranslationSource.get_or_create_from_instance(page)
+    page_translation = Translation.objects.create(
+        source=translation_source,
+        target_locale=Locale.objects.get(language_code="fr"),
+    )
+
+    now = timezone.now()
+    job = Job.objects.create(
+        project=smartling_project,
+        translation_source=translation_source,
+        user=superuser,
+        name=Job.get_default_name(translation_source, [page_translation]),
+        description=Job.get_description(translation_source, [page_translation]),
+        reference_number=Job.get_default_reference_number(
+            translation_source, [page_translation]
+        ),
+        content_hash=compute_content_hash(translation_source.export_po()),
+        first_synced_at=now,
+        last_synced_at=now,
+        status=JobStatus.DRAFT,
+        translation_job_uid="job_to_be_cancelled",
+    )
+    job.translations.set([page_translation])
+
+    return job

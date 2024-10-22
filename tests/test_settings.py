@@ -28,6 +28,7 @@ def test_settings():
     assert smartling_settings.REQUIRED is True
     assert smartling_settings.ENVIRONMENT == "staging"
     assert smartling_settings.API_TIMEOUT_SECONDS == 10.0
+    assert smartling_settings.JOB_DESCRIPTION_CALLBACK is None
 
 
 @override_settings(
@@ -118,3 +119,27 @@ def test_locale_map_dict():
         "fr": "fr",
         "ro-RO": "ro",
     }
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "JOB_DESCRIPTION_CALLBACK": "testapp.settings.job_description_callback",
+    }
+)
+def test_job_description_callback():
+    smartling_settings = _init_settings()
+    fn = smartling_settings.JOB_DESCRIPTION_CALLBACK
+    assert callable(fn)
+    assert fn.__name__ == "job_description_callback"
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "JOB_DESCRIPTION_CALLBACK": 123,
+    }
+)
+def test_invalid_job_description_callback_signature():
+    smartling_settings = _init_settings()
+    assert smartling_settings.JOB_DESCRIPTION_CALLBACK is None

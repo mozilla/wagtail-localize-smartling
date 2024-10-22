@@ -86,7 +86,7 @@ integrates with the Smartling translation platform.
     }
     ```
 
-    The callback receives a `WAGTAIL_CONTENT_LANGUAGES` local code string and is
+    The callback receives a `WAGTAIL_CONTENT_LANGUAGES` locale code string and is
     expected to return a valid mapped locale ID (or the original locale ID).
 
     Note that by default, when syncing translations the project will attempt to
@@ -103,6 +103,25 @@ integrates with the Smartling translation platform.
     }
 
     ```
+
+    If you need to customize the default Job description, you can specify a callable or a dotted path to a callable in
+    the `JOB_DESCRIPTION_CALLBACK` setting:
+
+    ```python
+    from typing import Iterable
+    from wagtail_localize.models import Translation, TranslationSource
+
+    def enhance_job_description(
+        description: str,
+        translation_source: TranslationSource,
+        translations: Iterable[Translation]
+   ) -> str:
+        # note: to get the source instance, use translation_source.get_source_instance()
+        return description + " my text."
+    ```
+
+    The callback receives the default description string, the job `TranslationSource` instance, and the list of
+    target `Translation`s. It expected to return string.
 
 4. Run migrations:
 
