@@ -215,3 +215,7 @@ def map_project_locale_to_smartling(locale: str) -> str:
 
 def job_description_callback(description: str, translation_source, translations) -> str:
     return "1337"
+
+
+def visual_context_callback(job_id: int) -> tuple[str, str]:
+    return "https://example.com/path/to/page/", "<html><body>test</body></html>"

@@ -34,6 +34,7 @@ class SmartlingSettings:
     JOB_DESCRIPTION_CALLBACK: (
         Callable[[str, "TranslationSource", Iterable["Translation"]], str] | None
     ) = None
+    VISUAL_CONTEXT_CALLBACK: Callable[[int], tuple[str, str]] | None = None
 
 
 def _init_settings() -> SmartlingSettings:
@@ -146,6 +147,14 @@ def _init_settings() -> SmartlingSettings:
 
         if callable(func_or_path):
             settings_kwargs["JOB_DESCRIPTION_CALLBACK"] = func_or_path
+
+    if "VISUAL_CONTEXT_CALLBACK" in settings_dict:
+        func_or_path = settings_dict["VISUAL_CONTEXT_CALLBACK"]
+        if isinstance(func_or_path, str):
+            func_or_path = import_string(func_or_path)
+
+        if callable(func_or_path):
+            settings_kwargs["VISUAL_CONTEXT_CALLBACK"] = func_or_path
 
     return SmartlingSettings(**settings_kwargs)
 

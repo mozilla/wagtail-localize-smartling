@@ -143,3 +143,31 @@ def test_job_description_callback():
 def test_invalid_job_description_callback_signature():
     smartling_settings = _init_settings()
     assert smartling_settings.JOB_DESCRIPTION_CALLBACK is None
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "VISUAL_CONTEXT_CALLBACK": "testapp.settings.visual_context_callback",
+    }
+)
+def test_visual_context_callback():
+    smartling_settings = _init_settings()
+    fn = smartling_settings.VISUAL_CONTEXT_CALLBACK
+    assert callable(fn)
+    assert fn.__name__ == "visual_context_callback"
+    assert fn(123) == (
+        "https://example.com/path/to/page/",
+        "<html><body>test</body></html>",
+    )
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "VISUAL_CONTEXT_CALLBACK": 123,
+    }
+)
+def test_invalid_visual_context_callback_signature():
+    smartling_settings = _init_settings()
+    assert smartling_settings.VISUAL_CONTEXT_CALLBACK is None
