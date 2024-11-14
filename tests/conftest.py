@@ -14,6 +14,7 @@ from wagtail_localize.models import LocaleSynchronization
 
 from wagtail_localize_smartling.api.client import client
 from wagtail_localize_smartling.api.types import (
+    AddVisualContextToJobResponseData,
     AuthenticateResponseData,
     GetProjectDetailsResponseData,
     TargetLocaleData,
@@ -144,6 +145,56 @@ def smartling_project(responses, settings, smartling_auth):
     # Reset Project.get_current() cache so the response always gets consumed
     Project.get_current.cache_clear()
     return Project.get_current()
+
+
+@pytest.fixture()
+def smartling_add_visual_context(responses, settings, smartling_auth):
+    # Mock API request for sending visual context
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+    responses.assert_all_requests_are_fired = False
+    responses.add(
+        method="POST",
+        url=f"https://api.smartling.com/context-api/v2/projects/{quote(project_id)}/contexts/upload-and-match-async",
+        body=json.dumps(
+            {
+                "response": {
+                    "code": "SUCCESS",
+                    "data": AddVisualContextToJobResponseData(
+                        processUid="dummy_process_uid",
+                    ),
+                },
+            }
+        ),
+    )
+
+    return "dummy_process_uid"
+
+
+@pytest.fixture()
+def smartling_add_visual_context__error_response(responses, settings, smartling_auth):
+    # Mock API request for sending visual context
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+    responses.assert_all_requests_are_fired = False
+    responses.add(
+        method="POST",
+        url=f"https://api.smartling.com/context-api/v2/projects/{quote(project_id)}/contexts/upload-and-match-async",
+        body=json.dumps(
+            {
+                "response": {
+                    "code": "VALIDATION_ERROR",
+                    "data": [
+                        {
+                            "key": "some key",
+                            "message": "some message",
+                            "details": "some details",
+                        }
+                    ],
+                },
+            }
+        ),
+    )
+
+    return "dummy_process_uid"
 
 
 @pytest.fixture

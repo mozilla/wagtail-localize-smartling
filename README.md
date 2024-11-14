@@ -158,6 +158,13 @@ integrates with the Smartling translation platform.
         return page_url, html
     ```
 
+    Note that if the syncing of the visual context fails, this will break the
+    overall sync to Smartling, leaving an inconsistent state:
+    there'll be a Job created in Smartling that's awaiting approval, but Wagtail
+    will still think the job needs to be created. This, in turn, will mean we get
+    duplicate job errors on the retry. Therefore, it is essential you have log
+    handling set up to catch the `ERROR`-level alert that will happen at this point.
+
 4. Run migrations:
 
     ```sh

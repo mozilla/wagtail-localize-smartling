@@ -30,6 +30,7 @@ from ..settings import settings as smartling_settings
 from . import types
 from .serializers import (
     AddFileToJobResponseSerializer,
+    AddVisualContextToJobSerializer,
     AuthenticateResponseSerializer,
     CreateJobResponseSerializer,
     GetJobDetailsResponseSerializer,
@@ -383,6 +384,50 @@ class SmartlingAPIClient:
             response_serializer_class=AddFileToJobResponseSerializer,
             json=body,
         )
+
+    def add_html_context_to_job(self, *, job: "Job"):
+        if visual_context_callback_fn := smartling_settings.VISUAL_CONTEXT_CALLBACK:
+            url, html = visual_context_callback_fn(job)
+
+            if isinstance(html, str):
+                html = bytearray(html, "utf-8")
+
+            # We need to make a multipart/form-data payload containing
+            # `name` - url of the page the Job is for
+            # `content` - the HTML of the relevant Page for this Job, as bytes
+            # `matchparams` - config params for Smartling's string matching
+
+            data_payload: dict[str, Any] = {
+                "name": url,
+                "matchparams": {
+                    "translationJobUids": [job.translation_job_uid],
+                },
+            }
+
+            file_payload: dict[tuple[str, str]] = {
+                "content": (url.split("/")[-1], html, "text/html"),
+            }
+
+            logger.info(
+                "Sending visual context to Smartling for Job %s/%s for URL %s",
+                job.id,
+                job.translation_job_uid,
+                url,
+            )
+
+            result = self._request(
+                method="POST",
+                path=f"/context-api/v2/projects/{quote(job.project.project_id)}/contexts/upload-and-match-async",
+                response_serializer_class=AddVisualContextToJobSerializer,
+                files=file_payload,
+                data=data_payload,
+            )
+
+            logger.info(
+                "Visual context sent. processUid returned: %s", result.get("processUid")
+            )
+
+            return result
 
     @contextmanager
     def download_translations(self, *, job: "Job") -> Generator[ZipFile, None, None]:
