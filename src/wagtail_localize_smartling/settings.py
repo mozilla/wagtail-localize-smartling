@@ -13,6 +13,8 @@ from django.utils.module_loading import import_string
 if TYPE_CHECKING:
     from wagtail_localize.models import Translation, TranslationSource
 
+    from wagtail_localize_smartling.models import Job
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,7 +36,7 @@ class SmartlingSettings:
     JOB_DESCRIPTION_CALLBACK: (
         Callable[[str, "TranslationSource", Iterable["Translation"]], str] | None
     ) = None
-    VISUAL_CONTEXT_CALLBACK: Callable[[int], tuple[str, str]] | None = None
+    VISUAL_CONTEXT_CALLBACK: Callable[["Job"], tuple[str, str]] | None = None
 
 
 def _init_settings() -> SmartlingSettings:
