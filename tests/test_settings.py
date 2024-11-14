@@ -151,12 +151,12 @@ def test_invalid_job_description_callback_signature():
         "VISUAL_CONTEXT_CALLBACK": "testapp.settings.visual_context_callback",
     }
 )
-def test_visual_context_callback():
+def test_visual_context_callback(smartling_job):
     smartling_settings = _init_settings()
     fn = smartling_settings.VISUAL_CONTEXT_CALLBACK
     assert callable(fn)
     assert fn.__name__ == "visual_context_callback"
-    assert fn(123) == (
+    assert fn(smartling_job) == (
         "https://example.com/path/to/page/",
         "<html><body>test</body></html>",
     )

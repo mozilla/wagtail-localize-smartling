@@ -404,13 +404,12 @@ class SmartlingAPIClient:
                 },
             }
 
-            file_payload: dict[tuple[str, str]] = {
+            file_payload: dict[str, tuple[str, bytes, str]] = {
                 "content": (url.split("/")[-1], html, "text/html"),
             }
 
             logger.info(
-                "Sending visual context to Smartling for Job %s/%s for URL %s",
-                job.id,
+                "Sending visual context to Smartling for Job %s for URL %s",
                 job.translation_job_uid,
                 url,
             )
