@@ -386,47 +386,101 @@ class SmartlingAPIClient:
         )
 
     def add_html_context_to_job(self, *, job: "Job"):
-        if visual_context_callback_fn := smartling_settings.VISUAL_CONTEXT_CALLBACK:
-            url, html = visual_context_callback_fn(job)
+        """
+        To help with translation, Smartling supports the idea of a
+        "visual context" for translators, which effectively gives them
+        a real-time/WYSIWYG view of the page they are translating.
 
-            if isinstance(html, str):
-                html = bytearray(html, "utf-8")
+        We push info about the context, then trigger its processing, via
+        a special combined-action API endpoint:
+        https://api-reference.smartling.com/#tag/Context/operation/uploadAndMatchVisualContext
 
-            # We need to make a multipart/form-data payload containing
-            # `name` - url of the page the Job is for
-            # `content` - the HTML of the relevant Page for this Job, as bytes
-            # `matchparams` - config params for Smartling's string matching
+        As for how we get the info to send as a visual context, that is up to the
+        implementation that is using wagtail-localize-smartling to decide, via
+        the use of a configurable callback function - see `VISUAL_CONTEXT_CALLBACK`
+        in the settings or the README.
 
-            data_payload: dict[str, Any] = {
-                "name": url,
-                "matchparams": {
-                    "translationJobUids": [job.translation_job_uid],
-                },
-            }
+        If the callback is defined, it will be used to generate the the visual
+        context to send to Smartling.
 
-            file_payload: dict[str, tuple[str, bytes, str]] = {
-                "content": (url.split("/")[-1], html, "text/html"),
-            }
+        The callback must take the Job instance and return:
 
-            logger.info(
-                "Sending visual context to Smartling for Job %s for URL %s",
-                job.translation_job_uid,
-                url,
-            )
+        1. A full, absolute URL for the page that shows the content used
+           to generate that Job
+        2. The HTML of that same page
 
-            result = self._request(
-                method="POST",
-                path=f"/context-api/v2/projects/{quote(job.project.project_id)}/contexts/upload-and-match-async",
-                response_serializer_class=AddVisualContextToJobSerializer,
-                files=file_payload,
-                data=data_payload,
-            )
+        e.g.
 
-            logger.info(
-                "Visual context sent. processUid returned: %s", result.get("processUid")
-            )
+            from wagtail_localize.models import Job
 
-            return result
+            def get_visual_context(job: Job) -> tuple[str, str]:
+
+                # This assumes the page is live and visible. If the page is a
+                # draft, you will need a some custom work to expose the draft
+                # version of the page
+
+                page = job.translation_source.get_source_instance()
+                page_url = page.full_url
+
+                html = # code to render that page instance
+
+                return page_url, html
+
+        """
+
+        if not (
+            visual_context_callback_fn := smartling_settings.VISUAL_CONTEXT_CALLBACK
+        ):
+            return
+
+        url, html = visual_context_callback_fn(job)
+
+        # data:
+        # `name` - url of the page the Job is for
+        # `matchparams` - config params for Smartling's string matching
+        # `content` - the HTML of the relevant Page for this Job, as bytes
+
+        data_payload: dict[str, Any] = {
+            "name": url,
+            "matchparams": {
+                "translationJobUids": [job.translation_job_uid],
+            },
+        }
+
+        # The file payload contains the rendered HTML of the page
+        # being translated. It needs to be send as multipart form
+        # data, so we turn the HTML string into a bytearray
+        # and pass it along with a filename based on the slug
+        # of the page
+
+        if isinstance(html, str):
+            html = bytearray(html, "utf-8")
+
+        filename = utils.get_filename_for_visual_context(url)
+
+        file_payload: dict[str, tuple[str, bytes, str]] = {
+            "content": (filename, html, "text/html"),
+        }
+
+        logger.info(
+            "Sending visual context to Smartling for Job %s for URL %s",
+            job.translation_job_uid,
+            url,
+        )
+
+        result = self._request(
+            method="POST",
+            path=f"/context-api/v2/projects/{quote(job.project.project_id)}/contexts/upload-and-match-async",
+            response_serializer_class=AddVisualContextToJobSerializer,
+            files=file_payload,
+            data=data_payload,
+        )
+
+        logger.info(
+            "Visual context sent. processUid returned: %s", result.get("processUid")
+        )
+
+        return result
 
     @contextmanager
     def download_translations(self, *, job: "Job") -> Generator[ZipFile, None, None]:

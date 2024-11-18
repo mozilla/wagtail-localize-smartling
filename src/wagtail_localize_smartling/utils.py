@@ -1,7 +1,7 @@
 import hashlib
 
 from typing import TYPE_CHECKING
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlparse
 
 from wagtail.coreutils import (
     get_content_languages,
@@ -141,3 +141,17 @@ def compute_content_hash(pofile: "POFile") -> str:
         strings.append(f"{entry.msgctxt}: {entry.msgid}")
 
     return hashlib.sha256("".join(strings).encode()).hexdigest()
+
+
+def get_filename_for_visual_context(url: str, max_length: int = 256) -> str:
+    """
+    Turn the given url into a long slug, based on the hostname and the path
+    """
+    if not url:
+        return url
+
+    _parsed = urlparse(url)
+    head = "-".join(_parsed.hostname.split(".")).rstrip("-").lower()
+    tail = "-".join(_parsed.path.split("/")).rstrip("-").lower()
+    trimmed = f"{head}{tail}"[: max_length - 5]
+    return f"{trimmed}.html"

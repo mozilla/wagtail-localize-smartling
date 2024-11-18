@@ -45,3 +45,28 @@ def test_format_wagtail_locale_id(locale_id, expected, reformat, smartling_setti
         "fr-FR": "FR",
     }
     assert utils.format_wagtail_locale_id(locale_id) == expected
+
+
+@pytest.mark.parametrize(
+    "url, expected",
+    (
+        ("https://example.com/test/path/here", "example-com-test-path-here.html"),
+        ("https://example.com/test/path/here/", "example-com-test-path-here.html"),
+        ("https://www.example.com/test/", "www-example-com-test.html"),
+        (
+            "https://example.com/fr-CA/test/path/to/a/page/here",
+            "example-com-fr-ca-test-path-to-a-page-here.html",
+        ),
+        ("", ""),
+        ("https://example.com/", "example-com.html"),
+        (
+            "https://example.com/test/path/here" + "/here" * 60,  # well over 300 chars
+            "example-com-test-path-here"
+            + "-here" * 45
+            + ".html",  # 26 + 45*5 + 5 = 256 chars == func's default max_length
+        ),
+    ),
+)
+@pytest.mark.django_db
+def test_get_filename_for_visual_context(url, expected):
+    assert utils.get_filename_for_visual_context(url) == expected
