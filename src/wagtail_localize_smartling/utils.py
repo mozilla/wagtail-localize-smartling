@@ -151,7 +151,10 @@ def get_filename_for_visual_context(url: str, max_length: int = 256) -> str:
         return url
 
     _parsed = urlparse(url)
-    head = "-".join(_parsed.hostname.split(".")).rstrip("-").lower()
-    tail = "-".join(_parsed.path.split("/")).rstrip("-").lower()
+    _hostname = _parsed.hostname or ""
+    _path = _parsed.path or ""
+
+    head = "-".join(_hostname.split(".")).rstrip("-").lower()
+    tail = "-".join(_path.split("/")).rstrip("-").lower()
     trimmed = f"{head}{tail}"[: max_length - 5]
     return f"{trimmed}.html"
