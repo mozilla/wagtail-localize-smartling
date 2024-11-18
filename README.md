@@ -151,7 +151,7 @@ integrates with the Smartling translation platform.
         # This assumes the page is live and visible. If the page is a draft, you
         # will need a some custom work to expose the draft version of the page
         page = job.translation_source.get_source_instance()
-        page_url = page.url
+        page_url = page.full_url
 
         html = # code to render that page instance
 
