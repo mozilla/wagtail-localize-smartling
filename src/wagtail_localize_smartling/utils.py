@@ -111,7 +111,6 @@ def get_wagtail_source_locale(project: "Project") -> Locale | None:
     return locale
 
 
-# TODO test
 def suggest_source_locale(project: "Project") -> tuple[str, str] | None:
     """
     Return a tuple of language code and label for a suggested Locale from
@@ -145,16 +144,19 @@ def compute_content_hash(pofile: "POFile") -> str:
 
 def get_filename_for_visual_context(url: str, max_length: int = 256) -> str:
     """
-    Turn the given url into a long slug, based on the hostname and the path
+    Turn the given url into a long sluglike HTML filename, based
+    on the hostname and the path
     """
     if not url:
         return url
 
     _parsed = urlparse(url)
+
     _hostname = _parsed.hostname or ""
     _path = _parsed.path or ""
 
     head = "-".join(_hostname.split(".")).rstrip("-").lower()
     tail = "-".join(_path.split("/")).rstrip("-").lower()
-    trimmed = f"{head}{tail}"[: max_length - 5]
-    return f"{trimmed}.html"
+    body = f"{head}{tail}"[: max_length - 5]
+
+    return f"{body}.html"
