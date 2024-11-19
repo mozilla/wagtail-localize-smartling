@@ -9,8 +9,13 @@ https://docs.djangoproject.com/en/stable/ref/settings/
 """
 
 import os
+import typing
 
 import dj_database_url
+
+
+if typing.TYPE_CHECKING:
+    from wagtail_localize_smartling.models import Job
 
 
 # Build paths inside the project like this: os.path.join(PROJECT_DIR, ...)
@@ -215,3 +220,7 @@ def map_project_locale_to_smartling(locale: str) -> str:
 
 def job_description_callback(description: str, translation_source, translations) -> str:
     return "1337"
+
+
+def visual_context_callback(job: "Job") -> tuple[str, str]:
+    return "https://example.com/path/to/page/", "<html><body>test</body></html>"

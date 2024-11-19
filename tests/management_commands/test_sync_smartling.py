@@ -6,7 +6,7 @@ from testapp.factories import InfoPageFactory
 from tests.factories import JobFactory
 
 
-@pytest.mark.skip()
+@pytest.mark.skip("WRITE ME")
 @pytest.mark.django_db()
 def test_sync_smartling(smartling_project):
     unsynced_job_page = InfoPageFactory()

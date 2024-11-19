@@ -249,3 +249,7 @@ class UploadFileResponseSerializer(ResponseSerializer):
 class AddFileToJobResponseSerializer(ResponseSerializer):
     failCount = serializers.IntegerField()
     successCount = serializers.IntegerField()
+
+
+class AddVisualContextToJobSerializer(ResponseSerializer):
+    processUid = serializers.CharField()

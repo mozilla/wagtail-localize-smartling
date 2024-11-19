@@ -58,6 +58,8 @@ integrates with the Smartling translation platform.
     }
     ```
 
+    ----
+
     If your project's locales do not match those in Smartling (e.g. `ro` in your
     project, `ro-RO` in Smartling), then you can provide a Wagtail locale ID to
     Smartling locale ID mapping via the `LOCALE_TO_SMARTLING_LOCALE` setting:
@@ -104,6 +106,8 @@ integrates with the Smartling translation platform.
 
     ```
 
+    ----
+
     If you need to customize the default Job description, you can specify a callable or a dotted path to a callable in
     the `JOB_DESCRIPTION_CALLBACK` setting:
 
@@ -122,6 +126,44 @@ integrates with the Smartling translation platform.
 
     The callback receives the default description string, the job `TranslationSource` instance, and the list of
     target `Translation`s. It expected to return string.
+
+    ----
+
+    If you want to pass a [Visual Context](https://help.smartling.com/hc/en-us/articles/360057484273--Overview-of-Visual-Context)
+    to Smartling after a Job is synced, you need to provide a way to get hold
+    of the appropriate URL for the page to use context. You provide this via
+    the `VISUAL_CONTEXT_CALLBACK` setting.
+
+    If this callback is defined, it will be used to send the visual context to Smartling.
+    This step happens just after the regular sync of a Job to Smartling and _only_ if
+    the callback is defined.
+
+    The callback must take the Job instance and return:
+
+    1. a URL for the page that shows the content used to generate that Job
+    2. the HTML of the page.
+
+    ```python
+    from wagtail_localize.models import Job
+
+    def get_visual_context(job: Job) -> tuple[str, str]:
+
+        # This assumes the page is live and visible. If the page is a draft, you
+        # will need a some custom work to expose the draft version of the page
+        page = job.translation_source.get_source_instance()
+        page_url = page.full_url
+
+        html = # code to render that page instance
+
+        return page_url, html
+    ```
+
+    Note that if the syncing of the visual context fails, this will break the
+    overall sync to Smartling, leaving an inconsistent state:
+    there'll be a Job created in Smartling that's awaiting approval, but Wagtail
+    will still think the job needs to be created. This, in turn, will mean we get
+    duplicate job errors on the retry. Therefore, it is essential you have log
+    handling set up to catch the `ERROR`-level alert that will happen at this point.
 
 4. Run migrations:
 

@@ -71,6 +71,8 @@ def _initial_sync(job: "Job") -> None:
     """
     For jobs that have never been synced before, create the job in Smartling and
     add the PO file from the TranslationSource.
+
+    Also add Visual Context for Smartling CAT, if a callback to get that is configured
     """
     logger.info("Performing initial sync for job %s", job)
 
@@ -107,6 +109,9 @@ def _initial_sync(job: "Job") -> None:
 
     # Add the PO file to the job using the previously-saved URI
     client.add_file_to_job(job=job)
+
+    # Add context to the job (if settings.VISUAL_CONTEXT_CALLBACK is defined)
+    client.add_html_context_to_job(job=job)
 
 
 def _sync(job: "Job") -> None:

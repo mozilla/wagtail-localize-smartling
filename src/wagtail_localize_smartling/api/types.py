@@ -104,3 +104,7 @@ class SourceFileData(TypedDict):
 class GetJobDetailsResponseData(CreateJobResponseData):
     priority: int | None
     sourceFiles: list[SourceFileData]
+
+
+class AddVisualContextToJobResponseData(TypedDict):
+    processUid: str
