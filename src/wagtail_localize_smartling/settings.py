@@ -36,7 +36,9 @@ class SmartlingSettings:
     JOB_DESCRIPTION_CALLBACK: (
         Callable[[str, "TranslationSource", Iterable["Translation"]], str] | None
     ) = None
-    VISUAL_CONTEXT_CALLBACK: Callable[["Job"], tuple[str, str]] | None = None
+    VISUAL_CONTEXT_CALLBACK: (
+        Callable[["Job"], tuple[str, str] | tuple[bool, bool]] | None
+    ) = None
 
 
 def _init_settings() -> SmartlingSettings:

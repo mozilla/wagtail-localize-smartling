@@ -403,7 +403,7 @@ class SmartlingAPIClient:
         If the callback is defined, it will be used to generate the the visual
         context to send to Smartling.
 
-        The callback must take the Job instance and return:
+        The callback must take the Job instance and return two values:
 
         1. A full, absolute URL for the page that shows the content used
            to generate that Job
@@ -426,14 +426,27 @@ class SmartlingAPIClient:
 
                 return page_url, html
 
+        IMPORTANT: if your translatable objets include some where a visual
+        context is not available or appropriate (eg a Snippet, rather than
+        a Page), then your settings.VISUAL_CONTEXT_CALLBACK function should
+        return a tuple of (None, None) to signify no visual context is available
         """
 
         if not (
             visual_context_callback_fn := smartling_settings.VISUAL_CONTEXT_CALLBACK
         ):
+            logger.info("No visual context callback configured")
             return
 
         url, html = visual_context_callback_fn(job)
+
+        if not url or not html:
+            # Not all jobs will be for objects that have a viable visual context
+            logger.info(
+                "Visual context callback didn't return viable values. "
+                f"url: {bool(url)} and html: {bool(html)}"
+            )
+            return
 
         # data:
         # `name` - url of the page the Job is for

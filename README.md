@@ -156,6 +156,12 @@ integrates with the Smartling translation platform.
         html = # code to render that page instance
 
         return page_url, html
+
+        # IMPORTANT: if your translatable objets include some where a visual
+        # context is not available or appropriate (eg a Snippet, rather than
+        # a Page), then your settings.VISUAL_CONTEXT_CALLBACK function should
+        # return a tuple of (None, None) to signify no visual context is available
+
     ```
 
     Note that if the syncing of the visual context fails, this will break the
