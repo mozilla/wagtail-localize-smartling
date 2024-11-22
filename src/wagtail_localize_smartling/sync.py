@@ -184,7 +184,7 @@ def _download_and_apply_translations(job: "Job") -> None:
                     target_locale__language_code=wagtail_locale_id
                 )
             except job.translations.model.DoesNotExist:
-                logger.error(
+                logger.info(
                     "Translation not found for locale %s, skipping", wagtail_locale_id
                 )
                 continue
