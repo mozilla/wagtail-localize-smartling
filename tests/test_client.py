@@ -1,5 +1,5 @@
 from typing import TYPE_CHECKING
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
@@ -14,32 +14,32 @@ pytestmark = pytest.mark.django_db
 
 @pytest.mark.skip("WRITE ME")
 def test_client__get_project_details():
-    assert False
+    pass
 
 
 @pytest.mark.skip("WRITE ME")
 def test_client__create_job():
-    assert False
+    pass
 
 
 @pytest.mark.skip("WRITE ME")
 def test_client__list_jobs():
-    assert False
+    pass
 
 
 @pytest.mark.skip("WRITE ME")
 def test_client__get_job_details():
-    assert False
+    pass
 
 
 @pytest.mark.skip("WRITE ME")
 def test_client__upload_po_file_for_job():
-    assert False
+    pass
 
 
 @pytest.mark.skip("WRITE ME")
 def test_client__download_translations():
-    assert False
+    pass
 
 
 @pytest.mark.parametrize("bootstrap_callback", (True, False))
