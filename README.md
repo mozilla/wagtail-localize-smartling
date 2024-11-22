@@ -144,23 +144,34 @@ integrates with the Smartling translation platform.
     2. the HTML of the page.
 
     ```python
+
+    from wagtail.models import Page
     from wagtail_localize.models import Job
+    from wagtail_localize_smartling.exceptions import IncapableVisualContextCallback
 
     def get_visual_context(job: Job) -> tuple[str, str]:
 
-        # This assumes the page is live and visible. If the page is a draft, you
-        # will need a some custom work to expose the draft version of the page
-        page = job.translation_source.get_source_instance()
+        # This assumes the page is live and visible. If the page is a
+        # draft, you will need a some custom work to expose the draft
+        # version of the page
+
+        content_obj = job.translation_source.get_source_instance()
+
+        # IMPORTANT: if your translatable objets include some where a visual
+        # context is not available or appropriate (eg a Snippet, rather than
+        # a Page), then your settings.VISUAL_CONTEXT_CALLBACK function should
+        # raise IncapableVisualContextCallback with an explaination
+
+        if not isinstance(content_obj, Page):
+            raise IncapableVisualContextCallback(
+                "Object was not visually previewable"
+            )
+
         page_url = page.full_url
 
         html = # code to render that page instance
 
         return page_url, html
-
-        # IMPORTANT: if your translatable objets include some where a visual
-        # context is not available or appropriate (eg a Snippet, rather than
-        # a Page), then your settings.VISUAL_CONTEXT_CALLBACK function should
-        # return a tuple of (None, None) to signify no visual context is available
 
     ```
 

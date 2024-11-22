@@ -4,6 +4,7 @@ from unittest.mock import Mock
 import pytest
 
 from wagtail_localize_smartling.api.client import InvalidResponse, client
+from wagtail_localize_smartling.exceptions import IncapableVisualContextCallback
 
 
 if TYPE_CHECKING:
@@ -96,7 +97,7 @@ def test_client__add_html_context_to_job__callback_does_not_provide_visual_conte
 ):
     callback_func = Mock(
         name="fake callback",
-        return_value=(False, False),
+        side_effect=IncapableVisualContextCallback("Testing!"),
     )
 
     smartling_settings.VISUAL_CONTEXT_CALLBACK = callback_func

@@ -26,6 +26,7 @@ from django.utils.functional import SimpleLazyObject
 from requests.exceptions import HTTPError
 
 from .. import utils
+from ..exceptions import IncapableVisualContextCallback
 from ..settings import settings as smartling_settings
 from . import types
 from .serializers import (
@@ -411,7 +412,9 @@ class SmartlingAPIClient:
 
         e.g.
 
+            from wagtail.models import Page
             from wagtail_localize.models import Job
+            from wagtail_localize_smartling.exceptions import IncapableVisualContextCallback
 
             def get_visual_context(job: Job) -> tuple[str, str]:
 
@@ -419,17 +422,24 @@ class SmartlingAPIClient:
                 # draft, you will need a some custom work to expose the draft
                 # version of the page
 
-                page = job.translation_source.get_source_instance()
+                content_obj = job.translation_source.get_source_instance()
+
+                # IMPORTANT: if your translatable objets include some where a visual
+                # context is not available or appropriate (eg a Snippet, rather than
+                # a Page), then your settings.VISUAL_CONTEXT_CALLBACK function should
+                # raise IncapableVisualContextCallback with an explaination
+
+                if not isinstance(content_obj, Page):
+                    raise IncapableVisualContextCallback(
+                        "Object was not visually previewable"
+                    )
+
                 page_url = page.full_url
 
                 html = # code to render that page instance
 
                 return page_url, html
 
-        IMPORTANT: if your translatable objets include some where a visual
-        context is not available or appropriate (eg a Snippet, rather than
-        a Page), then your settings.VISUAL_CONTEXT_CALLBACK function should
-        return a tuple of (None, None) to signify no visual context is available
         """
 
         if not (
@@ -438,13 +448,12 @@ class SmartlingAPIClient:
             logger.info("No visual context callback configured")
             return
 
-        url, html = visual_context_callback_fn(job)
-
-        if not url or not html:
-            # Not all jobs will be for objects that have a viable visual context
+        try:
+            url, html = visual_context_callback_fn(job)
+        except IncapableVisualContextCallback as ex:
             logger.info(
-                "Visual context callback didn't return viable values. "
-                f"url: {bool(url)} and html: {bool(html)}"
+                "Visual context callback refused to provide values. "
+                f"Reason: {str(ex)}. Not sending visual context."
             )
             return
 
