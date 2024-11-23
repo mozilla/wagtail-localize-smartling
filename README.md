@@ -158,9 +158,12 @@ integrates with the Smartling translation platform.
         content_obj = job.translation_source.get_source_instance()
 
         # IMPORTANT: if your translatable objects include some where a visual
-        # context is not available or appropriate (eg a Snippet, rather than
-        # a Page), then your settings.VISUAL_CONTEXT_CALLBACK function should
-        # raise IncapableVisualContextCallback with an explaination
+        # context is not available via a standalone, public URL (eg a Snippet,
+        # rather than a Page), then your settings.VISUAL_CONTEXT_CALLBACK function
+        # should raise IncapableVisualContextCallback with an explaination.
+
+        # Below, we check if the object is a Page, but depending on how your objects
+        # are previewable, you could use isinstance(content_obj, PreviewableMixin)
 
         if not isinstance(content_obj, Page):
             raise IncapableVisualContextCallback(

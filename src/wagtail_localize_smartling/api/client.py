@@ -428,6 +428,10 @@ class SmartlingAPIClient:
                 # context is not available or appropriate (eg a Snippet, rather than
                 # a Page), then your settings.VISUAL_CONTEXT_CALLBACK function should
                 # raise IncapableVisualContextCallback with an explaination
+                #
+                # Below, we simply check if the object is a Page, but depending
+                # on how your objects are previewable, you could instead use
+                # isinstance(content_obj, PreviewableMixin)
 
                 if not isinstance(content_obj, Page):
                     raise IncapableVisualContextCallback(
