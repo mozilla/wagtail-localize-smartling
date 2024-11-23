@@ -424,7 +424,7 @@ class SmartlingAPIClient:
 
                 content_obj = job.translation_source.get_source_instance()
 
-                # IMPORTANT: if your translatable objets include some where a visual
+                # IMPORTANT: if your translatable objects include some where a visual
                 # context is not available or appropriate (eg a Snippet, rather than
                 # a Page), then your settings.VISUAL_CONTEXT_CALLBACK function should
                 # raise IncapableVisualContextCallback with an explaination
