@@ -26,6 +26,7 @@ from django.utils.functional import SimpleLazyObject
 from requests.exceptions import HTTPError
 
 from .. import utils
+from ..exceptions import IncapableVisualContextCallback
 from ..settings import settings as smartling_settings
 from . import types
 from .serializers import (
@@ -403,7 +404,7 @@ class SmartlingAPIClient:
         If the callback is defined, it will be used to generate the the visual
         context to send to Smartling.
 
-        The callback must take the Job instance and return:
+        The callback must take the Job instance and return two values:
 
         1. A full, absolute URL for the page that shows the content used
            to generate that Job
@@ -411,7 +412,9 @@ class SmartlingAPIClient:
 
         e.g.
 
+            from wagtail.models import Page
             from wagtail_localize.models import Job
+            from wagtail_localize_smartling.exceptions import IncapableVisualContextCallback
 
             def get_visual_context(job: Job) -> tuple[str, str]:
 
@@ -419,7 +422,22 @@ class SmartlingAPIClient:
                 # draft, you will need a some custom work to expose the draft
                 # version of the page
 
-                page = job.translation_source.get_source_instance()
+                content_obj = job.translation_source.get_source_instance()
+
+                # IMPORTANT: if your translatable objects include some where a visual
+                # context is not available or appropriate (eg a Snippet, rather than
+                # a Page), then your settings.VISUAL_CONTEXT_CALLBACK function should
+                # raise IncapableVisualContextCallback with an explaination
+                #
+                # Below, we simply check if the object is a Page, but depending
+                # on how your objects are previewable, you could instead use
+                # isinstance(content_obj, PreviewableMixin)
+
+                if not isinstance(content_obj, Page):
+                    raise IncapableVisualContextCallback(
+                        "Object was not visually previewable"
+                    )
+
                 page_url = page.full_url
 
                 html = # code to render that page instance
@@ -431,9 +449,17 @@ class SmartlingAPIClient:
         if not (
             visual_context_callback_fn := smartling_settings.VISUAL_CONTEXT_CALLBACK
         ):
+            logger.info("No visual context callback configured")
             return
 
-        url, html = visual_context_callback_fn(job)
+        try:
+            url, html = visual_context_callback_fn(job)
+        except IncapableVisualContextCallback as ex:
+            logger.info(
+                "Visual context callback refused to provide values. "
+                f"Reason: {str(ex)}. Not sending visual context."
+            )
+            return
 
         # data:
         # `name` - url of the page the Job is for

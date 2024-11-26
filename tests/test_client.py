@@ -1,9 +1,10 @@
 from typing import TYPE_CHECKING
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
 from wagtail_localize_smartling.api.client import InvalidResponse, client
+from wagtail_localize_smartling.exceptions import IncapableVisualContextCallback
 
 
 if TYPE_CHECKING:
@@ -14,32 +15,32 @@ pytestmark = pytest.mark.django_db
 
 @pytest.mark.skip("WRITE ME")
 def test_client__get_project_details():
-    assert False
+    pass
 
 
 @pytest.mark.skip("WRITE ME")
 def test_client__create_job():
-    assert False
+    pass
 
 
 @pytest.mark.skip("WRITE ME")
 def test_client__list_jobs():
-    assert False
+    pass
 
 
 @pytest.mark.skip("WRITE ME")
 def test_client__get_job_details():
-    assert False
+    pass
 
 
 @pytest.mark.skip("WRITE ME")
 def test_client__upload_po_file_for_job():
-    assert False
+    pass
 
 
 @pytest.mark.skip("WRITE ME")
 def test_client__download_translations():
-    assert False
+    pass
 
 
 @pytest.mark.parametrize("bootstrap_callback", (True, False))
@@ -89,11 +90,28 @@ def test_client__add_html_context_to_job__happy_path(
     assert resp == {"processUid": "dummy_process_uid"}
 
 
+def test_client__add_html_context_to_job__callback_does_not_provide_visual_context_data(
+    smartling_job: "Job",
+    smartling_settings,
+    smartling_add_visual_context,
+):
+    callback_func = Mock(
+        name="fake callback",
+        side_effect=IncapableVisualContextCallback("Testing!"),
+    )
+
+    smartling_settings.VISUAL_CONTEXT_CALLBACK = callback_func
+    resp = client.add_html_context_to_job(job=smartling_job)
+    callback_func.assert_called_once_with(smartling_job)
+    assert resp is None
+
+
 def test_client__add_html_context_to_job__error_path(
     smartling_job: "Job",
     smartling_settings,
     smartling_add_visual_context__error_response,
 ):
+    # Fake a validation error using the smartling_add_visual_context__error_response fixture
     callback_func = Mock(
         name="fake callback",
         return_value=(
