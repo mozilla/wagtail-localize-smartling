@@ -49,7 +49,7 @@ def test_Job_get_default_name(name_prefix, smartling_settings, root_page):
 
     expected_name = (
         f"{str(translation_source.object.translation_key).split('-')[0]}:"
-        "1:fr:2024-05-03T12:34:56"
+        f"{translation_source.pk}:fr:2024-05-03T12:34:56"
     )
     if name_prefix:
         expected_name = f"{name_prefix}:" + expected_name
