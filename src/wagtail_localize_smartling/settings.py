@@ -33,7 +33,7 @@ class SmartlingSettings:
         default_factory=dict
     )
     REFORMAT_LANGUAGE_CODES: bool = True
-    JOB_NAME_PREFIX: str = None
+    JOB_NAME_PREFIX: str | None = None
     JOB_DESCRIPTION_CALLBACK: (
         Callable[[str, "TranslationSource", Iterable["Translation"]], str] | None
     ) = None
