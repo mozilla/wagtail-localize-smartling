@@ -22,14 +22,7 @@ pytestmark = pytest.mark.django_db
 
 def test_default_job_description(smartling_job: "Job"):
     page = smartling_job.translation_source.get_source_instance()
-    url = urljoin(
-        get_admin_base_url() or "",
-        smartling_job.translation_source.get_source_instance_edit_url(),
-    )
-    assert smartling_job.description == (
-        f'Automatically-created Wagtail translation job for info page "{page}". '
-        f"The source content can be edited here: {url}"
-    )
+    assert smartling_job.description == f"CMS translation job for info page '{page}'."
 
 
 def test_job_description_callback(smartling_job: "Job", smartling_settings):

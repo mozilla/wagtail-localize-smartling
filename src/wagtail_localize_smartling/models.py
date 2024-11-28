@@ -293,17 +293,8 @@ class Job(SyncedModel):
         """
         source_instance = translation_source.get_source_instance()
         ct_name = type(source_instance)._meta.verbose_name
-        edit_url = urljoin(
-            get_admin_base_url() or "",
-            translation_source.get_source_instance_edit_url(),
-        )
 
-        description = (
-            "Automatically-created Wagtail translation job for "
-            f"{ct_name} "
-            f'"{source_instance}". '
-            f"The source content can be edited here: {edit_url}"
-        )
+        description = f"CMS translation job for {ct_name} '{source_instance}'."
 
         if callback_fn := smartling_settings.JOB_DESCRIPTION_CALLBACK:
             description = callback_fn(description, source_instance, translations)
