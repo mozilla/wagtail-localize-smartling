@@ -238,17 +238,31 @@ class Job(SyncedModel):
         translations: Iterable[Translation],
     ) -> str:
         """
-        Default name to use for the job in Smartling. These don't need to be
-        human readable, but they do need to be unique. So, we concatenate the
-        translation key, TranslationSource PK, target locale codes and a
-        timestamp.
+        Default name to use for the job in Smartling. These need to be unique,
+        so, we concatenate a collision-dodging-enough portion of the translation
+        key, TranslationSource PK, target locale codes and a timestamp. Plus: if
+        there's a human-friendly prefix set that might help translators identify
+        jobs more easily (eg "Project Secret Squirrel") we use that, too.
         """
-        return (
-            f"{translation_source.object.translation_key}:"
+
+        # The default PK UIUD is very long. We can afford the collision risk
+        # of just using the first part of the sequence
+        _key = str(translation_source.object.translation_key).split("-")[0]
+
+        _timestamp = (
+            timezone.now()
+            .replace(tzinfo=None)  # remove +00:00 - we know it's UTC
+            .isoformat(timespec="seconds")
+        )
+        name = (
+            f"{_key}:"
             f"{translation_source.pk}:"
             f"{':'.join(sorted(t.target_locale.language_code for t in translations))}:"
-            f"{timezone.now().isoformat(timespec='seconds')}"
+            f"{_timestamp}"
         )
+        if smartling_settings.JOB_NAME_PREFIX:
+            name = f"{smartling_settings.JOB_NAME_PREFIX}:" + name
+        return name
 
     @staticmethod
     def get_default_reference_number(

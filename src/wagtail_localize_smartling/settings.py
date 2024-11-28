@@ -33,6 +33,7 @@ class SmartlingSettings:
         default_factory=dict
     )
     REFORMAT_LANGUAGE_CODES: bool = True
+    JOB_NAME_PREFIX: str = None
     JOB_DESCRIPTION_CALLBACK: (
         Callable[[str, "TranslationSource", Iterable["Translation"]], str] | None
     ) = None
@@ -157,6 +158,9 @@ def _init_settings() -> SmartlingSettings:
 
         if callable(func_or_path):
             settings_kwargs["VISUAL_CONTEXT_CALLBACK"] = func_or_path
+
+    if "JOB_NAME_PREFIX" in settings_dict:
+        settings_kwargs["JOB_NAME_PREFIX"] = settings_dict["JOB_NAME_PREFIX"]
 
     return SmartlingSettings(**settings_kwargs)
 
