@@ -108,3 +108,11 @@ class GetJobDetailsResponseData(CreateJobResponseData):
 
 class AddVisualContextToJobResponseData(TypedDict):
     processUid: str
+
+
+class CreateBatchForJobResponseData(TypedDict):
+    batchUid: str
+
+
+class UploadFileToBatchResponseData(TypedDict):
+    pass

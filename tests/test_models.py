@@ -1,10 +1,8 @@
 from typing import TYPE_CHECKING
-from urllib.parse import urljoin
 
 import pytest
 
 from freezegun import freeze_time
-from wagtail.admin.utils import get_admin_base_url
 from wagtail.models import Locale
 from wagtail_localize.models import Translation, TranslationSource
 
