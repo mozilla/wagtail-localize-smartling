@@ -167,8 +167,6 @@ def smartling_add_visual_context(responses, settings, smartling_auth):
         ),
     )
 
-    return "dummy_process_uid"
-
 
 @pytest.fixture()
 def smartling_add_visual_context__error_response(responses, settings, smartling_auth):
@@ -194,7 +192,6 @@ def smartling_add_visual_context__error_response(responses, settings, smartling_
         ),
     )
 
-    return "dummy_process_uid"
 
 
 @pytest.fixture
