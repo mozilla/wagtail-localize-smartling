@@ -5,10 +5,8 @@ import pytest
 
 from wagtail_localize_smartling.api.client import InvalidResponse, client
 from wagtail_localize_smartling.exceptions import IncapableVisualContextCallback
+from wagtail_localize_smartling.models import Job
 
-
-if TYPE_CHECKING:
-    from wagtail_localize_smartling.models import Job
 
 pytestmark = pytest.mark.django_db
 
@@ -171,5 +169,8 @@ def test_client__upload_files_to_job_batch__error_path(
     )
 
 
-def test_get_file_uri_for_job(smartling_job):
-    assert client.get_file_uri_for_job(job=smartling_job) == "job_1_ts_1.po"
+def test_get_file_uri_for_job():
+    mock_job = Mock(spec=Job)
+    mock_job.pk = 23
+    mock_job.translation_source.pk = 45
+    assert client.get_file_uri_for_job(job=mock_job) == "job_23_ts_45.po"
