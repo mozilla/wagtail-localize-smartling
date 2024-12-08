@@ -74,7 +74,7 @@ def test_client__add_html_context_to_job__happy_path(
     smartling_settings,
     smartling_add_visual_context,
 ):
-    # Very similar to test_client__add_html_context_to_job__depends_on_callback_availability
+    # Very similar to test_client__add_html_context_to_job__depends_on_callback_availability  # noqa: E501
     # but separate for regression-protection value
     callback_func = Mock(
         name="fake callback",
@@ -111,7 +111,7 @@ def test_client__add_html_context_to_job__error_path(
     smartling_settings,
     smartling_add_visual_context__error_response,
 ):
-    # Fake a validation error using the smartling_add_visual_context__error_response fixture
+    # Fake a validation error using the smartling_add_visual_context__error_response fixture  # noqa: E501
     callback_func = Mock(
         name="fake callback",
         return_value=(
@@ -130,3 +130,46 @@ def test_client__add_html_context_to_job__error_path(
     )
 
     callback_func.assert_called_once_with(smartling_job)
+
+
+def test_client__create_batch_for_job__happy_path(
+    smartling_job: "Job",
+    smartling_create_batch_for_job,
+):
+    batch_uid = client.create_batch_for_job(job=smartling_job)
+    assert batch_uid == "dummy_batch_uid"
+
+
+def test_client__create_batch_for_job__error_path(
+    smartling_job: "Job",
+    smartling_create_batch_for_job__error_response,
+):
+    with pytest.raises(InvalidResponse) as exc:
+        client.create_batch_for_job(job=smartling_job)
+
+    assert exc.value.args == (
+        "Response did not match expected format: {'response': {'code': 'VALIDATION_ERROR', 'data': [{'key': 'some batch key', 'message': 'some batch message', 'details': 'some batch details'}]}}",  # noqa: E501
+    )
+
+
+def test_client__upload_files_to_job_batch__happy_path(
+    smartling_job,
+    smartling_upload_files_to_job_batch,
+):
+    client.upload_files_to_job_batch(job=smartling_job, batch_uid="test-batch-uid")
+
+
+def test_client__upload_files_to_job_batch__error_path(
+    smartling_job,
+    smartling_upload_files_to_job_batch__error_response,
+):
+    with pytest.raises(InvalidResponse) as exc:
+        client.upload_files_to_job_batch(job=smartling_job, batch_uid="test-batch-uid")
+
+    assert exc.value.args == (
+        "Response did not match expected format: {'response': {'code': 'VALIDATION_ERROR', 'data': [{'key': 'some upload key', 'message': 'some upload message', 'details': 'some upload details'}]}}",  # noqa: E501
+    )
+
+
+def test_get_file_uri_for_job(smartling_job):
+    assert client.get_file_uri_for_job(job=smartling_job) == "job_1_ts_1.po"

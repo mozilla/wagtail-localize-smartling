@@ -102,13 +102,19 @@ def _initial_sync(job: "Job") -> None:
     job.full_clean()
     job.save()
 
-    # Upload the TranslationSource's PO file to Smartling
-    file_uri = client.upload_po_file_for_job(job=job)
+    # Create a Job Batch so we can upload Files without race conditions
+    # in associating them with a Job (even a single PO file can go in a batch)
+    batch_uid = client.create_batch_for_job(job=job)
+
+    # Upload the TranslationSource's PO file to the Batch in Smartling
+    file_uri = client.upload_files_to_job_batch(
+        job=job,
+        batch_uid=batch_uid,
+    )
+
+    # Add the file URI to the Job
     job.file_uri = file_uri
     job.save(update_fields=["file_uri"])
-
-    # Add the PO file to the job using the previously-saved URI
-    client.add_file_to_job(job=job)
 
     # Add context to the job (if settings.VISUAL_CONTEXT_CALLBACK is defined)
     client.add_html_context_to_job(job=job)

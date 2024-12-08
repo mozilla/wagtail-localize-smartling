@@ -16,8 +16,10 @@ from wagtail_localize_smartling.api.client import client
 from wagtail_localize_smartling.api.types import (
     AddVisualContextToJobResponseData,
     AuthenticateResponseData,
+    CreateBatchForJobResponseData,
     GetProjectDetailsResponseData,
     TargetLocaleData,
+    UploadFileToBatchResponseData,
 )
 from wagtail_localize_smartling.models import Project
 
@@ -192,6 +194,99 @@ def smartling_add_visual_context__error_response(responses, settings, smartling_
         ),
     )
 
+
+@pytest.fixture()
+def smartling_create_batch_for_job(responses, settings, smartling_auth):
+    # Mock API request for creating a batch
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+    responses.add(
+        method="POST",
+        url=f"https://api.smartling.com/job-batches-api/v2/projects/{quote(project_id)}/batches",
+        body=json.dumps(
+            {
+                "response": {
+                    "code": "SUCCESS",
+                    "data": CreateBatchForJobResponseData(
+                        batchUid="dummy_batch_uid",
+                    ),
+                },
+            }
+        ),
+    )
+
+
+@pytest.fixture()
+def smartling_create_batch_for_job__error_response(responses, settings, smartling_auth):
+    # Mock API request for creating a batch
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+    responses.add(
+        method="POST",
+        url=f"https://api.smartling.com/job-batches-api/v2/projects/{quote(project_id)}/batches",
+        body=json.dumps(
+            {
+                "response": {
+                    "code": "VALIDATION_ERROR",
+                    "data": [
+                        {
+                            "key": "some batch key",
+                            "message": "some batch message",
+                            "details": "some batch details",
+                        }
+                    ],
+                },
+            }
+        ),
+    )
+
+
+@pytest.fixture()
+def smartling_upload_files_to_job_batch(responses, settings, smartling_auth):
+    # Mock API request for uploading a file to a batch
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+    batch_uid = "test-batch-uid"
+    responses.assert_all_requests_are_fired = False
+    responses.add(
+        method="POST",
+        url=f"https://api.smartling.com/job-batches-api/v2/projects/{quote(project_id)}/batches/{batch_uid}/file",
+        body=json.dumps(
+            {
+                "response": {
+                    "code": "ACCEPTED",
+                    "data": UploadFileToBatchResponseData(),
+                },
+            }
+        ),
+        status=202,
+    )
+
+
+@pytest.fixture()
+def smartling_upload_files_to_job_batch__error_response(
+    responses, settings, smartling_auth
+):
+    # Mock API request for uploading a file to a batch
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+    batch_uid = "test-batch-uid"
+    responses.assert_all_requests_are_fired = False
+    responses.add(
+        method="POST",
+        url=f"https://api.smartling.com/job-batches-api/v2/projects/{quote(project_id)}/batches/{batch_uid}/file",
+        body=json.dumps(
+            {
+                "response": {
+                    "code": "VALIDATION_ERROR",
+                    "data": [
+                        {
+                            "key": "some upload key",
+                            "message": "some upload message",
+                            "details": "some upload details",
+                        }
+                    ],
+                },
+            }
+        ),
+        status=202,
+    )
 
 
 @pytest.fixture

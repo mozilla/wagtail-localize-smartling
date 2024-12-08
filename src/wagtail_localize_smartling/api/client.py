@@ -33,13 +33,16 @@ from .serializers import (
     AddFileToJobResponseSerializer,
     AddVisualContextToJobSerializer,
     AuthenticateResponseSerializer,
+    CreateBatchResponseSerializer,
     CreateJobResponseSerializer,
     GetJobDetailsResponseSerializer,
     GetProjectDetailsResponseSerializer,
     ListJobsResponseSerializer,
+    NullDataResponseSerializer,
     RefreshAccessTokenResponseSerializer,
     ResponseSerializer,
     UploadFileResponseSerializer,
+    UploadFileToBatchResponseSerializer,
 )
 
 
@@ -199,7 +202,9 @@ class SmartlingAPIClient:
         *,
         method: Literal["GET", "POST"],
         path: str,
-        response_serializer_class: type[ResponseSerializer],
+        response_serializer_class: type[
+            ResponseSerializer | NullDataResponseSerializer
+        ],
         send_headers: bool = True,
         **kwargs,
     ) -> dict[str, Any]:
@@ -234,7 +239,7 @@ class SmartlingAPIClient:
         serializer = cast(
             # This cast is required because the created instance could be a
             # ListSerializer if we'd passed many=True, but we know better.
-            response_serializer_class,
+            response_serializer_class,  # pyright: ignore [reportInvalidTypeForm]
             response_serializer_class(data=response_json),
         )
         try:
@@ -341,8 +346,102 @@ class SmartlingAPIClient:
             else:
                 raise
 
+    def get_file_uri_for_job(self, *, job: "Job") -> str:
+        # One Wagtail Content Object is one Job, which means one .po file,
+        # and we use the former to get a name for the latter
+        #
+        # Why are we using the Job PK as part of the file URI? It's
+        # because Smartling uses this as the default namespace for any
+        # strings contained in the file, and strings can only exist once in
+        # a namespace. If we were to upload the same file to multiple Jobs
+        # (e.g. if a page got translated, converted back to an alias and
+        # then translated again), then the second Job would contain no
+        # strings because they're all part of the first Job. You can't
+        # authorize a Job with no strings, so it'd be effectively stuck.
+
+        # We're combining the Job ID and its TranslationSource to try to
+        # make this more unique and traceable. If we need
+        # greater uniqueness, we can add in (part of) the UUID-sourced string
+        # from job.translation_source.object.translation_key.hex
+
+        # NB: This HAS to be deterministic and stable, so that it can be
+        # called at any point for the given Job to get the same value back.
+
+        file_uri = f"job_{job.pk}_ts_{job.translation_source.pk}.po"
+        logger.info(f"Generated file_uri {file_uri}")
+        return file_uri
+
+    def create_batch_for_job(self, *, job: "Job") -> str:
+        # Create a Batch for uploading files to the given Job,
+        # specifying the file(s) upfront.
+        #
+        # Returns the Batch UID, which we'll need to upload our file(s) to the batch
+
+        body: dict[str, Any] = {
+            "authorize": False,
+            "translationJobUid": job.translation_job_uid,
+            "fileUris": [
+                # NB we just send one file per Job
+                self.get_file_uri_for_job(job=job),
+            ],
+            # Not sending "localeWorkflows" key/value pair - doesn't look like
+            # we really need them. If we do, that would need us to maintain
+            # a map of language codes to workflow IDs in configuration,
+            # drawing on data manually extracted from Smartling's web UI
+            # "localeWorkflows": [
+            #     {
+            #         "targetLocaleId": "xx-YY",
+            #         "workflowUid": "SET ME",
+            #     },
+            #     ...
+            # ],
+        }
+
+        result = self._request(
+            method="POST",
+            path=f"/job-batches-api/v2/projects/{quote(job.project.project_id)}/batches",
+            response_serializer_class=CreateBatchResponseSerializer,
+            json=body,
+        )
+
+        return result["batchUid"]
+
+    def upload_files_to_job_batch(self, *, job: "Job", batch_uid: str) -> str:
+        file_uri = self.get_file_uri_for_job(job=job)
+
+        locales_to_authorize = [
+            utils.format_smartling_locale_id(t.target_locale.language_code)
+            for t in job.translations.all()
+        ]
+
+        data_payload = {
+            # NB: If we switch to multiple files per Batch (e.g. different
+            # locales per upload to the batch, for some reason), the fileUri must
+            # be unique _per Batch_. With a single file, it's not a concern.
+            "fileUri": file_uri,
+            "fileType": "gettext",
+            "localeIdsToAuthorize[]": locales_to_authorize,
+        }
+
+        file_payload = {
+            "file": (file_uri, str(job.translation_source.export_po())),
+        }
+
+        self._request(
+            method="POST",
+            path=f"/job-batches-api/v2/projects/{quote(job.project.project_id)}/batches/{batch_uid}/file",
+            response_serializer_class=UploadFileToBatchResponseSerializer,
+            files=file_payload,
+            data=data_payload,
+        )
+        return file_uri
+
+    # TODO: remove me - deprecated in favour of batch approach
     def upload_po_file_for_job(self, *, job: "Job") -> str:
         # TODO handle 202 reponses for files that take over a minute to upload
+        # (Note that even a 200 isn't guaranteed fine - a 200 OK upload might
+        # still result in a 423 File Locked depending on the processing one
+        # the API service's side.)
 
         # TODO document why we're using the Job PK for the file URI. It's
         # because Smartling uses this as the default namespace for any
@@ -368,6 +467,7 @@ class SmartlingAPIClient:
         )
         return file_uri
 
+    # TODO: remove me - deprecated in favour of batch approach
     def add_file_to_job(self, *, job: "Job"):
         # TODO handle 202 responses for files that get added asynchronously
 
@@ -444,7 +544,7 @@ class SmartlingAPIClient:
 
                 return page_url, html
 
-        """
+        """  # noqa: E501
 
         if not (
             visual_context_callback_fn := smartling_settings.VISUAL_CONTEXT_CALLBACK
@@ -484,7 +584,7 @@ class SmartlingAPIClient:
 
         filename = utils.get_filename_for_visual_context(url)
 
-        file_payload: dict[str, tuple[str, bytes, str]] = {
+        file_payload: dict[str, tuple[str, bytearray, str]] = {
             "content": (filename, html, "text/html"),
         }
 

@@ -46,6 +46,8 @@ class ResponseSerializerMetaclass(serializers.SerializerMetaclass):
 
     def __new__(cls, name, bases, attrs, **kwargs):
         if any(isinstance(b, ResponseSerializerMetaclass) for b in bases):
+            # Identify whether this is a subclass requiring nullable `data`
+
             # This a ResponseSerializer subclass, so loop over attrs and strip
             # off any fields and nested serializers
             data_serializer_fields: dict[str, serializers.Field] = {}
@@ -135,6 +137,21 @@ class ResponseSerializer(
             self.validated_data["response"]["code"],
             self.validated_data["response"]["errors"],
         )
+
+
+class NullDataResponseSerializer(ResponseSerializer):
+    def validate_empty_values(self, data) -> tuple[bool, Any]:
+        """
+        Overrides the default behavior to allow `None` for the `data` field.
+        """
+        if "response" in data and (
+            data["response"]["data"] is None
+            and hasattr(self, "_acceptable_codes_for_null_response")
+            and data["response"]["code"] in self._acceptable_codes_for_null_response  # pyright: ignore [reportAttributeAccessIssue]
+        ):
+            # Consider this as valid for the serializer
+            return True, data
+        return super().validate_empty_values(data)
 
 
 ###################################################
@@ -240,16 +257,31 @@ class GetJobDetailsResponseSerializer(CreateJobResponseSerializer):
     sourceFiles = serializers.ListField(child=SourceFileSerializer())
 
 
+# TODO: Remove me. Deprecated in favour of Batches
 class UploadFileResponseSerializer(ResponseSerializer):
     overWritten = serializers.BooleanField()
     stringCount = serializers.IntegerField()
     wordCount = serializers.IntegerField()
 
 
+# TODO: Remove me. Deprecated in favour of Batches
 class AddFileToJobResponseSerializer(ResponseSerializer):
     failCount = serializers.IntegerField()
     successCount = serializers.IntegerField()
 
 
 class AddVisualContextToJobSerializer(ResponseSerializer):
+    # https://api-reference.smartling.com/#tag/Context/operation/uploadAndMatchVisualContext
     processUid = serializers.CharField()
+
+
+class CreateBatchResponseSerializer(ResponseSerializer):
+    # https://api-reference.smartling.com/#tag/Job-Batches-V2/operation/createJobBatchV2
+    batchUid = serializers.CharField()
+
+
+class UploadFileToBatchResponseSerializer(NullDataResponseSerializer):
+    # https://api-reference.smartling.com/#tag/Job-Batches-V2/operation/uploadFileToJobBatchV2
+    _acceptable_codes_for_null_response = [
+        "ACCEPTED",
+    ]
