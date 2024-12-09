@@ -257,19 +257,6 @@ class GetJobDetailsResponseSerializer(CreateJobResponseSerializer):
     sourceFiles = serializers.ListField(child=SourceFileSerializer())
 
 
-# TODO: Remove me. Deprecated in favour of Batches
-class UploadFileResponseSerializer(ResponseSerializer):
-    overWritten = serializers.BooleanField()
-    stringCount = serializers.IntegerField()
-    wordCount = serializers.IntegerField()
-
-
-# TODO: Remove me. Deprecated in favour of Batches
-class AddFileToJobResponseSerializer(ResponseSerializer):
-    failCount = serializers.IntegerField()
-    successCount = serializers.IntegerField()
-
-
 class AddVisualContextToJobSerializer(ResponseSerializer):
     # https://api-reference.smartling.com/#tag/Context/operation/uploadAndMatchVisualContext
     processUid = serializers.CharField()

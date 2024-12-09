@@ -30,7 +30,6 @@ from ..exceptions import IncapableVisualContextCallback
 from ..settings import settings as smartling_settings
 from . import types
 from .serializers import (
-    AddFileToJobResponseSerializer,
     AddVisualContextToJobSerializer,
     AuthenticateResponseSerializer,
     CreateBatchResponseSerializer,
@@ -41,7 +40,6 @@ from .serializers import (
     NullDataResponseSerializer,
     RefreshAccessTokenResponseSerializer,
     ResponseSerializer,
-    UploadFileResponseSerializer,
     UploadFileToBatchResponseSerializer,
 )
 
