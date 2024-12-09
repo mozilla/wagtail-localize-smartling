@@ -14,7 +14,7 @@ def test_UploadFileToBatchResponseSerializer__valid():
     valid_response = {
         "response": {
             "code": "ACCEPTED",
-            "data": None,  # Note: the regular ResponseSerializer would not like this None
+            "data": None,  # The regular ResponseSerializer would not like this None
         }
     }
     serializer = UploadFileToBatchResponseSerializer(data=valid_response)
@@ -42,7 +42,7 @@ def test_UploadFileToBatchResponseSerializer__data_present():
             "code": "ACCEPTED",
             "data": {
                 "file_id": "12345"
-            },  # Unrealistic to get a value back for `data`, but possible if the API changed behaviour
+            },  # Unrealistic to get a value back for `data`, but not impossible
         }
     }
     serializer = UploadFileToBatchResponseSerializer(data=valid_response)
