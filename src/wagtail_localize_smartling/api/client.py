@@ -347,25 +347,30 @@ class SmartlingAPIClient:
                 raise
 
     def get_file_uri_for_job(self, *, job: "Job") -> str:
-        # One Wagtail Content Object is one Job, which means one .po file,
-        # and we use the former to get a name for the latter
-        #
-        # Why are we using the Job PK as part of the file URI? It's
-        # because Smartling uses this as the default namespace for any
+        # One Wagtail content object (Page or Snippet, usually) mapes to one
+        # Smartling Job containing one .po file, and we use Job to get a URI
+        # for that PO file.
+
+        # Why are we using the Job PK as part of the file URI, rather than just
+        # "file.po" or something fixed?
+        # It's because Smartling uses this as the default namespace for any
         # strings contained in the file, and strings can only exist once in
         # a namespace. If we were to upload the same file to multiple Jobs
         # (e.g. if a page got translated, converted back to an alias and
         # then translated again), then the second Job would contain no
-        # strings because they're all part of the first Job. You can't
+        # strings because they're all part of the, past, first Job. You can't
         # authorize a Job with no strings, so it'd be effectively stuck.
-
-        # We're combining the Job ID and its TranslationSource to try to
-        # make this more unique and traceable. If we need
-        # greater uniqueness, we can add in (part of) the UUID-sourced string
-        # from job.translation_source.object.translation_key.hex
+        # (This is something we may need to watch out for in the future, too.)
 
         # NB: This HAS to be deterministic and stable, so that it can be
         # called at any point for the given Job to get the same value back.
+
+        # Here, we're combining the Job ID and its TranslationSource to try to
+        # make this more unique and traceable. If we need greater uniqueness,
+        # we can add in (part of) the UUID-sourced string from
+        # job.translation_source.object.translation_key.hex or pass in a
+        # salt of some kind that's still deterministic based on the state
+        # of the Wagtail object - such as a hash of JSON content
 
         file_uri = f"job_{job.pk}_ts_{job.translation_source.pk}.po"
         logger.info(f"Generated file_uri {file_uri}")
