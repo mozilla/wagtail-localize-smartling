@@ -441,56 +441,6 @@ class SmartlingAPIClient:
         )
         return file_uri
 
-    # TODO: remove me - deprecated in favour of batch approach
-    def upload_po_file_for_job(self, *, job: "Job") -> str:
-        # TODO handle 202 reponses for files that take over a minute to upload
-        # (Note that even a 200 isn't guaranteed fine - a 200 OK upload might
-        # still result in a 423 File Locked depending on the processing one
-        # the API service's side.)
-
-        # TODO document why we're using the Job PK for the file URI. It's
-        # because Smartling uses this as the default namespace for any
-        # strings contained in the file, and strings can only exist once in
-        # a namespace. If we were to upload the same file to multiple jobs
-        # (e.g. if a page got translated, converted back to an alias and
-        # then translated again), then the second job would contain no
-        # strings because they're all part of the first job. You can't
-        # authorize a job with no strings, so it'd be effectively stuck.
-        # TODO make this more unique, including page identifier
-        file_uri = f"job_{job.pk}.po"
-        self._request(
-            method="POST",
-            path=f"/files-api/v2/projects/{quote(job.project.project_id)}/file",
-            response_serializer_class=UploadFileResponseSerializer,
-            files={
-                "file": (file_uri, str(job.translation_source.export_po())),
-            },
-            data={
-                "fileUri": file_uri,
-                "fileType": "gettext",
-            },
-        )
-        return file_uri
-
-    # TODO: remove me - deprecated in favour of batch approach
-    def add_file_to_job(self, *, job: "Job"):
-        # TODO handle 202 responses for files that get added asynchronously
-
-        body: dict[str, Any] = {
-            "fileUri": job.file_uri,
-            "targetLocaleIds": [
-                utils.format_smartling_locale_id(t.target_locale.language_code)
-                for t in job.translations.all()
-            ],
-        }
-
-        return self._request(
-            method="POST",
-            path=f"/jobs-api/v3/projects/{quote(job.project.project_id)}/jobs/{quote(job.translation_job_uid)}/file/add",
-            response_serializer_class=AddFileToJobResponseSerializer,
-            json=body,
-        )
-
     def add_html_context_to_job(self, *, job: "Job"):
         """
         To help with translation, Smartling supports the idea of a

@@ -32,11 +32,6 @@ def test_client__get_job_details():
 
 
 @pytest.mark.skip("WRITE ME")
-def test_client__upload_po_file_for_job():
-    pass
-
-
-@pytest.mark.skip("WRITE ME")
 def test_client__download_translations():
     pass
 
