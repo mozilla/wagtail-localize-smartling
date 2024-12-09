@@ -140,6 +140,12 @@ class ResponseSerializer(
 
 
 class NullDataResponseSerializer(ResponseSerializer):
+    _acceptable_codes_for_null_response = [
+        # Subclasses should define what are acceptable response messages
+        # based on the use-case. e.g.
+        # "ACCEPTED",
+    ]
+
     def validate_empty_values(self, data) -> tuple[bool, Any]:
         """
         Overrides the default behavior to allow `None` for the `data` field.
