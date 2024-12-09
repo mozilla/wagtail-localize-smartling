@@ -3,7 +3,6 @@ import logging
 from collections.abc import Iterable
 from datetime import datetime
 from functools import lru_cache
-from urllib.parse import urljoin
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
@@ -12,7 +11,6 @@ from django.db.models.manager import Manager
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.panels import FieldPanel
-from wagtail.admin.utils import get_admin_base_url
 from wagtail_localize.components import register_translation_component
 from wagtail_localize.models import Translation, TranslationSource
 from wagtail_localize.tasks import ImmediateBackend, background
