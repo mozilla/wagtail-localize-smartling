@@ -153,7 +153,7 @@ class NullDataResponseSerializer(ResponseSerializer):
         if "response" in data and (
             data["response"]["data"] is None
             and hasattr(self, "_acceptable_codes_for_null_response")
-            and data["response"]["code"] in self._acceptable_codes_for_null_response  # pyright: ignore [reportAttributeAccessIssue]
+            and data["response"]["code"] in self._acceptable_codes_for_null_response
         ):
             # Consider this as valid for the serializer
             return True, data

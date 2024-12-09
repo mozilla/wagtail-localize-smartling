@@ -285,7 +285,7 @@ def smartling_upload_files_to_job_batch__error_response(
                 },
             }
         ),
-        status=202,
+        status=400,
     )
 
 
