@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Backfill changelog to fill in missing releases - @stevejalim
+
+## [0.8.0] - 2024-12-09
+
+### Changed
+
+- Amend how we upload .po files to avoid "File Locked" API error - @stevejalim
+
+## [0.7.0] - 2024-11-28
+
+### Changed
+
+- Improve default job name and description - @stevejalim
+
+## [0.6.1] - 2024-11-26
+
+### Changed
+
+- Do not fail when syncing objects that have no visual context available - @stevejalim
+
+## [0.6.0] - 2024-11-19
+
+### Added
+
+- Add support for Smartling CAT (#35) - @stevejalim
+
 ## [0.5.0] - 2024-10-22
 
 ### Added
