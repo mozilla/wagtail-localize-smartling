@@ -1,3 +1,4 @@
+import hashlib
 import logging
 
 from collections.abc import Iterable
@@ -236,30 +237,38 @@ class Job(SyncedModel):
         translations: Iterable[Translation],
     ) -> str:
         """
-        Default name to use for the job in Smartling. These need to be unique,
-        so, we concatenate a collision-dodging-enough portion of the translation
-        key, TranslationSource PK, target locale codes and a timestamp. Plus: if
-        there's a human-friendly prefix set that might help translators identify
-        jobs more easily (eg "Project Secret Squirrel") we use that, too.
+        Default name to use for the Job we want to create in Smartling. It needs
+        to be unique else Smartling will reject the Job when we try to make it.
+
+        Our template is`$OPTIONAL_PREFIX $UNIQUE_HASH $SOURCE_ID`
+
+        * `$OPTIONAL_PREFIX` will be set via the `JOB_NAME_PREFIX` setting
+        * `$UNIQUE_HASH` is an 8-character hash - not too long to be cumbersone,
+           not too short to risk collisions. We hash the current timestamp plus
+           relevant locale codes, then use the first 8 chars. (Collision risk
+           is 1 in 4.2bn and we'll never generate that many jobs!)
+        * `$SOURCE_ID` is the integer PK of the source object being translated.
+           This is mainly because it gives us a simple, incrementing number that
+           translators can use as a quick refernece, but it can also be traced
+           back to something in the CMS if we need to. Note that this ID alone
+           will not be unique across all Jobs, because it will be re-used if a
+           source object were to be amended and resubmitted for translation.
         """
-
-        # The default PK UIUD is very long. We can afford the collision risk
-        # of just using the first part of the sequence
-        _key = str(translation_source.object.translation_key).split("-")[0]
-
         _timestamp = (
             timezone.now()
             .replace(tzinfo=None)  # remove +00:00 - we know it's UTC
             .isoformat(timespec="seconds")
         )
-        name = (
-            f"{_key}:"
-            f"{translation_source.pk}:"
-            f"{':'.join(sorted(t.target_locale.language_code for t in translations))}:"
-            f"{_timestamp}"
-        )
+        _locales = ":".join(sorted(t.target_locale.language_code for t in translations))
+
+        hash = hashlib.md5(
+            _timestamp.encode("ascii") + _locales.encode("ascii"),
+            usedforsecurity=False,
+        ).hexdigest()[:8]
+
+        name = f"{hash} #{translation_source.pk}"
         if smartling_settings.JOB_NAME_PREFIX:
-            name = f"{smartling_settings.JOB_NAME_PREFIX}:" + name
+            name = f"{smartling_settings.JOB_NAME_PREFIX} " + name
         return name
 
     @staticmethod
