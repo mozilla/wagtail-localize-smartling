@@ -45,11 +45,9 @@ def test_Job_get_default_name(name_prefix, smartling_settings, root_page):
 
     name = Job.get_default_name(translation_source, [page_translation])
 
-    expected_name = (
-        f"{str(translation_source.object.translation_key).split('-')[0]}:"
-        f"{translation_source.pk}:fr:2024-05-03T12:34:56"
-    )
+    expected_name = f"70018f7c #{translation_source.pk}"
+
     if name_prefix:
-        expected_name = f"{name_prefix}:" + expected_name
+        expected_name = f"{name_prefix} {expected_name}"
 
     assert expected_name == name

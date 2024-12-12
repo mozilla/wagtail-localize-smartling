@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+No changes yet
+
+## [0.9.0] - 2024-12-12
+
+### Changed
+
+- Change how we generate unique Job names (#50) - @stevejalim
 - Backfill changelog to fill in missing releases - @stevejalim
 
 ## [0.8.0] - 2024-12-09
