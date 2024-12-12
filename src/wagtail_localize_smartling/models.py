@@ -249,7 +249,7 @@ class Job(SyncedModel):
            is 1 in 4.2bn and we'll never generate that many jobs!)
         * `$SOURCE_ID` is the integer PK of the source object being translated.
            This is mainly because it gives us a simple, incrementing number that
-           translators can use as a quick refernece, but it can also be traced
+           translators can use as a quick reference, but it can also be traced
            back to something in the CMS if we need to. Note that this ID alone
            will not be unique across all Jobs, because it will be re-used if a
            source object were to be amended and resubmitted for translation.
@@ -268,7 +268,7 @@ class Job(SyncedModel):
 
         name = f"{hash} #{translation_source.pk}"
         if smartling_settings.JOB_NAME_PREFIX:
-            name = f"{smartling_settings.JOB_NAME_PREFIX} " + name
+            name = f"{smartling_settings.JOB_NAME_PREFIX} {name}"
         return name
 
     @staticmethod
