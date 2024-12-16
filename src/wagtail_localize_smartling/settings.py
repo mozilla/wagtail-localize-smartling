@@ -38,6 +38,7 @@ class SmartlingSettings:
         Callable[[str, "TranslationSource", Iterable["Translation"]], str] | None
     ) = None
     VISUAL_CONTEXT_CALLBACK: Callable[["Job"], tuple[str, str]] | None = None
+    TRANSLATION_APPROVER_GROUP_NAME: str = "Translation approver"
 
 
 def _init_settings() -> SmartlingSettings:
