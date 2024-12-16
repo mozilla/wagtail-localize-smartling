@@ -390,6 +390,8 @@ class LandedTranslationTaskManager(models.Manager):
             content_type=c_type,
             object_id=source_object.pk,
             relevant_locale=translated_locale,
+            completed_on__isnull=True,
+            cancelled_on__isnull=True,
         )
         action = "made" if created else "found"
 

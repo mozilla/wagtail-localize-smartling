@@ -39,6 +39,7 @@ class SmartlingSettings:
     ) = None
     VISUAL_CONTEXT_CALLBACK: Callable[["Job"], tuple[str, str]] | None = None
     TRANSLATION_APPROVER_GROUP_NAME: str = "Translation approver"
+    ADD_APPROVAL_TASK_TO_DASHBOARD: bool = True
 
 
 def _init_settings() -> SmartlingSettings:
@@ -162,6 +163,11 @@ def _init_settings() -> SmartlingSettings:
 
     if "JOB_NAME_PREFIX" in settings_dict:
         settings_kwargs["JOB_NAME_PREFIX"] = settings_dict["JOB_NAME_PREFIX"]
+
+    if "ADD_APPROVAL_TASK_TO_DASHBOARD" in settings_dict:
+        settings_kwargs["ADD_APPROVAL_TASK_TO_DASHBOARD"] = settings_dict[
+            "ADD_APPROVAL_TASK_TO_DASHBOARD"
+        ]
 
     return SmartlingSettings(**settings_kwargs)
 

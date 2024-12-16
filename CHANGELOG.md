@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No changes yet
+### Added
+
+- Automatically generate Tasks for the dashboard to remind editors to publish pages once translations land - @stevejalim
 
 ## [0.9.0] - 2024-12-12
 
