@@ -7,11 +7,14 @@ from functools import lru_cache
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.db.models.manager import Manager
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.panels import FieldPanel
+from wagtail.models import Locale
 from wagtail_localize.components import register_translation_component
 from wagtail_localize.models import Translation, TranslationSource
 from wagtail_localize.tasks import ImmediateBackend, background
@@ -365,3 +368,81 @@ class Job(SyncedModel):
         # If we get here we've got a proper background worker, so we can safely
         # enqueue the syncing of the job.
         background.enqueue(sync_job, args=(job.pk,), kwargs={})
+
+
+class LandedTranslationTaskManager(models.Manager):
+    def incomplete(self):
+        return self.filter(completed_on__isnull=True, cancelled_on__isnull=True)
+
+    def create_from_source_and_translation(
+        self,
+        source_object: models.Model,
+        translated_locale: Locale,
+    ) -> "LandedTranslationTask":
+        """
+        Make a LandedTranslationTask for all users of the translation-approval
+        group, for the target instance mentioned
+        """
+
+        c_type = ContentType.objects.get_for_model(source_object)
+
+        task, created = LandedTranslationTask.objects.get_or_create(
+            content_type=c_type,
+            object_id=source_object.pk,
+            relevant_locale=translated_locale,
+        )
+        action = "made" if created else "found"
+
+        msg = (
+            f"Translation-approval task {action} for {c_type.name}#{source_object.pk}"
+            f" in {translated_locale.language_name}."
+        )
+        logger.info(msg)
+
+        return task
+
+
+class LandedTranslationTask(models.Model):
+    """
+    A custom task prompting members of a particular Group to review and
+    publish a particular Page or Snippet, which has just had translations land.
+
+    Note that this is _not_ a subclass of Task, and we don't it to sit
+    within a workflow because Workflows a) don't support Snippets and b)
+    are applied at a root or branching point, whereas we want these to be
+    applied specifically for certain pages only, and not be auto-added
+    to any potential child pages via a Workflow's cascade.
+    """
+
+    content_type = models.ForeignKey(
+        ContentType,
+        verbose_name=_("content type"),
+        related_name="wagtail_localize_smartling_tasks",
+        on_delete=models.CASCADE,
+    )
+    object_id = models.PositiveIntegerField()
+    content_object = GenericForeignKey("content_type", "object_id")
+
+    relevant_locale = models.ForeignKey(
+        Locale,
+        null=False,
+        on_delete=models.CASCADE,
+    )
+
+    created_on = models.DateTimeField(auto_now_add=True)
+    completed_on = models.DateTimeField(null=True, blank=True)
+    cancelled_on = models.DateTimeField(null=True, blank=True)
+
+    objects = LandedTranslationTaskManager()
+
+    def __str__(self):
+        return f"LandedTranslationTask for {self.content_object} in {self.relevant_locale.language_name}"  # noqa: E501
+
+    def __repr__(self):
+        return f"<LandedTranslationTask: {self.content_type.name}#{self.object_id}>"
+
+    def is_completed(self) -> bool:
+        return bool(self.completed_on)
+
+    def is_cancelled(self) -> bool:
+        return bool(self.cancelled_on)
