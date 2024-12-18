@@ -40,6 +40,7 @@ class SmartlingSettings:
     VISUAL_CONTEXT_CALLBACK: Callable[["Job"], tuple[str, str]] | None = None
     TRANSLATION_APPROVER_GROUP_NAME: str = "Translation approver"
     ADD_APPROVAL_TASK_TO_DASHBOARD: bool = True
+    MAX_APPROVAL_TASKS_ON_DASHBOARD: int = 7
 
 
 def _init_settings() -> SmartlingSettings:

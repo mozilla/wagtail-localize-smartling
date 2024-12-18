@@ -26,7 +26,7 @@ def create_landed_translation_task(
         logger.info("Creation of a landed-translation task is disabled by settings")
         return
 
-    LandedTranslationTask.objects.create_from_source_and_translation(  # type: ignore
+    LandedTranslationTask.objects.create_from_source_and_translation(  # pyright: ignore[reportAttributeAccessIssue]
         source_object=instance.translation_source.get_source_instance(),
         translated_locale=translation.target_locale,
     )

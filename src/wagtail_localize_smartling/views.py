@@ -2,12 +2,13 @@ import logging
 
 from typing import Any
 
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import TemplateView
+from laces.components import MediaContainer
 from wagtail.admin.auth import permission_denied
 from wagtail.admin.utils import get_valid_next_url_from_request
 from wagtail.admin.views.generic import (
@@ -17,6 +18,7 @@ from wagtail.admin.views.generic import (
 from wagtail.models import Locale
 from wagtail.permission_policies import ModelPermissionPolicy
 
+from .components import LandedTranslationsPanel
 from .constants import UNTRANSLATED_STATUSES
 from .models import Job, Project
 from .templatetags.wagtail_localize_smartling_admin_tags import smartling_job_url
@@ -164,3 +166,19 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
             )
 
         return context
+
+
+def landed_translations_list(request):
+    components = MediaContainer(
+        [
+            LandedTranslationsPanel(),
+        ]
+    )
+
+    return render(
+        request,
+        "wagtail_localize_smartling/admin/landed_translation_tasks.html",
+        {
+            "components": components,
+        },
+    )

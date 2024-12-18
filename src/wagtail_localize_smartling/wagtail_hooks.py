@@ -4,6 +4,8 @@ from wagtail import hooks
 from wagtail.admin.menu import MenuItem
 
 from . import admin_urls
+from .components import LandedTranslationsPanel
+from .settings import settings as smartling_settings
 from .views import SmartlingResubmitJobView
 from .viewsets import smartling_job_viewset
 
@@ -32,3 +34,14 @@ def register_smartling_settings_menu_item():
 @hooks.register("register_admin_viewset")  # pyright: ignore[reportOptionalCall]
 def register_viewset():
     return smartling_job_viewset
+
+
+@hooks.register("construct_homepage_panels")  # pyright: ignore[reportOptionalCall]
+def add_landed_translations_panel(request, panels):
+    _group_name = smartling_settings.TRANSLATION_APPROVER_GROUP_NAME
+    if _group_name in request.user.groups.all().values_list("name", flat=True):
+        panels.append(
+            LandedTranslationsPanel(
+                max_to_show=smartling_settings.MAX_APPROVAL_TASKS_ON_DASHBOARD
+            )
+        )

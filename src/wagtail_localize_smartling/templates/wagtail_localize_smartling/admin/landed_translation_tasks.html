@@ -1,0 +1,12 @@
+{% extends "wagtailadmin/generic/inspect.html" %}
+{% load wagtailadmin_tags i18n %}
+
+{% block main_content %}
+    <div class="w-mt-8">
+        <body>
+            {% for component in components %}
+                {% component component %}
+            {% endfor %}
+        </body>
+    </div>
+{% endblock %}

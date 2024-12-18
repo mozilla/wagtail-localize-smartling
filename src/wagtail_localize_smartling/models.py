@@ -11,10 +11,11 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.db.models.manager import Manager
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.panels import FieldPanel
-from wagtail.models import Locale
+from wagtail.models import Locale, Page
 from wagtail_localize.components import register_translation_component
 from wagtail_localize.models import Translation, TranslationSource
 from wagtail_localize.tasks import ImmediateBackend, background
@@ -25,7 +26,7 @@ from .constants import UNSYNCED_OR_PENDING_STATUSES
 from .forms import JobForm
 from .settings import settings as smartling_settings
 from .sync import sync_job
-from .utils import compute_content_hash
+from .utils import compute_content_hash, get_snippet_admin_url
 
 
 logger = logging.getLogger(__name__)
@@ -442,6 +443,19 @@ class LandedTranslationTask(models.Model):
 
     def __repr__(self):
         return f"<LandedTranslationTask: {self.content_type.name}#{self.object_id}>"
+
+    def edit_url_for_translated_item(self):
+        object = self.content_object.get_translations().get(  # pyright: ignore[reportOptionalMemberAccess]
+            locale=self.relevant_locale
+        )
+        if isinstance(
+            self.content_type.get_object_for_this_type(pk=self.object_id), Page
+        ):
+            edit_url = reverse("wagtailadmin_pages:edit", args=[object.pk])
+        else:
+            edit_url = get_snippet_admin_url(object)
+
+        return edit_url
 
     def is_completed(self) -> bool:
         return bool(self.completed_on)
