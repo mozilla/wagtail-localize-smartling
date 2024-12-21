@@ -9,6 +9,7 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import MultipleObjectsReturned, ObjectDoesNotExist
 from django.db import models
 from django.db.models.manager import Manager
 from django.urls import reverse
@@ -385,11 +386,15 @@ class LandedTranslationTaskManager(models.Manager):
         group, for the target instance mentioned
         """
 
-        c_type = ContentType.objects.get_for_model(source_object)
+        translated_object = source_object.get_translations().get(  # pyright: ignore[reportAttributeAccessIssue]
+            locale=translated_locale
+        )
+
+        c_type = ContentType.objects.get_for_model(translated_object)
 
         task, created = LandedTranslationTask.objects.get_or_create(
             content_type=c_type,
-            object_id=source_object.pk,
+            object_id=translated_object.pk,
             relevant_locale=translated_locale,
             completed_on__isnull=True,
             cancelled_on__isnull=True,
@@ -397,7 +402,7 @@ class LandedTranslationTaskManager(models.Manager):
         action = "made" if created else "found"
 
         msg = (
-            f"Translation-approval task {action} for {c_type.name}#{source_object.pk}"
+            f"Translation-approval task {action} for {c_type.name}#{translated_object.pk}"
             f" in {translated_locale.language_name}."
         )
         logger.info(msg)
@@ -439,23 +444,33 @@ class LandedTranslationTask(models.Model):
     objects = LandedTranslationTaskManager()
 
     def __str__(self):
-        return f"LandedTranslationTask for {self.content_object} in {self.relevant_locale.language_name}"  # noqa: E501
+        return f"LandedTranslationTask for {self.content_object} (#{self.object_id}) in {self.relevant_locale.language_name}"  # noqa: E501
 
     def __repr__(self):
         return f"<LandedTranslationTask: {self.content_type.name}#{self.object_id}>"
 
     def edit_url_for_translated_item(self):
-        object = self.content_object.get_translations().get(  # pyright: ignore[reportOptionalMemberAccess]
-            locale=self.relevant_locale
-        )
-        if isinstance(
-            self.content_type.get_object_for_this_type(pk=self.object_id), Page
-        ):
-            edit_url = reverse("wagtailadmin_pages:edit", args=[object.pk])
+        if isinstance(self.content_object, Page):
+            edit_url = reverse("wagtailadmin_pages:edit", args=[self.object_id])
         else:
-            edit_url = get_snippet_admin_url(object)
+            edit_url = get_snippet_admin_url(self.content_object)
 
         return edit_url
+
+    def complete(self):
+        self.completed_on = timezone.now()
+        self.cancelled_on = None
+        self.save(update_fields=["completed_on", "cancelled_on"])
+        logger.info(
+            f"LandedTranslationTask{self.pk} completed"
+        )  # TODO: add Wagtail log so we know who did this
+
+    def cancel(self):
+        self.completed_on = None
+        self.cancelled_on = timezone.now()
+        self.save(update_fields=["completed_on", "cancelled_on"])
+        logger.info(f"LandedTranslationTask{self.pk} cancelled")
+        # TODO: add Wagtail log so we know who did this
 
     def is_completed(self) -> bool:
         return bool(self.completed_on)
