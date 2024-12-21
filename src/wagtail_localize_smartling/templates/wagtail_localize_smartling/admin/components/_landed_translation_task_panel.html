@@ -1,4 +1,5 @@
 {% load humanize %}
+{% if tasks %}
 <section class="w-panel" id="landed-translations" aria-labelledby="landed-translations-heading" data-panel="">
     <div class="w-panel__header">
         <a class="w-panel__anchor w-panel__anchor--prefix" href="#landed-translations" data-panel-anchor="" aria-labelledby="landed-translations-heading">
@@ -43,3 +44,4 @@
         {% endif %}
     </div>
 </section>
+{% endif %}
