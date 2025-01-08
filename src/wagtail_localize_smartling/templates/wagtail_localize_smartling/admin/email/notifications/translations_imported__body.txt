@@ -1,0 +1,14 @@
+Hi there
+
+ACTION REQUIRED: Translations have been synced back from Smartling and need to be published.
+
+{{translation_target_locales|pluralize:"It is,They are"}} for Job '{{job_name}}' for '{{translation_source_name}}' into the following locale{{translation_target_locales|pluralize}}:
+{% for locale in translation_target_locales %}
+* {{locale}}
+{% endfor %}
+
+Appropriate tasks have been added to your Wagtail dashboard.
+
+For each one, please review the content and publish it.
+
+Please note that you may need to publish things in a particular order (e.g. Snippet before the Page that uses it.)

@@ -41,6 +41,7 @@ class SmartlingSettings:
     TRANSLATION_APPROVER_GROUP_NAME: str = "Translation approver"
     ADD_APPROVAL_TASK_TO_DASHBOARD: bool = True
     MAX_APPROVAL_TASKS_ON_DASHBOARD: int = 7
+    SEND_EMAIL_ON_TRANSLATION_IMPORT: bool = True
 
 
 def _init_settings() -> SmartlingSettings:

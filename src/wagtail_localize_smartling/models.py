@@ -374,7 +374,10 @@ class Job(SyncedModel):
 
 class LandedTranslationTaskManager(models.Manager):
     def incomplete(self):
-        return self.filter(completed_on__isnull=True, cancelled_on__isnull=True)
+        return self.filter(
+            completed_on__isnull=True,
+            cancelled_on__isnull=True,
+        )
 
     def create_from_source_and_translation(
         self,
@@ -383,7 +386,14 @@ class LandedTranslationTaskManager(models.Manager):
     ) -> "LandedTranslationTask":
         """
         Make a LandedTranslationTask for all users of the translation-approval
-        group, for the target instance mentioned
+        group, for the relevant translation of the source object.
+
+        Note that the source object is the instance that was translated (from
+        the Job), not the resulting translation. This why we need to look the
+        latter up via the relevant locale.
+
+        We do store the resulting translated object (e.g. Page or Snippet) as
+        the target of the generic FK.
         """
 
         translated_object = source_object.get_translations().get(  # pyright: ignore[reportAttributeAccessIssue]
@@ -429,9 +439,13 @@ class LandedTranslationTask(models.Model):
         on_delete=models.CASCADE,
     )
     object_id = models.PositiveIntegerField()
+
+    # content_object points to the translated item of content that this
+    # task is for:
     content_object = GenericForeignKey("content_type", "object_id")
 
     relevant_locale = models.ForeignKey(
+        # Denormed locale field to make ORM lookups simpler
         Locale,
         null=False,
         on_delete=models.CASCADE,
