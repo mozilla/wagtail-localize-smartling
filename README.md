@@ -185,6 +185,26 @@ integrates with the Smartling translation platform.
     duplicate job errors on the retry. Therefore, it is essential you have log
     handling set up to catch the `ERROR`-level alert that will happen at this point.
 
+    ----
+
+    By default, when translations for completed Jobs are imported into Wagtail,
+    the system will send notification emails to anyone in the `Translation approver`
+    Group, and also add a task list of items to (re)publish. You can disable these via
+    the settings:
+    - `SEND_EMAIL_ON_TRANSLATION_IMPORT`
+    and
+    - `ADD_APPROVAL_TASK_TO_DASHBOARD`
+    respectively.
+
+    The name of the `Translation approver` group is also a setting:
+    `TRANSLATION_APPROVER_GROUP_NAME`, but be careful about changing
+    this after the first deployment, as a data migration bootstraps the Group.
+
+    You can also control how many tasks are shown on the dashboard
+    via the `MAX_APPROVAL_TASKS_ON_DASHBOARD` setting.
+
+    the `JOB_DESCRIPTION_CALLBACK` setting:
+
 4. Run migrations:
 
     ```sh
