@@ -34,6 +34,10 @@ def test_settings():
     assert smartling_settings.JOB_NAME_PREFIX is None
     assert smartling_settings.JOB_DESCRIPTION_CALLBACK is None
     assert smartling_settings.VISUAL_CONTEXT_CALLBACK is None
+    assert smartling_settings.TRANSLATION_APPROVER_GROUP_NAME == "Translation approver"
+    assert smartling_settings.ADD_APPROVAL_TASK_TO_DASHBOARD is True
+    assert smartling_settings.MAX_APPROVAL_TASKS_ON_DASHBOARD == 7
+    assert smartling_settings.SEND_EMAIL_ON_TRANSLATION_IMPORT is True
 
 
 @override_settings(
@@ -198,3 +202,47 @@ def test_reformat_language_codes():
 def test_job_name_prefix():
     smartling_settings = _init_settings()
     assert smartling_settings.JOB_NAME_PREFIX == "Test prefix"
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "TRANSLATION_APPROVER_GROUP_NAME": "Test Group",
+    }
+)
+def test_translatipon_approver_group():
+    smartling_settings = _init_settings()
+    assert smartling_settings.TRANSLATION_APPROVER_GROUP_NAME == "Test Group"
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "ADD_APPROVAL_TASK_TO_DASHBOARD": False,
+    }
+)
+def test_add_approval_task_to_dashboard():
+    smartling_settings = _init_settings()
+    assert smartling_settings.ADD_APPROVAL_TASK_TO_DASHBOARD is False
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "MAX_APPROVAL_TASKS_ON_DASHBOARD": 45,
+    }
+)
+def test_max_approval_tasks_on_dashboard():
+    smartling_settings = _init_settings()
+    assert smartling_settings.MAX_APPROVAL_TASKS_ON_DASHBOARD == 45
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "SEND_EMAIL_ON_TRANSLATION_IMPORT": False,
+    }
+)
+def test_send_email_on_translation_import():
+    smartling_settings = _init_settings()
+    assert smartling_settings.SEND_EMAIL_ON_TRANSLATION_IMPORT is False

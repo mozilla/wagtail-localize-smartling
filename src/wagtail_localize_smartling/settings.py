@@ -171,6 +171,26 @@ def _init_settings() -> SmartlingSettings:
             "ADD_APPROVAL_TASK_TO_DASHBOARD"
         ]
 
+    if "TRANSLATION_APPROVER_GROUP_NAME" in settings_dict:
+        settings_kwargs["TRANSLATION_APPROVER_GROUP_NAME"] = settings_dict[
+            "TRANSLATION_APPROVER_GROUP_NAME"
+        ]
+
+    if "ADD_APPROVAL_TASK_TO_DASHBOARD" in settings_dict:
+        settings_kwargs["ADD_APPROVAL_TASK_TO_DASHBOARD"] = settings_dict[
+            "ADD_APPROVAL_TASK_TO_DASHBOARD"
+        ]
+
+    if "MAX_APPROVAL_TASKS_ON_DASHBOARD" in settings_dict:
+        settings_kwargs["MAX_APPROVAL_TASKS_ON_DASHBOARD"] = settings_dict[
+            "MAX_APPROVAL_TASKS_ON_DASHBOARD"
+        ]
+
+    if "SEND_EMAIL_ON_TRANSLATION_IMPORT" in settings_dict:
+        settings_kwargs["SEND_EMAIL_ON_TRANSLATION_IMPORT"] = settings_dict[
+            "SEND_EMAIL_ON_TRANSLATION_IMPORT"
+        ]
+
     return SmartlingSettings(**settings_kwargs)
 
 
