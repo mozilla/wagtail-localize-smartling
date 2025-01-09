@@ -203,8 +203,6 @@ integrates with the Smartling translation platform.
     You can also control how many tasks are shown on the dashboard
     via the `MAX_APPROVAL_TASKS_ON_DASHBOARD` setting.
 
-    the `JOB_DESCRIPTION_CALLBACK` setting:
-
 4. Run migrations:
 
     ```sh
@@ -310,7 +308,7 @@ flowchart LR
 
 This app provides two Signals.
 
-`wagtail_localize.signals.individual_translation_imported` is sent when translation are imported from Smartling.
+`wagtail_localize.signals.individual_translation_imported` is sent each time a translation for a single locale (and for a single content object) is imported from Smartling.
 
 Signal kwargs:
 

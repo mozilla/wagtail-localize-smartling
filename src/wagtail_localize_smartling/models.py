@@ -389,7 +389,7 @@ class LandedTranslationTaskManager(models.Manager):
         group, for the relevant translation of the source object.
 
         Note that the source object is the instance that was translated (from
-        the Job), not the resulting translation. This why we need to look the
+        the Job), not the resulting translation. This is why we need to look the
         latter up via the relevant locale.
 
         We do store the resulting translated object (e.g. Page or Snippet) as
@@ -425,7 +425,7 @@ class LandedTranslationTask(models.Model):
     A custom task prompting members of a particular Group to review and
     publish a particular Page or Snippet, which has just had translations land.
 
-    Note that this is _not_ a subclass of Task, and we don't it to sit
+    Note that this is _not_ a subclass of Task, and we don't want it to sit
     within a workflow because Workflows a) don't support Snippets and b)
     are applied at a root or branching point, whereas we want these to be
     applied specifically for certain pages only, and not be auto-added
