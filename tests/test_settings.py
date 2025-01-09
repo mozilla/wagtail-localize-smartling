@@ -28,7 +28,12 @@ def test_settings():
     assert smartling_settings.REQUIRED is True
     assert smartling_settings.ENVIRONMENT == "staging"
     assert smartling_settings.API_TIMEOUT_SECONDS == 10.0
+    assert smartling_settings.LOCALE_TO_SMARTLING_LOCALE == {}
+    assert smartling_settings.SMARTLING_LOCALE_TO_LOCALE == {}
+    assert smartling_settings.REFORMAT_LANGUAGE_CODES is True
+    assert smartling_settings.JOB_NAME_PREFIX is None
     assert smartling_settings.JOB_DESCRIPTION_CALLBACK is None
+    assert smartling_settings.VISUAL_CONTEXT_CALLBACK is None
 
 
 @override_settings(
@@ -171,3 +176,25 @@ def test_visual_context_callback(smartling_job):
 def test_invalid_visual_context_callback_signature():
     smartling_settings = _init_settings()
     assert smartling_settings.VISUAL_CONTEXT_CALLBACK is None
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "REFORMAT_LANGUAGE_CODES": False,
+    }
+)
+def test_reformat_language_codes():
+    smartling_settings = _init_settings()
+    assert smartling_settings.REFORMAT_LANGUAGE_CODES is False
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "JOB_NAME_PREFIX": "Test prefix",
+    }
+)
+def test_job_name_prefix():
+    smartling_settings = _init_settings()
+    assert smartling_settings.JOB_NAME_PREFIX == "Test prefix"
