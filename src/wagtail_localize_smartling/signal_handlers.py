@@ -129,7 +129,7 @@ def send_email_notification_upon_overall_translation_import(
     )
     if not ta_group.exists():
         logger.warning(
-            "Could not find the Translation Approvers "
+            f"Could not find the {smartling_settings.TRANSLATION_APPROVER_GROUP_NAME} "
             "auth.Group to send email notifications to"
         )
         return
@@ -148,7 +148,8 @@ def send_email_notification_upon_overall_translation_import(
     if not approver_email_addresses:
         logger.warning(
             "Unable to send translation-imported email notifications: "
-            "no Translation Approvers in system"
+            f"no members of the {smartling_settings.TRANSLATION_APPROVER_GROUP_NAME} "
+            "group in the system"
         )
         return
 

@@ -179,7 +179,7 @@ def test_notify_of_imported_translations__no_group_members(mocker):
     assert mock_send_mail.call_count == 0
     assert mock_logger_warning.call_args_list[0][0][0] == (
         "Unable to send translation-imported email notifications: "
-        "no Translation Approvers in system"
+        "no members of the Translation approver group in the system"
     )
 
 
