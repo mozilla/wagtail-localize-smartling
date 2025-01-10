@@ -426,10 +426,9 @@ class LandedTranslationTask(models.Model):
     publish a particular Page or Snippet, which has just had translations land.
 
     Note that this is _not_ a subclass of Task, and we don't want it to sit
-    within a workflow because Workflows a) don't support Snippets and b)
-    are applied at a root or branching point, whereas we want these to be
-    applied specifically for certain pages only, and not be auto-added
-    to any potential child pages via a Workflow's cascade.
+    within a workflow because Workflows are applied at a root or branching point,
+    whereas we want these to be applied specifically for certain pages only, and
+    not be auto-added to any potential child pages via a Workflow's cascade.
     """
 
     content_type = models.ForeignKey(
