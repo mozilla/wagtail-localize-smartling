@@ -9,9 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes
 
-## [0.10.1] - 2025-01-10
+## [0.10.2] - 2025-01-10
 
-(Note: The deprecated 0.10.0 was code-identical to 0.10.1 but the Changelog wasn't appropriately categorized)
+(Note: The deprecated 0.10.0 and 0.10.1 were code-identical to 0.10.2 but we had some packaging niggles)
 
 ### Added
 
