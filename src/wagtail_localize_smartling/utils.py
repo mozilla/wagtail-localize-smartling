@@ -3,6 +3,7 @@ import hashlib
 from typing import TYPE_CHECKING
 from urllib.parse import quote, urljoin, urlparse
 
+from django.urls import reverse
 from wagtail.coreutils import (
     get_content_languages,
     get_supported_content_language_variant,
@@ -160,3 +161,12 @@ def get_filename_for_visual_context(url: str, max_length: int = 256) -> str:
     body = f"{head}{tail}"[: max_length - 5]
 
     return f"{body}.html"
+
+
+def get_snippet_admin_url(snippet):
+    # Crude, but simple and effective
+    app_label = snippet._meta.app_label
+    model_name = snippet._meta.model_name
+    admin_root_path = reverse("wagtailadmin_home")
+
+    return f"{admin_root_path}snippets/{app_label}/{model_name}/edit/{snippet.pk}/"

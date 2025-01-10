@@ -38,6 +38,10 @@ class SmartlingSettings:
         Callable[[str, "TranslationSource", Iterable["Translation"]], str] | None
     ) = None
     VISUAL_CONTEXT_CALLBACK: Callable[["Job"], tuple[str, str]] | None = None
+    TRANSLATION_APPROVER_GROUP_NAME: str = "Translation approver"
+    ADD_APPROVAL_TASK_TO_DASHBOARD: bool = True
+    MAX_APPROVAL_TASKS_ON_DASHBOARD: int = 7
+    SEND_EMAIL_ON_TRANSLATION_IMPORT: bool = True
 
 
 def _init_settings() -> SmartlingSettings:
@@ -161,6 +165,31 @@ def _init_settings() -> SmartlingSettings:
 
     if "JOB_NAME_PREFIX" in settings_dict:
         settings_kwargs["JOB_NAME_PREFIX"] = settings_dict["JOB_NAME_PREFIX"]
+
+    if "ADD_APPROVAL_TASK_TO_DASHBOARD" in settings_dict:
+        settings_kwargs["ADD_APPROVAL_TASK_TO_DASHBOARD"] = settings_dict[
+            "ADD_APPROVAL_TASK_TO_DASHBOARD"
+        ]
+
+    if "TRANSLATION_APPROVER_GROUP_NAME" in settings_dict:
+        settings_kwargs["TRANSLATION_APPROVER_GROUP_NAME"] = settings_dict[
+            "TRANSLATION_APPROVER_GROUP_NAME"
+        ]
+
+    if "ADD_APPROVAL_TASK_TO_DASHBOARD" in settings_dict:
+        settings_kwargs["ADD_APPROVAL_TASK_TO_DASHBOARD"] = settings_dict[
+            "ADD_APPROVAL_TASK_TO_DASHBOARD"
+        ]
+
+    if "MAX_APPROVAL_TASKS_ON_DASHBOARD" in settings_dict:
+        settings_kwargs["MAX_APPROVAL_TASKS_ON_DASHBOARD"] = settings_dict[
+            "MAX_APPROVAL_TASKS_ON_DASHBOARD"
+        ]
+
+    if "SEND_EMAIL_ON_TRANSLATION_IMPORT" in settings_dict:
+        settings_kwargs["SEND_EMAIL_ON_TRANSLATION_IMPORT"] = settings_dict[
+            "SEND_EMAIL_ON_TRANSLATION_IMPORT"
+        ]
 
     return SmartlingSettings(**settings_kwargs)
 

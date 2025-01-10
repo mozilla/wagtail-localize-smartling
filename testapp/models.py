@@ -1,9 +1,11 @@
+from django.db import models
 from wagtail import blocks
 from wagtail.admin.panels import FieldPanel
 from wagtail.documents.blocks import DocumentChooserBlock
 from wagtail.fields import StreamField
 from wagtail.images.blocks import ImageChooserBlock
-from wagtail.models import Page
+from wagtail.models import Page, TranslatableMixin
+from wagtail.snippets.models import register_snippet
 
 
 class BodyBlock(blocks.StreamBlock):
@@ -22,3 +24,8 @@ class InfoPage(Page):
     content_panels = Page.content_panels + [
         FieldPanel("body"),
     ]
+
+
+@register_snippet
+class InfoSnippet(TranslatableMixin):
+    content = models.TextField()

@@ -185,6 +185,24 @@ integrates with the Smartling translation platform.
     duplicate job errors on the retry. Therefore, it is essential you have log
     handling set up to catch the `ERROR`-level alert that will happen at this point.
 
+    ----
+
+    By default, when translations for completed Jobs are imported into Wagtail,
+    the system will send notification emails to anyone in the `Translation approver`
+    Group, and also add a task list of items to (re)publish. You can disable these via
+    the settings:
+    - `SEND_EMAIL_ON_TRANSLATION_IMPORT`
+    and
+    - `ADD_APPROVAL_TASK_TO_DASHBOARD`
+    respectively.
+
+    The name of the `Translation approver` group is also a setting:
+    `TRANSLATION_APPROVER_GROUP_NAME`, but be careful about changing
+    this after the first deployment, as a data migration bootstraps the Group.
+
+    You can also control how many tasks are shown on the dashboard
+    via the `MAX_APPROVAL_TASKS_ON_DASHBOARD` setting.
+
 4. Run migrations:
 
     ```sh
@@ -288,8 +306,9 @@ flowchart LR
 
 ## Signals
 
-This app provides a single `wagtail_localize.signals.translation_imported`
-signal that is sent when translation are imported from Smartling.
+This app provides two Signals.
+
+`wagtail_localize.signals.individual_translation_imported` is sent each time a translation for a single locale (and for a single content object) is imported from Smartling.
 
 Signal kwargs:
 
@@ -297,6 +316,14 @@ Signal kwargs:
 - `instance`: The `Job` instance for which translation are being imported
 - `translation`: The `wagtail_localize.models.Translation` instance the translations are being imported to.
   Use `translation.get_target_instance()` to get the model instance that the translation is for (e.g. a page or snippet)
+
+`wagtail_localize.signals.translation_import_successful` is sent when all of the translations for a Job have been imported without issue.
+
+Signal kwargs:
+
+- `sender`: The `wagtail_localize_smartling.models.Job` class
+- `instance`: The `Job` instance for which translation are being imported
+- `translations_imported`: A list of `wagtail_localize.models.Translation` instances that were imported to for the entire Job.
 
 ## Cutting a new release
 

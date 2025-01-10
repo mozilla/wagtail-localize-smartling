@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No changes yet
+### Added
+
+- Automatically generate Tasks for the dashboard to remind editors to publish pages once translations land - @stevejalim
+  - BREAKING CHANGE: requires `django.contrib.humanize` to be added to `settings.INSTALLED_APPS`
+- Automatically email admins when translations are imported - @stevejalim
+  - BREAKING CHANGE: `signals.translation_imported` renamed to `signals.individual_translation_imported`
 
 ## [0.9.0] - 2024-12-12
 

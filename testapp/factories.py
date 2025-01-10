@@ -11,7 +11,7 @@ from wagtail import blocks
 from wagtail.models import Locale, Site, TranslatableMixin
 from wagtail_localize.models import TranslatableObject, Translation, TranslationSource
 
-from .models import BodyBlock, InfoPage
+from .models import BodyBlock, InfoPage, InfoSnippet
 
 
 class UserFactory(factory.django.DjangoModelFactory):
@@ -94,6 +94,11 @@ class InfoPageFactory(wagtail_factories.PageFactory):
                 **kwargs,
             }
         )
+
+
+class InfoSnippetFactory(factory.django.DjangoModelFactory):
+    class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
+        model = InfoSnippet
 
 
 class TranslatablebObjectFactory(factory.django.DjangoModelFactory):

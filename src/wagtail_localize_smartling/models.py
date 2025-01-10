@@ -7,11 +7,16 @@ from functools import lru_cache
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import MultipleObjectsReturned, ObjectDoesNotExist
 from django.db import models
 from django.db.models.manager import Manager
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.panels import FieldPanel
+from wagtail.models import Locale, Page
 from wagtail_localize.components import register_translation_component
 from wagtail_localize.models import Translation, TranslationSource
 from wagtail_localize.tasks import ImmediateBackend, background
@@ -22,7 +27,7 @@ from .constants import UNSYNCED_OR_PENDING_STATUSES
 from .forms import JobForm
 from .settings import settings as smartling_settings
 from .sync import sync_job
-from .utils import compute_content_hash
+from .utils import compute_content_hash, get_snippet_admin_url
 
 
 logger = logging.getLogger(__name__)
@@ -365,3 +370,123 @@ class Job(SyncedModel):
         # If we get here we've got a proper background worker, so we can safely
         # enqueue the syncing of the job.
         background.enqueue(sync_job, args=(job.pk,), kwargs={})
+
+
+class LandedTranslationTaskManager(models.Manager):
+    def incomplete(self):
+        return self.filter(
+            completed_on__isnull=True,
+            cancelled_on__isnull=True,
+        )
+
+    def create_from_source_and_translation(
+        self,
+        source_object: models.Model,
+        translated_locale: Locale,
+    ) -> "LandedTranslationTask":
+        """
+        Make a LandedTranslationTask for all users of the translation-approval
+        group, for the relevant translation of the source object.
+
+        Note that the source object is the instance that was translated (from
+        the Job), not the resulting translation. This is why we need to look the
+        latter up via the relevant locale.
+
+        We do store the resulting translated object (e.g. Page or Snippet) as
+        the target of the generic FK.
+        """
+
+        translated_object = source_object.get_translations().get(  # pyright: ignore[reportAttributeAccessIssue]
+            locale=translated_locale
+        )
+
+        c_type = ContentType.objects.get_for_model(translated_object)
+
+        task, created = LandedTranslationTask.objects.get_or_create(
+            content_type=c_type,
+            object_id=translated_object.pk,
+            relevant_locale=translated_locale,
+            completed_on__isnull=True,
+            cancelled_on__isnull=True,
+        )
+        action = "made" if created else "found"
+
+        msg = (
+            f"Translation-approval task {action} for {c_type.name}#{translated_object.pk}"
+            f" in {translated_locale.language_name}."
+        )
+        logger.info(msg)
+
+        return task
+
+
+class LandedTranslationTask(models.Model):
+    """
+    A custom task prompting members of a particular Group to review and
+    publish a particular Page or Snippet, which has just had translations land.
+
+    Note that this is _not_ a subclass of Task, and we don't want it to sit
+    within a workflow because Workflows are applied at a root or branching point,
+    whereas we want these to be applied specifically for certain pages only, and
+    not be auto-added to any potential child pages via a Workflow's cascade.
+    """
+
+    content_type = models.ForeignKey(
+        ContentType,
+        verbose_name=_("content type"),
+        related_name="wagtail_localize_smartling_tasks",
+        on_delete=models.CASCADE,
+    )
+    object_id = models.PositiveIntegerField()
+
+    # content_object points to the translated item of content that this
+    # task is for:
+    content_object = GenericForeignKey("content_type", "object_id")
+
+    relevant_locale = models.ForeignKey(
+        # Denormed locale field to make ORM lookups simpler
+        Locale,
+        null=False,
+        on_delete=models.CASCADE,
+    )
+
+    created_on = models.DateTimeField(auto_now_add=True)
+    completed_on = models.DateTimeField(null=True, blank=True)
+    cancelled_on = models.DateTimeField(null=True, blank=True)
+
+    objects = LandedTranslationTaskManager()
+
+    def __str__(self):
+        return f"LandedTranslationTask for {self.content_object} (#{self.object_id}) in {self.relevant_locale.language_name}"  # noqa: E501
+
+    def __repr__(self):
+        return f"<LandedTranslationTask: {self.content_type.name}#{self.object_id}>"
+
+    def edit_url_for_translated_item(self):
+        if isinstance(self.content_object, Page):
+            edit_url = reverse("wagtailadmin_pages:edit", args=[self.object_id])
+        else:
+            edit_url = get_snippet_admin_url(self.content_object)
+
+        return edit_url
+
+    def complete(self):
+        self.completed_on = timezone.now()
+        self.cancelled_on = None
+        self.save(update_fields=["completed_on", "cancelled_on"])
+        logger.info(
+            f"LandedTranslationTask{self.pk} completed"
+        )  # TODO: add Wagtail log so we know who did this
+
+    def cancel(self):
+        self.completed_on = None
+        self.cancelled_on = timezone.now()
+        self.save(update_fields=["completed_on", "cancelled_on"])
+        logger.info(f"LandedTranslationTask{self.pk} cancelled")
+        # TODO: add Wagtail log so we know who did this
+
+    def is_completed(self) -> bool:
+        return bool(self.completed_on)
+
+    def is_cancelled(self) -> bool:
+        return bool(self.cancelled_on)

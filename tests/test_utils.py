@@ -1,3 +1,5 @@
+from unittest import mock
+
 import pytest
 
 from wagtail_localize_smartling import utils
@@ -70,3 +72,14 @@ def test_format_wagtail_locale_id(locale_id, expected, reformat, smartling_setti
 @pytest.mark.django_db
 def test_get_filename_for_visual_context(url, expected):
     assert utils.get_filename_for_visual_context(url) == expected
+
+
+@pytest.mark.django_db
+def test_get_snippet_admin_url():
+    snippet = mock.Mock()
+    snippet._meta.app_label = "testapp"
+    snippet._meta.model_name = "testmodel"
+    snippet.pk = 1
+
+    expected_url = "/admin/snippets/testapp/testmodel/edit/1/"
+    assert utils.get_snippet_admin_url(snippet) == expected_url

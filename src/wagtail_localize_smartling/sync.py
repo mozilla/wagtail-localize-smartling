@@ -12,7 +12,7 @@ from . import utils
 from .api.client import client
 from .api.types import JobStatus
 from .constants import PENDING_STATUSES, TRANSLATED_STATUSES, UNTRANSLATED_STATUSES
-from .signals import translation_imported
+from .signals import individual_translation_imported, translation_import_successful
 
 
 if TYPE_CHECKING:
@@ -174,6 +174,8 @@ def _download_and_apply_translations(job: "Job") -> None:
 
     logger.info("Downloading and importing translations for job %s", job)
 
+    _translations_imported = []
+
     with client.download_translations(job=job) as translations_zip:
         for zipinfo in translations_zip.infolist():
             # Filenames are of the format "{localeId}/{fileUri}"
@@ -198,9 +200,17 @@ def _download_and_apply_translations(job: "Job") -> None:
             with translations_zip.open(zipinfo) as f:
                 po_file = polib.pofile(f.read().decode("utf-8"))
                 translation.import_po(po_file)
-                translation_imported.send(
+                individual_translation_imported.send(
                     sender=job.__class__,
                     instance=job,
                     translation=translation,
                 )
                 logger.info("Imported translations for %s", translation)
+                _translations_imported.append(translation)
+
+    if _translations_imported:
+        translation_import_successful.send(
+            sender=job.__class__,
+            instance=job,
+            translations_imported=_translations_imported,
+        )

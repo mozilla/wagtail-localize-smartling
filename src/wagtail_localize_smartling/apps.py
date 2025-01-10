@@ -8,4 +8,4 @@ class WagtailLocalizeSmartlingAppConfig(AppConfig):
     verbose_name = "Wagtail Localize Smartling"
 
     def ready(self):
-        from . import checks, signals  # noqa: F401
+        from . import checks, signal_handlers, signals  # noqa: F401

@@ -7,6 +7,7 @@ from wagtail.models import Locale
 from wagtail_localize.models import Translation
 
 from wagtail_localize_smartling import models as wls_models
+from wagtail_localize_smartling.settings import settings as smartling_settings
 
 from testapp.factories import TranslationSourceFactory, UserFactory
 
@@ -52,3 +53,24 @@ class JobFactory(factory.django.DjangoModelFactory):
                 source=obj.translation_source,
                 target_locale=target_locale,
             )
+
+
+class TranslationApproverGroupFactory(factory.django.DjangoModelFactory):
+    class Meta:  # type: ignore
+        model = "auth.Group"
+        django_get_or_create = ("name",)
+
+    name = smartling_settings.TRANSLATION_APPROVER_GROUP_NAME
+
+
+class WagtailUserFactory(factory.django.DjangoModelFactory):
+    class Meta:  # type: ignore
+        model = "auth.User"  # Equivalent to ``model = myapp.models.User``
+        django_get_or_create = ("username",)
+
+    email = "testuser@example.com"
+    username = "testuser"
+
+    is_superuser = False
+    is_staff = True
+    is_active = True

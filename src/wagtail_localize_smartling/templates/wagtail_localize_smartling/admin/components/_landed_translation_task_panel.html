@@ -1,0 +1,48 @@
+{% load humanize %}
+{% if tasks %}
+<section class="w-panel" id="landed-translations" aria-labelledby="landed-translations-heading" data-panel="">
+    <div class="w-panel__header">
+        <a class="w-panel__anchor w-panel__anchor--prefix" href="#landed-translations" data-panel-anchor="" aria-labelledby="landed-translations-heading">
+            <svg class="icon icon-link w-panel__icon" aria-hidden="true"><use href="#icon-link"></use></svg>
+        </a>
+        <button class="w-panel__toggle" type="button" aria-label="Toggle section" aria-describedby="landed-translations-heading" data-panel-toggle="" aria-controls="landed-translations-content" aria-expanded="true">
+            <svg class="icon icon-placeholder w-panel__icon" aria-hidden="true"><use href="#icon-placeholder"></use></svg>
+        </button>
+            <h2 class="w-panel__heading " id="landed-translations-heading" data-panel-heading="">
+                <span data-panel-heading-text="">
+                    ⚠️ {{tasks.count|apnumber|capfirst}} translation{{tasks.count|pluralize}} must be published
+                </span>
+            </h2>
+        <a class="w-panel__anchor w-panel__anchor--suffix" href="#landed-translations" aria-labelledby="landed-translations-heading">
+            <svg class="icon icon-link w-panel__icon" aria-hidden="true"><use href="#icon-link"></use></svg>
+        </a>
+        <div class="w-panel__divider"></div>
+    </div>
+
+    <div id="landed-translations-content" class="w-panel__content">
+        <div class="help-block help-info">
+            <svg class="icon icon-help icon" aria-hidden="true"><use href="#icon-help"></use></svg>
+            <p>
+                The following items have had completed translations arrive from Smartling.
+                They now need to be lightly checked and published.
+            </p>
+        </div>
+        <ul class="listing">
+            {% for task in tasks %}
+            <li>
+                <a href="{{task.edit_url_for_translated_item}}">
+                    {{task.content_object}} in {{task.relevant_locale.language_name}}
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+        {% if total_tasks > tasks.count %}
+            <a href="{% url 'wagtail_localize_smartling:landed-translations' %}">
+                <strong>
+                    See all {{tasks.count}} tasks
+                </strong>
+            </a>
+        {% endif %}
+    </div>
+</section>
+{% endif %}
