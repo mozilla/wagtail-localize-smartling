@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+No changes
+
+## [0.10.1] - 2025-01-10
+
+(Note: The deprecated 0.10.0 was code-identical to 0.10.1 but the Changelog wasn't appropriately categorized)
+
 ### Added
 
 - Automatically generate Tasks for the dashboard to remind editors to publish pages once translations land - @stevejalim
