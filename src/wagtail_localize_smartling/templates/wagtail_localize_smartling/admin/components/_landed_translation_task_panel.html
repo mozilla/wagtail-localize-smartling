@@ -30,9 +30,13 @@
         <ul class="listing">
             {% for task in tasks %}
             <li>
+                {% if task.content_object %}
                 <a href="{{task.edit_url_for_translated_item}}">
                     {{task.content_object}} in {{task.relevant_locale.language_name}}
                 </a>
+                {% else %}
+                (Cannot show approval task #{{task.pk}} - the translated entity no longer exists)
+                {% endif %}
             </li>
             {% endfor %}
         </ul>
