@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes
 
+## [0.10.3] - 2025-05-07
+
+Bugfix: avoid 500ing if a LandedTranslationTask references a now-deleted content object.
+
 ## [0.10.2] - 2025-01-10
 
 (Note: The deprecated 0.10.0 and 0.10.1 were code-identical to 0.10.2 but we had some packaging niggles)
