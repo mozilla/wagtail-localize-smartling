@@ -1,0 +1,11 @@
+{
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "**/node_modules",
+    "**/.venv"
+  ],
+  "reportPrivateImportUsage": "none",
+}
