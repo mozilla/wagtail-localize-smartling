@@ -24,3 +24,6 @@
 __pycache__/
 test-media/
 test-static/
+.claude
+AGENTS.md
+CLAUDE.md
