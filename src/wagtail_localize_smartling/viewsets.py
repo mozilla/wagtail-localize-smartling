@@ -67,7 +67,7 @@ class JobIndexView(generic.IndexView):
     page_title = _("Smartling jobs")
     breadcrumbs = []
 
-    def get_breadcrumbs_items(self):
+    def get_breadcrumbs_items(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         return self.breadcrumbs_items + [
             {"url": "", "label": self.page_title},
         ]

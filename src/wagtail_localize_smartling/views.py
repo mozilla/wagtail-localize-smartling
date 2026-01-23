@@ -37,7 +37,7 @@ class SmartlingStatusView(WagtailAdminTemplateMixin, TemplateView):  # pyright: 
     page_title = _("Smartling")
     template_name = "wagtail_localize_smartling/admin/smartling_status.html"
 
-    def get_breadcrumbs_items(self):
+    def get_breadcrumbs_items(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         return super().get_breadcrumbs_items() + [{"url": "", "label": _("Smartling")}]
 
     def get_context_data(self, **kwargs):
@@ -101,7 +101,7 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
     permission_required = "view"
     jobs_report_url: str = ""
 
-    def get_breadcrumbs_items(self):
+    def get_breadcrumbs_items(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         # TODO: link to the report view
         return super().get_breadcrumbs_items() + [
             {"url": self.jobs_report_url, "label": _("Smartling jobs")},

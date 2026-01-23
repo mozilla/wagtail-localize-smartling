@@ -140,7 +140,6 @@ AUTH_PASSWORD_VALIDATORS = [
 # https://docs.djangoproject.com/en/stable/topics/i18n/
 
 USE_I18N = True
-USE_L10N = True
 LANGUAGE_CODE = "en-us"
 
 WAGTAIL_I18N_ENABLED = True
@@ -224,3 +223,12 @@ def job_description_callback(description: str, translation_source, translations)
 
 def visual_context_callback(job: "Job") -> tuple[str, str]:
     return "https://example.com/path/to/page/", "<html><body>test</body></html>"
+
+
+# django-tasks configuration (needed for Wagtail 7.x+ modelsearch)
+# Use DummyBackend in tests to avoid actually executing indexing tasks
+TASKS = {
+    "default": {
+        "BACKEND": "django_tasks.backends.dummy.DummyBackend",
+    }
+}

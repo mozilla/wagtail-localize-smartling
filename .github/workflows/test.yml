@@ -19,7 +19,7 @@ env:
   TOX_TESTENV_PASSENV: FORCE_COLOR
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
   PIP_NO_PYTHON_VERSION_WARNING: '1'
-  PYTHON_LATEST: '3.12'
+  PYTHON_LATEST: '3.13'
 
 jobs:
   pyright:
@@ -45,10 +45,15 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ["3.11", "3.12"]
-        django: ["4.2"]
-        wagtail: ["6.2"]
+        python: ["3.11", "3.12", "3.13"]
+        django: ["5.1", "5.2"]
+        wagtail: ["6.2", "7.2"]
         db: ["sqlite"]
+        include:
+          - python: "3.13"
+            django: "6.0"
+            wagtail: "7.2"
+            db: "sqlite"
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python }}
@@ -67,7 +72,7 @@ jobs:
       - name: Upload coverage data
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-data-${{ matrix.python }}-sqlite
+          name: coverage-data-${{ matrix.python }}-django${{ matrix.django }}-wagtail${{ matrix.wagtail }}-sqlite
           path: .coverage
           if-no-files-found: ignore
           retention-days: 1
@@ -77,10 +82,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ['3.11', '3.12']
+        python: ['3.11', '3.12', '3.13']
     services:
       postgres:
-        image: 'postgres:13'
+        image: 'postgres:16'
         env:
           POSTGRES_PASSWORD: postgres
         ports:
