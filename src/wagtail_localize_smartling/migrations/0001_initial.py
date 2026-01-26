@@ -40,9 +40,7 @@ class Migration(migrations.Migration):
             ],
             options={
                 "ordering": (
-                    models.OrderBy(
-                        models.F("first_synced_at"), descending=True, nulls_first=True
-                    ),
+                    models.OrderBy(models.F("first_synced_at"), descending=True, nulls_first=True),
                     "-pk",
                 ),
                 "abstract": False,
@@ -123,9 +121,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "translations",
-                    models.ManyToManyField(
-                        related_name="smartling_jobs", to="wagtail_localize.translation"
-                    ),
+                    models.ManyToManyField(related_name="smartling_jobs", to="wagtail_localize.translation"),
                 ),
                 (
                     "user",
@@ -138,9 +134,7 @@ class Migration(migrations.Migration):
             ],
             options={
                 "ordering": (
-                    models.OrderBy(
-                        models.F("first_synced_at"), descending=True, nulls_first=True
-                    ),
+                    models.OrderBy(models.F("first_synced_at"), descending=True, nulls_first=True),
                     "-pk",
                 ),
                 "abstract": False,
@@ -150,7 +144,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="project",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     ("environment", "production"),
                     ("environment", "staging"),
                     _connector="OR",
@@ -183,7 +177,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="job",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     models.Q(
                         ("first_synced_at__isnull", True),
                         ("last_synced_at__isnull", True),

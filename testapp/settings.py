@@ -117,9 +117,7 @@ PASSWORD_HASHERS = ("django.contrib.auth.hashers.MD5PasswordHasher",)
 # https://docs.djangoproject.com/en/stable/ref/settings/#databases
 
 DATABASES = {
-    "default": dj_database_url.config(
-        default="sqlite:///wagtail_localize_smartling.db"
-    ),
+    "default": dj_database_url.config(default="sqlite:///wagtail_localize_smartling.db"),
 }
 
 
@@ -127,9 +125,7 @@ DATABASES = {
 # https://docs.djangoproject.com/en/stable/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"  # noqa: E501
-    },
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -186,11 +182,7 @@ LOGGING = {
             "formatter": "verbose",
         },
     },
-    "formatters": {
-        "verbose": {
-            "format": "[%(asctime)s][%(process)d][%(levelname)s][%(name)s] %(message)s"
-        }
-    },
+    "formatters": {"verbose": {"format": "[%(asctime)s][%(process)d][%(levelname)s][%(name)s] %(message)s"}},
     "loggers": {
         "wagtail_localize_smartling": {
             "handlers": ["console"],

@@ -38,9 +38,7 @@ def temporary_media_dir(settings, tmp_path: Path):
 
 @pytest.fixture(autouse=True)
 def locales(settings):
-    default_locale = Locale.objects.get(
-        language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
-    )
+    default_locale = Locale.objects.get(language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE))
 
     locales = []
     for wagtail_language_code, _ in settings.WAGTAIL_CONTENT_LANGUAGES:
@@ -75,9 +73,7 @@ def smartling_reporter():
     user = UserFactory(is_superuser=False)
     user.user_permissions.add(Permission.objects.get(codename="access_admin"))
     user.user_permissions.add(
-        Permission.objects.get(
-            content_type__app_label="wagtail_localize_smartling", codename="view_job"
-        )
+        Permission.objects.get(content_type__app_label="wagtail_localize_smartling", codename="view_job")
     )
     return user
 
@@ -261,9 +257,7 @@ def smartling_upload_files_to_job_batch(responses, settings, smartling_auth):
 
 
 @pytest.fixture()
-def smartling_upload_files_to_job_batch__error_response(
-    responses, settings, smartling_auth
-):
+def smartling_upload_files_to_job_batch__error_response(responses, settings, smartling_auth):
     # Mock API request for uploading a file to a batch
     project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
     batch_uid = "test-batch-uid"
@@ -345,15 +339,144 @@ def smartling_job(smartling_project, superuser, root_page) -> "Job":
         user=superuser,
         name=Job.get_default_name(translation_source, [page_translation]),
         description=Job.get_description(translation_source, [page_translation]),
-        reference_number=Job.get_default_reference_number(
-            translation_source, [page_translation]
-        ),
+        reference_number=Job.get_default_reference_number(translation_source, [page_translation]),
         content_hash=compute_content_hash(translation_source.export_po()),
         first_synced_at=now,
         last_synced_at=now,
         status=JobStatus.DRAFT,
         translation_job_uid="job_to_be_cancelled",
+        file_uri="job_1_ts_1.po",
     )
     job.translations.set([page_translation])
 
     return job
+
+
+@pytest.fixture
+def smartling_job_multi_locale(smartling_project, superuser, root_page) -> "Job":
+    """A job with multiple target locales (fr and de)."""
+    from django.utils import timezone
+    from wagtail.models import Locale
+    from wagtail_localize.models import Translation, TranslationSource
+
+    from wagtail_localize_smartling.api.types import JobStatus
+    from wagtail_localize_smartling.models import Job
+    from wagtail_localize_smartling.utils import compute_content_hash
+
+    from testapp.factories import InfoPageFactory
+
+    page = InfoPageFactory(parent=root_page, title="Multi-locale test page")
+    translation_source, _ = TranslationSource.get_or_create_from_instance(page)
+
+    fr_translation = Translation.objects.create(
+        source=translation_source,
+        target_locale=Locale.objects.get(language_code="fr"),
+    )
+    de_translation = Translation.objects.create(
+        source=translation_source,
+        target_locale=Locale.objects.get(language_code="de"),
+    )
+
+    now = timezone.now()
+    job = Job.objects.create(
+        project=smartling_project,
+        translation_source=translation_source,
+        user=superuser,
+        name=Job.get_default_name(translation_source, [fr_translation, de_translation]),
+        description=Job.get_description(translation_source, [fr_translation, de_translation]),
+        reference_number=Job.get_default_reference_number(translation_source, [fr_translation, de_translation]),
+        content_hash=compute_content_hash(translation_source.export_po()),
+        first_synced_at=now,
+        last_synced_at=now,
+        status=JobStatus.IN_PROGRESS,
+        translation_job_uid="multi_locale_job",
+        file_uri="job_multi_locale.po",
+    )
+    job.translations.set([fr_translation, de_translation])
+
+    return job
+
+
+@pytest.fixture()
+def smartling_get_file_status(responses, settings, smartling_auth):
+    """Mock API response for getting file status per locale."""
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+
+    def add_file_status_response(
+        locale_id: str,
+        total_strings: int = 10,
+        completed_strings: int = 10,
+    ):
+        responses.add(
+            method="GET",
+            url=f"https://api.smartling.com/files-api/v2/projects/{quote(project_id)}/locales/{locale_id}/file/status",
+            body=json.dumps(
+                {
+                    "response": {
+                        "code": "SUCCESS",
+                        "data": {
+                            "fileUri": "test.po",
+                            "totalStringCount": total_strings,
+                            "totalWordCount": total_strings * 5,
+                            "authorizedStringCount": total_strings,
+                            "authorizedWordCount": total_strings * 5,
+                            "completedStringCount": completed_strings,
+                            "completedWordCount": completed_strings * 5,
+                            "excludedStringCount": 0,
+                            "excludedWordCount": 0,
+                        },
+                    },
+                }
+            ),
+            match_querystring=False,
+        )
+
+    return add_file_status_response
+
+
+@pytest.fixture()
+def smartling_download_translation_for_locale(responses, settings, smartling_auth):
+    """Mock API response for downloading translation for a single locale."""
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+
+    def add_download_response(locale_id: str, po_content: str = ""):
+        if not po_content:
+            po_content = """
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\\n"
+
+msgid "Hello"
+msgstr "Bonjour"
+"""
+        responses.add(
+            method="GET",
+            url=f"https://api.smartling.com/files-api/v2/projects/{quote(project_id)}/locales/{locale_id}/file",
+            body=po_content.encode("utf-8"),
+            status=200,
+            match_querystring=False,
+        )
+
+    return add_download_response
+
+
+@pytest.fixture()
+def smartling_add_locale_to_job(responses, settings, smartling_auth):
+    """Mock API response for adding a locale to an existing job."""
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+
+    def add_locale_response(job_uid: str, locale_id: str):
+        responses.add(
+            method="POST",
+            url=f"https://api.smartling.com/jobs-api/v3/projects/{quote(project_id)}/jobs/{job_uid}/locales/{locale_id}",
+            body=json.dumps(
+                {
+                    "response": {
+                        "code": "SUCCESS",
+                        "data": None,
+                    },
+                }
+            ),
+        )
+
+    return add_locale_response

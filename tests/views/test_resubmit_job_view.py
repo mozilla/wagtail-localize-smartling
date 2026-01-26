@@ -5,7 +5,7 @@ from pytest_django.asserts import assertRedirects
 
 from wagtail_localize_smartling.api.types import JobStatus
 from wagtail_localize_smartling.models import Job
-from wagtail_localize_smartling.templatetags.wagtail_localize_smartling_admin_tags import (  # noqa: E501
+from wagtail_localize_smartling.templatetags.wagtail_localize_smartling_admin_tags import (
     smartling_job_url,
 )
 
@@ -23,49 +23,35 @@ def cancelled_smartling_job(smartling_job):
     return smartling_job
 
 
-def test_get_resubmit_job_view_denied_if_job_not_in_untranslated_status(
-    client, superuser, smartling_job
-):
+def test_get_resubmit_job_view_denied_if_job_not_in_untranslated_status(client, superuser, smartling_job):
     client.force_login(superuser)
     url = reverse("wagtail_localize_smartling_retry_job", args=[smartling_job.id])
     response = client.get(url)
     assertRedirects(response, WAGTAIL_ADMIN_HOME)
 
 
-def test_get_resubmit_job_denied_without_appropriate_user_permission(
-    client, regular_user, cancelled_smartling_job
-):
+def test_get_resubmit_job_denied_without_appropriate_user_permission(client, regular_user, cancelled_smartling_job):
     client.force_login(regular_user)
-    url = reverse(
-        "wagtail_localize_smartling_retry_job", args=[cancelled_smartling_job.id]
-    )
+    url = reverse("wagtail_localize_smartling_retry_job", args=[cancelled_smartling_job.id])
     response = client.get(url)
     assertRedirects(response, WAGTAIL_ADMIN_HOME)
 
 
-def test_get_resubmit_job_denied_if_newer_job_exists(
-    client, regular_user, cancelled_smartling_job
-):
+def test_get_resubmit_job_denied_if_newer_job_exists(client, regular_user, cancelled_smartling_job):
     new_job = cancelled_smartling_job
     new_job.id = None
     new_job.status = JobStatus.DRAFT
     new_job.save()
 
     client.force_login(regular_user)
-    url = reverse(
-        "wagtail_localize_smartling_retry_job", args=[cancelled_smartling_job.id]
-    )
+    url = reverse("wagtail_localize_smartling_retry_job", args=[cancelled_smartling_job.id])
     response = client.get(url)
     assertRedirects(response, WAGTAIL_ADMIN_HOME)
 
 
-def test_get_resubmit_job_with_allowed_user_permission_succeeds(
-    client, smartling_reporter, cancelled_smartling_job
-):
+def test_get_resubmit_job_with_allowed_user_permission_succeeds(client, smartling_reporter, cancelled_smartling_job):
     client.force_login(smartling_reporter)
-    url = reverse(
-        "wagtail_localize_smartling_retry_job", args=[cancelled_smartling_job.id]
-    )
+    url = reverse("wagtail_localize_smartling_retry_job", args=[cancelled_smartling_job.id])
     response = client.get(url)
     assert response.status_code == 200
 
@@ -74,9 +60,7 @@ def test_get_resubmit_job_with_allowed_user_permission_succeeds(
 
 def test_get_resubmit_job_view(client, superuser, cancelled_smartling_job):
     client.force_login(superuser)
-    url = reverse(
-        "wagtail_localize_smartling_retry_job", args=[cancelled_smartling_job.id]
-    )
+    url = reverse("wagtail_localize_smartling_retry_job", args=[cancelled_smartling_job.id])
     response = client.get(url)
     assert response.status_code == 200
 
@@ -85,15 +69,11 @@ def test_get_resubmit_job_view(client, superuser, cancelled_smartling_job):
     assert smartling_job_url(cancelled_smartling_job) in content
 
 
-def test_post_resubmit_job_view_creates_a_new_job(
-    client, superuser, cancelled_smartling_job
-):
+def test_post_resubmit_job_view_creates_a_new_job(client, superuser, cancelled_smartling_job):
     assert Job.objects.count() == 1
 
     client.force_login(superuser)
-    url = reverse(
-        "wagtail_localize_smartling_retry_job", args=[cancelled_smartling_job.id]
-    )
+    url = reverse("wagtail_localize_smartling_retry_job", args=[cancelled_smartling_job.id])
     response = client.post(url)
     assert response.status_code == 302
 

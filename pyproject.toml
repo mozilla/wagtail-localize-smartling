@@ -90,6 +90,8 @@ extend-exclude = [
     "LC_MESSAGES",
     "locale",
 ]
+line-length = 120
+target-version = 'py313'
 
 [tool.ruff.lint]
 select = [

@@ -1,3 +1,4 @@
+import hashlib
 import logging
 
 from typing import TYPE_CHECKING
@@ -15,8 +16,23 @@ from .constants import PENDING_STATUSES, TRANSLATED_STATUSES, UNTRANSLATED_STATU
 from .signals import individual_translation_imported, translation_import_successful
 
 
+def _compute_translation_hash(content: str) -> str:
+    """
+    Compute a hash of translated PO file content.
+
+    Unlike compute_content_hash in utils.py (which only hashes source msgid/msgctxt),
+    this includes msgstr to detect changes in translations. It ignores header metadata
+    (like timestamps) to ensure the hash is stable across downloads.
+    """
+    po = polib.pofile(content)
+    strings = []
+    for entry in po:
+        strings.append(f"{entry.msgctxt}:{entry.msgid}:{entry.msgstr}")
+    return hashlib.sha256("".join(strings).encode()).hexdigest()
+
+
 if TYPE_CHECKING:
-    from .models import Job
+    from .models import Job, JobTranslation
 
 
 logger = logging.getLogger(__name__)
@@ -79,9 +95,7 @@ def _initial_sync(job: "Job") -> None:
     # Create the job in the Smartling API
     target_locale_ids = [
         utils.format_smartling_locale_id(lc)
-        for lc in job.translations.values_list(
-            "target_locale__language_code", flat=True
-        )
+        for lc in job.translations.values_list("target_locale__language_code", flat=True)
     ]
 
     job_data = client.create_job(
@@ -148,6 +162,17 @@ def _sync(job: "Job") -> None:
     job.last_synced_at = timezone.now()
     job.save()
 
+    # Check and import completed locales while job is still in progress
+    # This allows individual locales to be imported before the full job completes
+    if updated_status == JobStatus.IN_PROGRESS:
+        imported = _check_and_import_completed_locales(job)
+        if imported:
+            translation_import_successful.send(
+                sender=job.__class__,
+                instance=job,
+                translations_imported=imported,
+            )
+
     if updated_status == initial_status:
         logger.info("No change in status, no further action required")
         return
@@ -167,14 +192,104 @@ def _sync(job: "Job") -> None:
         logger.info("Job already finalised, no further action required")
 
 
+def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
+    """
+    Check each locale's completion status and import any that are 100% complete
+    but not yet imported.
+
+    This allows individual locales to be imported as they complete, rather than
+    waiting for the entire job to finish.
+
+    Returns a list of Translation objects that were imported.
+    """
+
+    imported_translations: list[Translation] = []
+
+    # Get all JobTranslation records that haven't been imported yet
+    pending_job_translations: list[JobTranslation] = list(
+        job.job_translations.filter(imported_at__isnull=True).select_related(  # pyright: ignore[reportAttributeAccessIssue]
+            "translation__target_locale"
+        )
+    )
+
+    if not pending_job_translations:
+        logger.info("No pending translations to check for job %s", job)
+        return imported_translations
+
+    now = timezone.now()
+
+    for job_translation in pending_job_translations:
+        translation = job_translation.translation
+        smartling_locale_id = utils.format_smartling_locale_id(translation.target_locale.language_code)
+
+        try:
+            file_status = client.get_file_status_for_locale(job=job, locale_id=smartling_locale_id)
+        except Exception:
+            logger.exception(
+                "Error getting file status for locale %s, skipping",
+                smartling_locale_id,
+            )
+            continue
+
+        total_strings = file_status["totalStringCount"]
+        completed_strings = file_status["completedStringCount"]
+
+        logger.info(
+            "Locale %s: %d/%d strings completed",
+            smartling_locale_id,
+            completed_strings,
+            total_strings,
+        )
+
+        # Only import if 100% complete
+        if total_strings > 0 and completed_strings >= total_strings:
+            try:
+                content_hash = _import_translation_for_locale(job, translation, smartling_locale_id)
+                job_translation.imported_at = now
+                job_translation.content_hash = content_hash
+                job_translation.save(update_fields=["imported_at", "content_hash"])
+                imported_translations.append(translation)
+                logger.info(
+                    "Imported translation for locale %s (job %s)",
+                    smartling_locale_id,
+                    job,
+                )
+            except Exception:
+                logger.exception("Error importing translation for locale %s", smartling_locale_id)
+
+    return imported_translations
+
+
+def _import_translation_for_locale(job: "Job", translation: Translation, smartling_locale_id: str) -> str:
+    """
+    Download and import the translation for a single locale.
+
+    Returns the content hash of the imported translation.
+    """
+    content = client.download_translation_for_locale(job=job, locale_id=smartling_locale_id)
+    content_str = content.decode("utf-8")
+    content_hash = _compute_translation_hash(content_str)
+    po_file = polib.pofile(content_str)
+    translation.import_po(po_file)
+    individual_translation_imported.send(
+        sender=job.__class__,
+        instance=job,
+        translation=translation,
+    )
+    return content_hash
+
+
 def _download_and_apply_translations(job: "Job") -> None:
     """
-    Download the translated files from a Smartling job and apply them
+    Download the translated files from a Smartling job and apply them.
+
+    This marks all JobTranslation records as imported.
     """
 
     logger.info("Downloading and importing translations for job %s", job)
 
     _translations_imported = []
+    now = timezone.now()
 
     with client.download_translations(job=job) as translations_zip:
         for zipinfo in translations_zip.infolist():
@@ -182,23 +297,38 @@ def _download_and_apply_translations(job: "Job") -> None:
             smartling_locale_id, file_uri = zipinfo.filename.split("/")
 
             if file_uri != job.file_uri:
-                raise FileURIMismatch(
-                    f"File URI mismatch: expected {job.file_uri}, got {file_uri}"
-                )
+                raise FileURIMismatch(f"File URI mismatch: expected {job.file_uri}, got {file_uri}")
 
             wagtail_locale_id = utils.format_wagtail_locale_id(smartling_locale_id)
             try:
-                translation: Translation = job.translations.get(
-                    target_locale__language_code=wagtail_locale_id
-                )
+                translation: Translation = job.translations.get(target_locale__language_code=wagtail_locale_id)
             except job.translations.model.DoesNotExist:
-                logger.info(
-                    "Translation not found for locale %s, skipping", wagtail_locale_id
-                )
+                logger.info("Translation not found for locale %s, skipping", wagtail_locale_id)
                 continue
 
+            job_translation = job.job_translations.filter(  # pyright: ignore[reportAttributeAccessIssue]
+                translation=translation
+            ).first()
+
             with translations_zip.open(zipinfo) as f:
-                po_file = polib.pofile(f.read().decode("utf-8"))
+                content = f.read().decode("utf-8")
+                content_hash = _compute_translation_hash(content)
+
+                # Skip if already imported with the same content hash
+                if job_translation and job_translation.imported_at and job_translation.content_hash == content_hash:
+                    logger.info(
+                        "Translation for locale %s already imported with same content, skipping",
+                        wagtail_locale_id,
+                    )
+                    continue
+
+                if job_translation and job_translation.imported_at:
+                    logger.info(
+                        "Translation for locale %s changed since per-locale import, re-importing",
+                        wagtail_locale_id,
+                    )
+
+                po_file = polib.pofile(content)
                 translation.import_po(po_file)
                 individual_translation_imported.send(
                     sender=job.__class__,
@@ -207,6 +337,12 @@ def _download_and_apply_translations(job: "Job") -> None:
                 )
                 logger.info("Imported translations for %s", translation)
                 _translations_imported.append(translation)
+
+                # Mark as imported with content hash
+                if job_translation:
+                    job_translation.imported_at = now
+                    job_translation.content_hash = content_hash
+                    job_translation.save(update_fields=["imported_at", "content_hash"])
 
     if _translations_imported:
         translation_import_successful.send(
