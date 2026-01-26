@@ -11,7 +11,7 @@ from .models import LandedTranslationTask
 
 class LandedTranslationsPanel(Component):
     order = 150
-    template_name = "wagtail_localize_smartling/admin/components/_landed_translation_task_panel.html"  # noqa: E501
+    template_name = "wagtail_localize_smartling/admin/components/_landed_translation_task_panel.html"
 
     def __init__(self, *args, **kwargs):
         self.max_to_show = kwargs.pop("max_to_show", None)

@@ -117,9 +117,7 @@ PASSWORD_HASHERS = ("django.contrib.auth.hashers.MD5PasswordHasher",)
 # https://docs.djangoproject.com/en/stable/ref/settings/#databases
 
 DATABASES = {
-    "default": dj_database_url.config(
-        default="sqlite:///wagtail_localize_smartling.db"
-    ),
+    "default": dj_database_url.config(default="sqlite:///wagtail_localize_smartling.db"),
 }
 
 
@@ -127,9 +125,7 @@ DATABASES = {
 # https://docs.djangoproject.com/en/stable/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"  # noqa: E501
-    },
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -140,7 +136,6 @@ AUTH_PASSWORD_VALIDATORS = [
 # https://docs.djangoproject.com/en/stable/topics/i18n/
 
 USE_I18N = True
-USE_L10N = True
 LANGUAGE_CODE = "en-us"
 
 WAGTAIL_I18N_ENABLED = True
@@ -187,11 +182,7 @@ LOGGING = {
             "formatter": "verbose",
         },
     },
-    "formatters": {
-        "verbose": {
-            "format": "[%(asctime)s][%(process)d][%(levelname)s][%(name)s] %(message)s"
-        }
-    },
+    "formatters": {"verbose": {"format": "[%(asctime)s][%(process)d][%(levelname)s][%(name)s] %(message)s"}},
     "loggers": {
         "wagtail_localize_smartling": {
             "handlers": ["console"],
@@ -224,3 +215,12 @@ def job_description_callback(description: str, translation_source, translations)
 
 def visual_context_callback(job: "Job") -> tuple[str, str]:
     return "https://example.com/path/to/page/", "<html><body>test</body></html>"
+
+
+# django-tasks configuration (needed for Wagtail 7.x+ modelsearch)
+# Use DummyBackend in tests to avoid actually executing indexing tasks
+TASKS = {
+    "default": {
+        "BACKEND": "django_tasks.backends.dummy.DummyBackend",
+    }
+}

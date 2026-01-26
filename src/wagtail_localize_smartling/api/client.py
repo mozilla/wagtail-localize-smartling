@@ -30,10 +30,12 @@ from ..exceptions import IncapableVisualContextCallback
 from ..settings import settings as smartling_settings
 from . import types
 from .serializers import (
+    AddLocaleToJobResponseSerializer,
     AddVisualContextToJobSerializer,
     AuthenticateResponseSerializer,
     CreateBatchResponseSerializer,
     CreateJobResponseSerializer,
+    GetFileStatusResponseSerializer,
     GetJobDetailsResponseSerializer,
     GetProjectDetailsResponseSerializer,
     ListJobsResponseSerializer,
@@ -77,10 +79,7 @@ class FailedResponse(SmartlingAPIError):
         self.errors = errors
 
     def __str__(self):
-        return (
-            f"{self.code}\n"
-            f"{textwrap.indent(pprint.pformat(self.errors, indent=2), prefix='  ')}"
-        )
+        return f"{self.code}\n{textwrap.indent(pprint.pformat(self.errors, indent=2), prefix='  ')}"
 
 
 class JobNotFound(SmartlingAPIError):
@@ -96,7 +95,7 @@ RD = TypeVar("RD", bound=dict)
 
 class SmartlingAPIClient:
     def __init__(self):
-        self.token_type: str = "Bearer"
+        self.token_type: str = "Bearer"  # noqa: S105, RUF100
         self.access_token: str | None = None
         self.refresh_token: str | None = None
 
@@ -137,12 +136,8 @@ class SmartlingAPIClient:
         # Set the expiry times, but knock 10% off the expiry periods to give
         # ourselves a bit of wiggle room and reduce the likelihood of trying to
         # use expired creds
-        self.access_token_expires_at = now + timedelta(
-            seconds=0.9 * access_token_expires_in
-        )
-        self.refresh_token_expires_at = now + timedelta(
-            seconds=0.9 * refresh_token_expires_in
-        )
+        self.access_token_expires_at = now + timedelta(seconds=0.9 * access_token_expires_in)
+        self.refresh_token_expires_at = now + timedelta(seconds=0.9 * refresh_token_expires_in)
 
     def _authenticate(self):
         data = cast(
@@ -191,18 +186,14 @@ class SmartlingAPIClient:
             return "https://api.smartling.com"
         elif smartling_settings.ENVIRONMENT == "staging":
             return "https://api.stg.smartling.net"
-        raise SmartlingAPIError(
-            f"Unknown environment: {smartling_settings.ENVIRONMENT}"
-        )
+        raise SmartlingAPIError(f"Unknown environment: {smartling_settings.ENVIRONMENT}")
 
     def _request(
         self,
         *,
         method: Literal["GET", "POST"],
         path: str,
-        response_serializer_class: type[
-            ResponseSerializer | NullDataResponseSerializer
-        ],
+        response_serializer_class: type[ResponseSerializer | NullDataResponseSerializer],
         send_headers: bool = True,
         **kwargs,
     ) -> dict[str, Any]:
@@ -230,9 +221,7 @@ class SmartlingAPIClient:
         try:
             response_json = response.json()
         except requests.exceptions.JSONDecodeError as e:
-            raise InvalidResponse(
-                f"Response was not valid JSON: {response.text}"
-            ) from e
+            raise InvalidResponse(f"Response was not valid JSON: {response.text}") from e
 
         serializer = cast(
             # This cast is required because the created instance could be a
@@ -243,9 +232,7 @@ class SmartlingAPIClient:
         try:
             serializer.is_valid(raise_exception=True)
         except rest_framework.serializers.ValidationError as e:
-            raise InvalidResponse(
-                f"Response did not match expected format: {serializer.initial_data}"
-            ) from e
+            raise InvalidResponse(f"Response did not match expected format: {serializer.initial_data}") from e
 
         try:
             response.raise_for_status()
@@ -257,9 +244,7 @@ class SmartlingAPIClient:
 
     # API methods
 
-    def get_project_details(
-        self, *, include_disabled_locales: bool = True
-    ) -> types.GetProjectDetailsResponseData:
+    def get_project_details(self, *, include_disabled_locales: bool = True) -> types.GetProjectDetailsResponseData:
         params = {}
         if include_disabled_locales:
             params["includeDisabledLocales"] = "true"
@@ -299,9 +284,7 @@ class SmartlingAPIClient:
         callback_method: Literal["GET", "POST"] | None = None,
     ) -> types.CreateJobResponseData:
         if (callback_url is None) != (callback_method is None):
-            raise ValueError(
-                "Both callback_url and callback_method must be provided, or neither"
-            )
+            raise ValueError("Both callback_url and callback_method must be provided, or neither")
 
         params: dict[str, Any] = {
             "jobName": job_name,
@@ -413,8 +396,7 @@ class SmartlingAPIClient:
         file_uri = self.get_file_uri_for_job(job=job)
 
         locales_to_authorize = [
-            utils.format_smartling_locale_id(t.target_locale.language_code)
-            for t in job.translations.all()
+            utils.format_smartling_locale_id(t.target_locale.language_code) for t in job.translations.all()
         ]
 
         data_payload = {
@@ -497,11 +479,9 @@ class SmartlingAPIClient:
 
                 return page_url, html
 
-        """  # noqa: E501
+        """
 
-        if not (
-            visual_context_callback_fn := smartling_settings.VISUAL_CONTEXT_CALLBACK
-        ):
+        if not (visual_context_callback_fn := smartling_settings.VISUAL_CONTEXT_CALLBACK):
             logger.info("No visual context callback configured")
             return
 
@@ -509,8 +489,7 @@ class SmartlingAPIClient:
             url, html = visual_context_callback_fn(job)
         except IncapableVisualContextCallback as ex:
             logger.info(
-                "Visual context callback refused to provide values. "
-                f"Reason: {str(ex)}. Not sending visual context."
+                f"Visual context callback refused to provide values. Reason: {str(ex)}. Not sending visual context."
             )
             return
 
@@ -555,14 +534,12 @@ class SmartlingAPIClient:
             data=data_payload,
         )
 
-        logger.info(
-            "Visual context sent. processUid returned: %s", result.get("processUid")
-        )
+        logger.info("Visual context sent. processUid returned: %s", result.get("processUid"))
 
         return result
 
     @contextmanager
-    def download_translations(self, *, job: "Job") -> Generator[ZipFile, None, None]:
+    def download_translations(self, *, job: "Job") -> Generator[ZipFile]:
         # This is an unusual case where a successful response is a ZIP file,
         # rather than JSON. JSON responses will be returned for errors.
 
@@ -596,18 +573,14 @@ class SmartlingAPIClient:
                 try:
                     response_json = response.json()
                 except requests.exceptions.JSONDecodeError as e:
-                    raise InvalidResponse(
-                        f"Response was not valid JSON: {response.text}"
-                    ) from e
+                    raise InvalidResponse(f"Response was not valid JSON: {response.text}") from e
 
                 serializer = ResponseSerializer(data=response_json)
 
                 try:
                     serializer.is_valid(raise_exception=True)
                 except rest_framework.serializers.ValidationError as e:
-                    raise InvalidResponse(
-                        f"Response did not match expected format: {serializer.initial_data}"  # noqa: E501
-                    ) from e
+                    raise InvalidResponse(f"Response did not match expected format: {serializer.initial_data}") from e
 
                 try:
                     response.raise_for_status()
@@ -625,6 +598,89 @@ class SmartlingAPIClient:
 
             with ZipFile(buffer) as zf:
                 yield zf
+
+    def get_file_status_for_locale(self, *, job: "Job", locale_id: str) -> types.FileStatusResponseData:
+        """
+        Get translation status for a specific locale.
+
+        Returns completion information including completedStringCount and totalStringCount
+        which can be used to determine if all strings are translated for that locale.
+
+        API docs: https://api-reference.smartling.com/#tag/Files/operation/getFileStatus
+        """
+        return cast(
+            types.FileStatusResponseData,
+            self._request(
+                method="GET",
+                path=f"/files-api/v2/projects/{quote(job.project.project_id)}/locales/{quote(locale_id)}/file/status",
+                response_serializer_class=GetFileStatusResponseSerializer,
+                params={"fileUri": job.file_uri},
+            ),
+        )
+
+    def download_translation_for_locale(self, *, job: "Job", locale_id: str) -> bytes:
+        """
+        Download the translated PO file for a specific locale.
+
+        API docs: https://api-reference.smartling.com/#tag/Files/operation/downloadTranslatedFileSingleLocale
+        """
+        url = urljoin(
+            self._base_url,
+            f"/files-api/v2/projects/{quote(job.project.project_id)}/locales/{quote(locale_id)}/file",
+        )
+
+        logger.info("Smartling API request: GET %s", url)
+        response = requests.get(
+            url,
+            headers=self._headers,
+            params={
+                "fileUri": job.file_uri,
+                "retrievalType": "published",
+                "includeOriginalStrings": False,
+            },
+            timeout=smartling_settings.API_TIMEOUT_SECONDS,
+        )
+        logger.info(
+            "Smartling API response: %s %s",
+            response.status_code,
+            f"{response.elapsed.total_seconds()}s",
+        )
+
+        if response.status_code != 200:
+            try:
+                response_json = response.json()
+            except requests.exceptions.JSONDecodeError as e:
+                raise InvalidResponse(f"Response was not valid JSON: {response.text}") from e
+
+            serializer = ResponseSerializer(data=response_json)
+
+            try:
+                serializer.is_valid(raise_exception=True)
+            except rest_framework.serializers.ValidationError as e:
+                raise InvalidResponse(f"Response did not match expected format: {serializer.initial_data}") from e
+
+            try:
+                response.raise_for_status()
+            except HTTPError as e:
+                code, errors = serializer.response_errors
+                raise FailedResponse(code=code, errors=errors) from e
+
+        return response.content
+
+    def add_locale_to_job(self, *, job: "Job", locale_id: str) -> None:
+        """
+        Add a target locale to an existing job.
+
+        Only works for jobs in DRAFT or AWAITING_AUTHORIZATION status.
+
+        API docs: https://api-reference.smartling.com/#tag/Jobs/operation/addLocaleToJob
+        """
+        self._request(
+            method="POST",
+            path=f"/jobs-api/v3/projects/{quote(smartling_settings.PROJECT_ID)}/jobs/{quote(job.translation_job_uid)}/locales/{quote(locale_id)}",
+            response_serializer_class=AddLocaleToJobResponseSerializer,
+            json={},
+        )
 
 
 client = cast(SmartlingAPIClient, SimpleLazyObject(SmartlingAPIClient))

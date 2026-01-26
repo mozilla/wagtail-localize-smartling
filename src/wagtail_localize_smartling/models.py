@@ -9,8 +9,7 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import MultipleObjectsReturned, ObjectDoesNotExist
-from django.db import models
+from django.db import models, transaction
 from django.db.models.manager import Manager
 from django.urls import reverse
 from django.utils import timezone
@@ -21,9 +20,10 @@ from wagtail_localize.components import register_translation_component
 from wagtail_localize.models import Translation, TranslationSource
 from wagtail_localize.tasks import ImmediateBackend, background
 
+from . import utils as smartling_utils
 from .api.client import client
 from .api.types import JobStatus
-from .constants import UNSYNCED_OR_PENDING_STATUSES
+from .constants import EXPANDABLE_JOB_STATUSES, UNSYNCED_OR_PENDING_STATUSES
 from .forms import JobForm
 from .settings import settings as smartling_settings
 from .sync import sync_job
@@ -40,6 +40,34 @@ class SyncedModel(models.Model):
     class Meta:
         ordering = (models.F("first_synced_at").desc(nulls_first=True), "-pk")
         abstract = True
+
+
+class JobTranslation(models.Model):
+    """
+    Through model for Job.translations M2M that tracks per-locale import status.
+
+    This enables tracking which individual locale translations have been imported,
+    allowing us to import completed locales before the entire job is finished.
+    """
+
+    job = models.ForeignKey(
+        "Job",
+        on_delete=models.CASCADE,
+        related_name="job_translations",
+    )
+    translation = models.ForeignKey(
+        Translation,
+        on_delete=models.CASCADE,
+        related_name="smartling_job_translations",
+    )
+    imported_at = models.DateTimeField(null=True, editable=False)
+    content_hash = models.CharField(max_length=64, blank=True, editable=False)
+
+    class Meta:
+        unique_together = ["job", "translation"]
+
+    def __str__(self):
+        return f"JobTranslation({self.job.pk}, {self.translation.pk})"
 
 
 class Project(SyncedModel):
@@ -63,8 +91,7 @@ class Project(SyncedModel):
         unique_together = ["environment", "account_uid", "project_id"]
         constraints = [
             models.CheckConstraint(
-                check=models.Q(environment="production")
-                | models.Q(environment="staging"),
+                condition=models.Q(environment="production") | models.Q(environment="staging"),
                 name="project_environment",
             )
         ]
@@ -166,9 +193,9 @@ class Job(SyncedModel):
         on_delete=models.CASCADE,
         related_name="smartling_jobs",
     )
-    # TODO record status of imported translations per `Translation`
     translations = models.ManyToManyField(
         Translation,
+        through="JobTranslation",
         related_name="smartling_jobs",
     )
     content_hash = models.CharField(max_length=64, blank=True)
@@ -213,7 +240,7 @@ class Job(SyncedModel):
         default_permissions = ("view",)
         constraints = [
             models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(
                         status=JobStatus.UNSYNCED,
                         first_synced_at__isnull=True,
@@ -327,49 +354,130 @@ class Job(SyncedModel):
         a pending state until the `sync_smartling` management command picks them
         up and creates a corresponding job in Smartling via the API.
 
-        Jobs are only created if there's no pending or completed job for the provided
-        TranslationSource.
+        If there's already a pending job for the same content:
+        - If the job is in an expandable state (UNSYNCED, DRAFT, AWAITING_AUTHORIZATION),
+          new locales will be added to that job.
+        - If the job is IN_PROGRESS, a new parallel job will be created for the
+          new locales.
+
+        If all requested locales are already covered by existing jobs, no action is taken.
         """
         # TODO only submit locales that match Smartling target locales
         # TODO make sure the source locale matches the Smartling project's language
-        # TODO lookup existing jobs
-        # TODO make sure existing job lookup only refers to current project
 
         project = Project.get_current()
         content_hash = compute_content_hash(translation_source.export_po())
+        translations_list = list(translations)
+        remaining_translations = {t.target_locale.pk: t for t in translations_list}
 
-        # Check whether we have any pending jobs for the same translation source content
-        if Job.objects.filter(
+        # Find existing pending jobs for the same source content
+        existing_jobs = cls.objects.filter(
             project=project,
             translation_source=translation_source,
             content_hash=content_hash,
             status__in=UNSYNCED_OR_PENDING_STATUSES,
-        ).exists():
-            return
+        ).prefetch_related("translations")
 
-        job = Job.objects.create(
-            project=project,
-            translation_source=translation_source,
-            user=user,
-            name=cls.get_default_name(translation_source, translations),
-            description=cls.get_description(translation_source, translations),
-            reference_number=cls.get_default_reference_number(
-                translation_source, translations
-            ),
-            due_date=due_date,
-            content_hash=content_hash,
+        for existing_job in existing_jobs:
+            # Get locale IDs already covered by this job
+            existing_locale_ids = set(existing_job.translations.values_list("target_locale", flat=True))
+
+            # Find translations that aren't already in this job
+            new_translations_for_job = [
+                t for locale_id, t in remaining_translations.items() if locale_id not in existing_locale_ids
+            ]
+
+            if not new_translations_for_job:
+                # All remaining translations are covered by this job
+                remaining_translations.clear()
+                break
+
+            # Try to add new locales if the job is in an expandable state
+            if existing_job.status in EXPANDABLE_JOB_STATUSES:
+                _add_locales_to_existing_job(existing_job, new_translations_for_job)
+                for t in new_translations_for_job:
+                    remaining_translations.pop(t.target_locale.pk, None)
+
+                if not remaining_translations:
+                    break
+
+        # Create a new job for any remaining locales not covered by existing jobs
+        if remaining_translations:
+            new_translations = list(remaining_translations.values())
+            job = cls.objects.create(
+                project=project,
+                translation_source=translation_source,
+                user=user,
+                name=cls.get_default_name(translation_source, new_translations),
+                description=cls.get_description(translation_source, new_translations),
+                reference_number=cls.get_default_reference_number(translation_source, new_translations),
+                due_date=due_date,
+                content_hash=content_hash,
+            )
+            job.translations.set(new_translations)
+
+            if isinstance(background, ImmediateBackend):
+                # Don't enqueue anything slow if we're using the dummy background
+                # worker, let the `sync_smartling` management command pick things up
+                # on a schedule instead.
+                return
+
+            # If we get here we've got a proper background worker, so we can safely
+            # enqueue the syncing of the job.
+            background.enqueue(sync_job, args=(job.pk,), kwargs={})
+
+
+def _add_locales_to_existing_job(job: "Job", translations: list[Translation]) -> None:
+    """
+    Add new locales to an existing job.
+
+    For UNSYNCED jobs, the translations are simply added to the M2M relationship.
+    For synced jobs (DRAFT, AWAITING_AUTHORIZATION), the Smartling API is called
+    to add the new locales to the job.
+
+    Uses transactions and savepoints to ensure consistency between the database
+    and Smartling API state.
+    """
+    if job.status == JobStatus.UNSYNCED:
+        # Job hasn't been synced yet - just add to M2M in a single transaction
+        with transaction.atomic():
+            for translation in translations:
+                JobTranslation.objects.create(job=job, translation=translation)
+        logger.info(
+            "Added %d locale(s) to unsynced job %s",
+            len(translations),
+            job,
         )
-        job.translations.set(translations)
+    else:
+        # Job has been synced - need to call Smartling API to add locales
+        # Use savepoints to ensure DB and API stay consistent:
+        # - Create DB record first (inside savepoint)
+        # - Then call API - if this fails, savepoint rolls back the DB create
+        with transaction.atomic():
+            for translation in translations:
+                locale_id = smartling_utils.format_smartling_locale_id(translation.target_locale.language_code)
+                sid = transaction.savepoint()
+                try:
+                    # Create DB record first (inside savepoint)
+                    JobTranslation.objects.create(job=job, translation=translation)
 
-        if isinstance(background, ImmediateBackend):
-            # Don't enqueue anything slow if we're using the dummy background
-            # worker, let the `sync_smartling` management command pick things up
-            # on a schedule instead.
-            return
+                    # Then call API - if this fails, savepoint rolls back the DB create
+                    client.add_locale_to_job(job=job, locale_id=locale_id)
 
-        # If we get here we've got a proper background worker, so we can safely
-        # enqueue the syncing of the job.
-        background.enqueue(sync_job, args=(job.pk,), kwargs={})
+                    transaction.savepoint_commit(sid)
+                    logger.info(
+                        "Added locale %s to job %s via Smartling API",
+                        locale_id,
+                        job,
+                    )
+                except Exception:
+                    transaction.savepoint_rollback(sid)
+                    logger.exception(
+                        "Failed to add locale %s to job %s",
+                        locale_id,
+                        job,
+                    )
+                    raise
 
 
 class LandedTranslationTaskManager(models.Manager):
@@ -457,7 +565,10 @@ class LandedTranslationTask(models.Model):
     objects = LandedTranslationTaskManager()
 
     def __str__(self):
-        return f"LandedTranslationTask for {self.content_object} (#{self.object_id}) in {self.relevant_locale.language_name}"  # noqa: E501
+        return (
+            "LandedTranslationTask for "
+            f"{self.content_object} (#{self.object_id}) in {self.relevant_locale.language_name}"
+        )
 
     def __repr__(self):
         return f"<LandedTranslationTask: {self.content_type.name}#{self.object_id}>"
@@ -474,9 +585,7 @@ class LandedTranslationTask(models.Model):
         self.completed_on = timezone.now()
         self.cancelled_on = None
         self.save(update_fields=["completed_on", "cancelled_on"])
-        logger.info(
-            f"LandedTranslationTask{self.pk} completed"
-        )  # TODO: add Wagtail log so we know who did this
+        logger.info(f"LandedTranslationTask{self.pk} completed")  # TODO: add Wagtail log so we know who did this
 
     def cancel(self):
         self.completed_on = None

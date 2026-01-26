@@ -10,3 +10,10 @@ UNSYNCED_OR_PENDING_STATUSES = PENDING_STATUSES + (JobStatus.UNSYNCED,)
 TRANSLATED_STATUSES = (JobStatus.COMPLETED, JobStatus.CLOSED)
 UNTRANSLATED_STATUSES = (JobStatus.CANCELLED, JobStatus.DELETED)
 FINAL_STATUSES = (JobStatus.CLOSED, JobStatus.DELETED)
+
+# Job statuses where we can add new locales to an existing job
+EXPANDABLE_JOB_STATUSES = (
+    JobStatus.UNSYNCED,
+    JobStatus.DRAFT,
+    JobStatus.AWAITING_AUTHORIZATION,
+)

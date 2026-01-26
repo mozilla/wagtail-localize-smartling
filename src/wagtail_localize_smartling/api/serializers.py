@@ -57,9 +57,7 @@ class ResponseSerializerMetaclass(serializers.SerializerMetaclass):
 
             # Determine the base classes for a new data serializer class
             data_serializer_bases = tuple(
-                b._data_serializer_class
-                for b in bases
-                if hasattr(b, "_data_serializer_class")
+                b._data_serializer_class for b in bases if hasattr(b, "_data_serializer_class")
             )
             if not data_serializer_bases:
                 data_serializer_bases = (serializers.Serializer,)
@@ -123,7 +121,7 @@ class ResponseSerializer(
     serializers.Serializer,
     metaclass=ResponseSerializerMetaclass,
 ):
-    # response = ...__InnerResponseSerializer() <- Created by ResponseSerializerMetaclass  # noqa: E501
+    # response = ...__InnerResponseSerializer() <- Created by ResponseSerializerMetaclass
 
     _data_serializer_class: ClassVar[type[serializers.Serializer]]
 
@@ -278,3 +276,22 @@ class UploadFileToBatchResponseSerializer(NullDataResponseSerializer):
     _acceptable_codes_for_null_response = [
         "ACCEPTED",
     ]
+
+
+class GetFileStatusResponseSerializer(ResponseSerializer):
+    # https://api-reference.smartling.com/#tag/Files/operation/getFileTranslationStatusSingleLocale
+    fileUri = serializers.CharField()
+    totalStringCount = serializers.IntegerField()
+    totalWordCount = serializers.IntegerField()
+    authorizedStringCount = serializers.IntegerField()
+    authorizedWordCount = serializers.IntegerField()
+    completedStringCount = serializers.IntegerField()
+    completedWordCount = serializers.IntegerField()
+    excludedStringCount = serializers.IntegerField()
+    excludedWordCount = serializers.IntegerField()
+
+
+class AddLocaleToJobResponseSerializer(NullDataResponseSerializer):
+    # https://api-reference.smartling.com/#tag/Jobs/operation/addLocaleToJob
+    # The API returns data: None on success for this endpoint
+    _acceptable_codes_for_null_response = ["SUCCESS"]

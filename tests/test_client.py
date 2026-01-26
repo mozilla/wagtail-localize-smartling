@@ -1,4 +1,3 @@
-from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
@@ -67,7 +66,7 @@ def test_client__add_html_context_to_job__happy_path(
     smartling_settings,
     smartling_add_visual_context,
 ):
-    # Very similar to test_client__add_html_context_to_job__depends_on_callback_availability  # noqa: E501
+    # Very similar to test_client__add_html_context_to_job__depends_on_callback_availability
     # but separate for regression-protection value
     callback_func = Mock(
         name="fake callback",
@@ -104,7 +103,7 @@ def test_client__add_html_context_to_job__error_path(
     smartling_settings,
     smartling_add_visual_context__error_response,
 ):
-    # Fake a validation error using the smartling_add_visual_context__error_response fixture  # noqa: E501
+    # Fake a validation error using the smartling_add_visual_context__error_response fixture
     callback_func = Mock(
         name="fake callback",
         return_value=(
@@ -169,3 +168,54 @@ def test_get_file_uri_for_job():
     mock_job.pk = 23
     mock_job.translation_source.pk = 45
     assert client.get_file_uri_for_job(job=mock_job) == "job_23_ts_45.po"
+
+
+# =============================================================================
+# Per-locale API methods (Issues #28 and #37)
+# =============================================================================
+
+
+def test_client__get_file_status_for_locale(
+    smartling_job: "Job",
+    smartling_get_file_status,
+):
+    """Test getting file status for a specific locale."""
+    smartling_get_file_status("fr", total_strings=10, completed_strings=8)
+
+    result = client.get_file_status_for_locale(job=smartling_job, locale_id="fr")
+
+    assert result["totalStringCount"] == 10
+    assert result["completedStringCount"] == 8
+
+
+def test_client__download_translation_for_locale(
+    smartling_job: "Job",
+    smartling_download_translation_for_locale,
+):
+    """Test downloading translation for a specific locale."""
+    po_content = """
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\\n"
+
+msgid "Test"
+msgstr "Test traduit"
+"""
+    smartling_download_translation_for_locale("fr", po_content)
+
+    result = client.download_translation_for_locale(job=smartling_job, locale_id="fr")
+
+    assert b"Test traduit" in result
+
+
+def test_client__add_locale_to_job(
+    smartling_job: "Job",
+    smartling_add_locale_to_job,
+):
+    """Test adding a locale to an existing job."""
+    smartling_add_locale_to_job("job_to_be_cancelled", "de")
+
+    # The API returns None on success (data: null in the response)
+    result = client.add_locale_to_job(job=smartling_job, locale_id="de")
+
+    assert result is None

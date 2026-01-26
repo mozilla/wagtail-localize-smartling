@@ -116,3 +116,17 @@ class CreateBatchForJobResponseData(TypedDict):
 
 class UploadFileToBatchResponseData(TypedDict):
     pass
+
+
+class FileStatusResponseData(TypedDict):
+    """Response data from GET /files-api/v2/projects/{projectId}/locales/{localeId}/file/status"""
+
+    fileUri: str
+    totalStringCount: int
+    totalWordCount: int
+    authorizedStringCount: int
+    authorizedWordCount: int
+    completedStringCount: int
+    completedWordCount: int
+    excludedStringCount: int
+    excludedWordCount: int

@@ -20,22 +20,21 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Framework :: Django",
-    "Framework :: Django :: 4.2",
-    "Framework :: Django :: 5.0",
     "Framework :: Django :: 5.1",
+    "Framework :: Django :: 5.2",
+    "Framework :: Django :: 6.0",
     "Framework :: Wagtail",
-    "Framework :: Wagtail :: 5",
-    "Framework :: Wagtail :: 6",
+    "Framework :: Wagtail :: 6.2",
+    "Framework :: Wagtail :: 7.2",
 ]
 requires-python = ">=3.11"
 dynamic = [
     "version",
 ]
 dependencies = [
-    "Django>=4.2",
+    "Django>=5.1",
     "Wagtail>=6.1",
     "djangorestframework>=3",
     "requests",
@@ -59,7 +58,7 @@ test = [
     "pytest==8.3.2",
     "python-dotenv==1.0.1",
     "responses==0.25.0",
-    "ruff==0.6.4",  # keep in sync with pre-commit.yaml
+    "ruff==0.14.14",  # keep in sync with pre-commit.yaml
     "tox",
     "tox-gh-actions",
     "wagtail-factories==4.2.1"
@@ -91,6 +90,8 @@ extend-exclude = [
     "LC_MESSAGES",
     "locale",
 ]
+line-length = 120
+target-version = 'py311'
 
 [tool.ruff.lint]
 select = [
