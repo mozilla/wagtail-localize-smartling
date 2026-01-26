@@ -9,6 +9,9 @@ name = "wagtail-localize-smartling"
 authors = [
     { name = "Ben Dickinson", email = "ben.dickinson@torchbox.com" },
 ]
+maintainers = [
+    { name = "Steve Jalim", email = "opensource@stevejalim.mozmail.com" },
+]
 description = "An extension for wagtail-localize that integrates with the Smartling translation platform"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -26,8 +29,8 @@ classifiers = [
     "Framework :: Django :: 5.2",
     "Framework :: Django :: 6.0",
     "Framework :: Wagtail",
-    "Framework :: Wagtail :: 6.2",
-    "Framework :: Wagtail :: 7.2",
+    "Framework :: Wagtail :: 6",
+    "Framework :: Wagtail :: 7",
 ]
 requires-python = ">=3.11"
 dynamic = [
