@@ -187,6 +187,25 @@ integrates with the Smartling translation platform.
 
     ----
 
+    If your project has locales that should never be sent to Smartling — for
+    example, locales like `en-CA` or `en-GB` that don't exist in Smartling, and
+    use content from `en-US` — you can exclude them with the `EXCLUDE_LOCALES`
+    setting. Translations targeting excluded locales will be filtered out before
+    they enter the Smartling job pipeline, preventing API errors for locales
+    that aren't configured as target languages in your Smartling project.
+
+    ```python
+    WAGTAIL_LOCALIZE_SMARTLING = {
+        # ...
+        "EXCLUDE_LOCALES": ["en-CA", "en-GB"],
+    }
+    ```
+
+    The locale codes must match entries in your `WAGTAIL_CONTENT_LANGUAGES`
+    setting. An error will be raised at startup if any codes are invalid.
+
+    ----
+
     By default, when translations for completed Jobs are imported into Wagtail,
     the system will send notification emails to anyone in the `Translation approver`
     Group, and also add a task list of items to (re)publish. You can disable these via

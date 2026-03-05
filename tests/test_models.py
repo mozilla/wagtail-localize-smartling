@@ -442,3 +442,116 @@ def test_get_or_create_no_action_when_all_locales_covered(smartling_project, roo
 
     # Should not have created a new job
     assert Job.objects.count() == 1
+
+
+# =============================================================================
+# EXCLUDE_LOCALES filtering tests
+# =============================================================================
+
+
+def test_get_or_create_excludes_locales(smartling_project, smartling_settings, root_page):
+    """Translations for excluded locales are not added to Smartling jobs."""
+    smartling_settings.EXCLUDE_LOCALES = frozenset(["de"])
+
+    user = UserFactory()
+    page = InfoPageFactory(parent=root_page, title="Test page")
+    translation_source, _ = TranslationSource.get_or_create_from_instance(page)
+
+    locale_fr = Locale.objects.get(language_code="fr")
+    locale_de = Locale.objects.get(language_code="de")
+
+    fr_translation = Translation.objects.create(
+        source=translation_source,
+        target_locale=locale_fr,
+    )
+    de_translation = Translation.objects.create(
+        source=translation_source,
+        target_locale=locale_de,
+    )
+
+    Job.get_or_create_from_source_and_translation_data(
+        translation_source=translation_source,
+        translations=[fr_translation, de_translation],
+        user=user,
+        due_date=None,
+    )
+
+    assert Job.objects.count() == 1
+    job = Job.objects.first()
+    assert set(job.translations.all()) == {fr_translation}
+
+
+def test_get_or_create_all_excluded_no_job(smartling_project, smartling_settings, root_page):
+    """No job is created when all translations target excluded locales."""
+    smartling_settings.EXCLUDE_LOCALES = frozenset(["fr", "de"])
+
+    user = UserFactory()
+    page = InfoPageFactory(parent=root_page, title="Test page")
+    translation_source, _ = TranslationSource.get_or_create_from_instance(page)
+
+    fr_translation = Translation.objects.create(
+        source=translation_source,
+        target_locale=Locale.objects.get(language_code="fr"),
+    )
+    de_translation = Translation.objects.create(
+        source=translation_source,
+        target_locale=Locale.objects.get(language_code="de"),
+    )
+
+    Job.get_or_create_from_source_and_translation_data(
+        translation_source=translation_source,
+        translations=[fr_translation, de_translation],
+        user=user,
+        due_date=None,
+    )
+
+    assert Job.objects.count() == 0
+
+
+def test_get_or_create_excluded_locale_not_added_to_existing_job(smartling_project, smartling_settings, root_page):
+    """Excluded locales are filtered out, and already-covered locales don't create a new job."""
+    smartling_settings.EXCLUDE_LOCALES = frozenset(["de"])
+
+    user = UserFactory()
+    page = InfoPageFactory(parent=root_page, title="Test page")
+    translation_source, _ = TranslationSource.get_or_create_from_instance(page)
+    content_hash = compute_content_hash(translation_source.export_po())
+
+    locale_fr = Locale.objects.get(language_code="fr")
+    locale_de = Locale.objects.get(language_code="de")
+
+    fr_translation = Translation.objects.create(
+        source=translation_source,
+        target_locale=locale_fr,
+    )
+
+    # Create an existing UNSYNCED job with fr
+    job = Job.objects.create(
+        project=smartling_project,
+        translation_source=translation_source,
+        user=user,
+        name="Test job",
+        description="Test",
+        reference_number="test",
+        content_hash=content_hash,
+        status=JobStatus.UNSYNCED,
+    )
+    job.translations.set([fr_translation])
+
+    # Submit both fr (already covered) and de (excluded)
+    de_translation = Translation.objects.create(
+        source=translation_source,
+        target_locale=locale_de,
+    )
+
+    Job.get_or_create_from_source_and_translation_data(
+        translation_source=translation_source,
+        translations=[fr_translation, de_translation],
+        user=user,
+        due_date=None,
+    )
+
+    # No new job, existing job unchanged
+    assert Job.objects.count() == 1
+    assert job.translations.count() == 1
+    assert set(job.translations.all()) == {fr_translation}
