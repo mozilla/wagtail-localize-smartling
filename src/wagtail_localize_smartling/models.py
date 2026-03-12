@@ -365,9 +365,24 @@ class Job(SyncedModel):
         # TODO only submit locales that match Smartling target locales
         # TODO make sure the source locale matches the Smartling project's language
 
+        translations_list = list(translations)
+
+        # Filter out translations for excluded locales
+        excluded = smartling_settings.EXCLUDE_LOCALES
+        if excluded:
+            excluded_translations = [t for t in translations_list if t.target_locale.language_code in excluded]
+            if excluded_translations:
+                logger.info(
+                    "Excluding %d translation(s) for locales: %s",
+                    len(excluded_translations),
+                    ", ".join(t.target_locale.language_code for t in excluded_translations),
+                )
+            translations_list = [t for t in translations_list if t.target_locale.language_code not in excluded]
+            if not translations_list:
+                return
+
         project = Project.get_current()
         content_hash = compute_content_hash(translation_source.export_po())
-        translations_list = list(translations)
         remaining_translations = {t.target_locale.pk: t for t in translations_list}
 
         # Find existing pending jobs for the same source content

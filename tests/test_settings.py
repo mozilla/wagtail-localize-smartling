@@ -246,3 +246,68 @@ def test_max_approval_tasks_on_dashboard():
 def test_send_email_on_translation_import():
     smartling_settings = _init_settings()
     assert smartling_settings.SEND_EMAIL_ON_TRANSLATION_IMPORT is False
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "EXCLUDE_LOCALES": ["fr", "de"],
+    }
+)
+def test_exclude_locales():
+    smartling_settings = _init_settings()
+    assert smartling_settings.EXCLUDE_LOCALES == frozenset(["fr", "de"])
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "EXCLUDE_LOCALES": ["fr", "de", "fr"],
+    }
+)
+def test_exclude_locales_duplicate_valid_locales():
+    """Having duplicate valid EXCLUDE_LOCALES entries is technically ok."""
+    smartling_settings = _init_settings()
+    assert smartling_settings.EXCLUDE_LOCALES == frozenset(["fr", "de"])
+
+
+@override_settings(WAGTAIL_LOCALIZE_SMARTLING={**REQUIRED_SETTINGS})
+def test_exclude_locales_default():
+    smartling_settings = _init_settings()
+    assert smartling_settings.EXCLUDE_LOCALES == frozenset()
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "EXCLUDE_LOCALES": "not-a-list",
+    }
+)
+def test_exclude_locales_invalid_type():
+    with pytest.raises(ImproperlyConfigured):
+        _init_settings()
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "EXCLUDE_LOCALES": ["fr", "xx-YY"],  # xx-YY is not a valid locale
+    }
+)
+def test_exclude_locales_invalid_locale_code():
+    with pytest.raises(ImproperlyConfigured, match="WAGTAIL_CONTENT_LANGUAGES"):
+        _init_settings()
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "EXCLUDE_LOCALES": [
+            "fr",  # valid
+            "xx-YY",  # invalid
+        ],
+    }
+)
+def test_exclude_locales_valid_and_invalid_in_excluded_locales():
+    with pytest.raises(ImproperlyConfigured, match="WAGTAIL_CONTENT_LANGUAGES"):
+        _init_settings()

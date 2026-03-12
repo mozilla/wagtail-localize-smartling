@@ -42,6 +42,7 @@ class SmartlingSettings:
     ADD_APPROVAL_TASK_TO_DASHBOARD: bool = True
     MAX_APPROVAL_TASKS_ON_DASHBOARD: int = 7
     SEND_EMAIL_ON_TRANSLATION_IMPORT: bool = True
+    EXCLUDE_LOCALES: frozenset[str] = dataclasses.field(default_factory=frozenset)
 
 
 def _init_settings() -> SmartlingSettings:
@@ -190,6 +191,27 @@ def _init_settings() -> SmartlingSettings:
         settings_kwargs["SEND_EMAIL_ON_TRANSLATION_IMPORT"] = settings_dict[
             "SEND_EMAIL_ON_TRANSLATION_IMPORT"
         ]
+
+    if "EXCLUDE_LOCALES" in settings_dict:
+        exclude = settings_dict["EXCLUDE_LOCALES"]
+        if not isinstance(exclude, (list, tuple, set, frozenset)):
+            raise ImproperlyConfigured(
+                f"{setting_name}['EXCLUDE_LOCALES'] must be a list, tuple, or set "
+                f"of locale code strings"
+            )
+        valid_locale_codes = {
+            code
+            for code, _ in getattr(
+                django_settings, "WAGTAIL_CONTENT_LANGUAGES", []
+            )
+        }
+        invalid_codes = set(exclude) - valid_locale_codes
+        if invalid_codes:
+            raise ImproperlyConfigured(
+                f"{setting_name}['EXCLUDE_LOCALES'] contains locale codes not in "
+                f"WAGTAIL_CONTENT_LANGUAGES: {sorted(invalid_codes)}"
+            )
+        settings_kwargs["EXCLUDE_LOCALES"] = frozenset(exclude)
 
     return SmartlingSettings(**settings_kwargs)
 
