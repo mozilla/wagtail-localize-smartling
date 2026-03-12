@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes
 
+## [0.12.0] - 2026-03-12
+
+- Support explicitly excluding locales from Smartling sync - @dchukhin
+
+## [0.11.0] - 2026-01-26
+
+- Add per-locale translation imports and job expansion by @stevejalim
+- Update minimum Python, Django and Wagtail versions by @stevejalim
+
 ## [0.10.3] - 2025-05-07
 
 Bugfix: avoid 500ing if a LandedTranslationTask references a now-deleted content object.
