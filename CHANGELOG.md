@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes
 
+## [0.12.1] - 2026-04-06
+
+- Fix blow-up when invisible line breaks are in PO contnet - @stevejalim
+
 ## [0.12.0] - 2026-03-12
 
 - Support explicitly excluding locales from Smartling sync - @dchukhin

@@ -16,6 +16,19 @@ from .constants import PENDING_STATUSES, TRANSLATED_STATUSES, UNTRANSLATED_STATU
 from .signals import individual_translation_imported, translation_import_successful
 
 
+def _sanitize_po_content(content: str) -> str:
+    """
+    Remove Unicode line/paragraph separators (U+2028, U+2029) from PO content.
+
+    Python's str.splitlines() treats these as line boundaries, but polib uses
+    splitlines() internally to tokenize string input. If these characters appear
+    inside a quoted msgstr value, polib's parser sees a broken line and raises
+    a syntax error. Replacing them with a regular space preserves word boundaries
+    without affecting the PO file structure.
+    """
+    return content.replace("\u2028", " ").replace("\u2029", " ")
+
+
 def _compute_translation_hash(content: str) -> str:
     """
     Compute a hash of translated PO file content.
@@ -24,7 +37,7 @@ def _compute_translation_hash(content: str) -> str:
     this includes msgstr to detect changes in translations. It ignores header metadata
     (like timestamps) to ensure the hash is stable across downloads.
     """
-    po = polib.pofile(content)
+    po = polib.pofile(_sanitize_po_content(content))
     strings = []
     for entry in po:
         strings.append(f"{entry.msgctxt}:{entry.msgid}:{entry.msgstr}")
@@ -269,7 +282,7 @@ def _import_translation_for_locale(job: "Job", translation: Translation, smartli
     content = client.download_translation_for_locale(job=job, locale_id=smartling_locale_id)
     content_str = content.decode("utf-8")
     content_hash = _compute_translation_hash(content_str)
-    po_file = polib.pofile(content_str)
+    po_file = polib.pofile(_sanitize_po_content(content_str))
     translation.import_po(po_file)
     individual_translation_imported.send(
         sender=job.__class__,
@@ -328,7 +341,7 @@ def _download_and_apply_translations(job: "Job") -> None:
                         wagtail_locale_id,
                     )
 
-                po_file = polib.pofile(content)
+                po_file = polib.pofile(_sanitize_po_content(content))
                 translation.import_po(po_file)
                 individual_translation_imported.send(
                     sender=job.__class__,
