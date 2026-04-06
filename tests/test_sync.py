@@ -9,7 +9,9 @@ from django.utils import timezone
 from wagtail_localize_smartling.models import Job, JobTranslation
 from wagtail_localize_smartling.sync import (
     _check_and_import_completed_locales,
+    _compute_translation_hash,
     _import_translation_for_locale,
+    _sanitize_po_content,
 )
 
 
@@ -158,3 +160,68 @@ class TestImportTranslationForLocale:
 
         # The translation should have been imported (import_po was called)
         # We can verify by checking that no exception was raised
+
+
+class TestSanitizePoContent:
+    """Tests for _sanitize_po_content."""
+
+    def test_strips_unicode_line_separator(self):
+        content = 'msgstr "Take control \u2028of AI"'
+        assert _sanitize_po_content(content) == 'msgstr "Take control  of AI"'
+
+    def test_strips_unicode_paragraph_separator(self):
+        content = 'msgstr "Hello\u2029World"'
+        assert _sanitize_po_content(content) == 'msgstr "Hello World"'
+
+    def test_clean_content_unchanged(self):
+        content = 'msgstr "Hello World"'
+        assert _sanitize_po_content(content) == content
+
+
+class TestComputeTranslationHashWithUnicodeSeparators:
+    """Test that _compute_translation_hash handles U+2028/U+2029 in PO content."""
+
+    def test_hash_succeeds_with_unicode_line_separator_in_msgstr(self):
+        po_content = """\
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\\n"
+
+msgctxt "title"
+msgid ""
+"Take control \u2028"
+"of AI"
+msgstr "Kontrolle \u2028über KI"
+"""
+        # Should not raise
+        result = _compute_translation_hash(po_content)
+        assert isinstance(result, str)
+        assert len(result) == 64  # SHA-256 hex digest
+
+
+class TestImportTranslationForLocaleWithUnicodeSeparators:
+    """Test that _import_translation_for_locale handles U+2028 in PO content."""
+
+    pytestmark = pytest.mark.django_db
+
+    def test_imports_with_unicode_line_separator_in_msgstr(
+        self,
+        smartling_job,
+        smartling_download_translation_for_locale,
+        disable_signals,
+    ):
+        po_content = """\
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\\n"
+
+msgctxt "title"
+msgid ""
+"Take control \u2028"
+"of AI"
+msgstr "Kontrolle \u2028über KI"
+"""
+        smartling_download_translation_for_locale("fr", po_content=po_content)
+        translation = smartling_job.translations.first()
+        # Should not raise
+        _import_translation_for_locale(smartling_job, translation, "fr")
