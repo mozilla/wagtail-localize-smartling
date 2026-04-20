@@ -34,18 +34,12 @@ pytestmark = [pytest.mark.django_db]
 
 def test_individual_translation_imported_is_connected_to_the_expected_handlers():
     assert len(individual_translation_imported.receivers) == 1
-    assert (
-        individual_translation_imported.receivers[0][1]
-        == create_landed_translation_task
-    )
+    assert individual_translation_imported.receivers[0][1] == create_landed_translation_task
 
 
 def test_translation_import_successful_is_connected_to_the_expected_handlers():
     assert len(translation_import_successful.receivers) == 1
-    assert (
-        translation_import_successful.receivers[0][1]
-        == send_email_notification_upon_overall_translation_import
-    )
+    assert translation_import_successful.receivers[0][1] == send_email_notification_upon_overall_translation_import
 
 
 @override_settings(
@@ -53,9 +47,7 @@ def test_translation_import_successful_is_connected_to_the_expected_handlers():
     WAGTAILADMIN_BASE_URL="https://cms.example.com",
 )
 def test_notify_of_imported_translations__happy_path(mocker):
-    mock_logger_info = mocker.patch(
-        "wagtail_localize_smartling.signal_handlers.logger.info"
-    )
+    mock_logger_info = mocker.patch("wagtail_localize_smartling.signal_handlers.logger.info")
 
     admin_1 = WagtailUserFactory(
         username="admin_1",
@@ -85,14 +77,10 @@ def test_notify_of_imported_translations__happy_path(mocker):
 
     mock_translation_fr = mocker.MagicMock(spec=Translation, name="mock-translation-fr")
     mock_translation_fr.target_locale.language_code = "fr"
-    mock_translation_fr_CA = mocker.MagicMock(
-        spec=Translation, name="mock-translation-fr-CA"
-    )
+    mock_translation_fr_CA = mocker.MagicMock(spec=Translation, name="mock-translation-fr-CA")
     mock_translation_fr_CA.target_locale.language_code = "fr-CA"
 
-    mock_send_mail = mocker.patch(
-        "wagtail_localize_smartling.signal_handlers.send_mail"
-    )
+    mock_send_mail = mocker.patch("wagtail_localize_smartling.signal_handlers.send_mail")
 
     translation_import_successful.send(
         sender=Job,
@@ -100,10 +88,7 @@ def test_notify_of_imported_translations__happy_path(mocker):
         translations_imported=[mock_translation_fr, mock_translation_fr_CA],
     )
     assert mock_send_mail.call_count == 1
-    assert (
-        mock_send_mail.call_args[1]["subject"]
-        == "New translations imported from Smartling"
-    )
+    assert mock_send_mail.call_args[1]["subject"] == "New translations imported from Smartling"
     assert mock_send_mail.call_args[1]["from_email"] == "from@example.com"
     assert mock_send_mail.call_args[1]["recipient_list"] == [
         "admin_1@example.com",
@@ -115,10 +100,7 @@ def test_notify_of_imported_translations__happy_path(mocker):
         "They are for Job 'Test Job'",
     ]:
         assert expected_string in mock_send_mail.call_args[1]["message"]
-    assert (
-        mock_logger_info.call_args_list[0][0][0]
-        == "Translation-imported notification sent to 2 users"
-    )
+    assert mock_logger_info.call_args_list[0][0][0] == "Translation-imported notification sent to 2 users"
 
 
 @pytest.mark.parametrize(
@@ -150,9 +132,7 @@ def test_notification_body_rendering(translation_target_locales):
 
 
 def test_notify_of_imported_translations__no_group_members(mocker):
-    mock_logger_warning = mocker.patch(
-        "wagtail_localize_smartling.signal_handlers.logger.warning"
-    )
+    mock_logger_warning = mocker.patch("wagtail_localize_smartling.signal_handlers.logger.warning")
 
     mock_job = mocker.MagicMock(spec=Job)
     mock_job.name = "Test Job"
@@ -162,14 +142,10 @@ def test_notify_of_imported_translations__no_group_members(mocker):
 
     mock_translation_fr = mocker.MagicMock(spec=Translation, name="mock-translation-fr")
     mock_translation_fr.target_locale.language_code = "fr"
-    mock_translation_fr_CA = mocker.MagicMock(
-        spec=Translation, name="mock-translation-fr-CA"
-    )
+    mock_translation_fr_CA = mocker.MagicMock(spec=Translation, name="mock-translation-fr-CA")
     mock_translation_fr_CA.target_locale.language_code = "fr-CA"
 
-    mock_send_mail = mocker.patch(
-        "wagtail_localize_smartling.signal_handlers.send_mail"
-    )
+    mock_send_mail = mocker.patch("wagtail_localize_smartling.signal_handlers.send_mail")
 
     translation_import_successful.send(
         sender=Job,
@@ -215,9 +191,7 @@ def test_create_landed_translation_task__disabled_by_settings(
 ):
     smartling_settings.ADD_APPROVAL_TASK_TO_DASHBOARD = False
 
-    mock_logger_debug = mocker.patch(
-        "wagtail_localize_smartling.signal_handlers.logger.debug"
-    )
+    mock_logger_debug = mocker.patch("wagtail_localize_smartling.signal_handlers.logger.debug")
     mock_create_from_source_and_translation = mocker.patch(
         "wagtail_localize_smartling.models.LandedTranslationTask.objects.create_from_source_and_translation"
     )
@@ -225,13 +199,9 @@ def test_create_landed_translation_task__disabled_by_settings(
     mock_job = mocker.MagicMock(spec=Job)
     mock_translation = mocker.MagicMock(spec=Translation)
 
-    create_landed_translation_task(
-        sender=Job, instance=mock_job, translation=mock_translation
-    )
+    create_landed_translation_task(sender=Job, instance=mock_job, translation=mock_translation)
 
-    mock_logger_debug.assert_called_once_with(
-        "Creation of a landed-translation task is disabled by settings"
-    )
+    mock_logger_debug.assert_called_once_with("Creation of a landed-translation task is disabled by settings")
     assert not mock_create_from_source_and_translation.called
 
 
@@ -319,11 +289,32 @@ def test_close_translation_landed_task_on_snippet_published(is_a_snippet, mocker
         instance=mock_instance,
     )
 
-    mock_model_is_registered_as_snippet.assert_called_once_with(mock_instance)
+    mock_model_is_registered_as_snippet.assert_called_once_with(mock_instance.__class__)
     if is_a_snippet:
         mock_close_translation_landed_task.assert_called_once_with(mock_instance)
     else:
         assert not mock_close_translation_landed_task.called
+
+
+def test_close_translation_landed_task_on_snippet_published__skips_when_raw(mocker):
+    mock_instance = mocker.Mock()
+    mock_close_translation_landed_task = mocker.patch(
+        "wagtail_localize_smartling.signal_handlers._close_translation_landed_task"
+    )
+    mock_model_is_registered_as_snippet = mocker.patch(
+        "wagtail_localize_smartling.signal_handlers._model_is_registered_as_snippet"
+    )
+    mock_logger_debug = mocker.patch("wagtail_localize_smartling.signal_handlers.logger.debug")
+
+    close_translation_landed_task_on_snippet_published(
+        sender=mock_instance.__class__,
+        instance=mock_instance,
+        raw=True,
+    )
+
+    assert not mock_model_is_registered_as_snippet.called
+    assert not mock_close_translation_landed_task.called
+    mock_logger_debug.assert_called_once()
 
 
 @pytest.mark.parametrize("is_a_snippet", [True, False])

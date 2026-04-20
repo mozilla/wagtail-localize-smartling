@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _model_is_registered_as_snippet(model: "Model") -> bool:
+def _model_is_registered_as_snippet(model: Type["Model"]) -> bool:  # noqa: UP006
     """
     Check if a given model has been registered as a Wagtail snippet.
     """
@@ -77,9 +77,7 @@ def close_translation_landed_task_on_page_published(
     # is all we need
 
     if not isinstance(instance, Page):
-        logger.debug(
-            f"{instance} is not a Page, so not trying to find a landed-translation task"
-        )
+        logger.debug(f"{instance} is not a Page, so not trying to find a landed-translation task")
         return
     return _close_translation_landed_task(instance)
 
@@ -94,10 +92,16 @@ def close_translation_landed_task_on_snippet_published(
 ):
     # Both page_published and post_save send the core args, which
     # is all we need
-    if not _model_is_registered_as_snippet(instance):
-        logger.debug(
-            f"{instance} is not a Snippet, so not trying to find a landed-translation task"
-        )
+
+    # Skip during fixture loading (raw=True) — related objects may not be
+    # available yet, and landed-translation tasks should not be looked up or
+    # completed from fixture-loaded saves.
+    if kwargs.get("raw"):
+        logger.debug(f"{sender} was saved with raw=True, so not trying to find a landed-translation task")
+        return
+
+    if not _model_is_registered_as_snippet(sender):
+        logger.debug(f"{instance} is not a Snippet, so not trying to find a landed-translation task")
         return
     return _close_translation_landed_task(instance)
 
@@ -119,14 +123,10 @@ def send_email_notification_upon_overall_translation_import(
     notification option for all users in the Translation Approver group
     """
     if not smartling_settings.SEND_EMAIL_ON_TRANSLATION_IMPORT:
-        logger.info(
-            "Email notifications following translation import are disabled by settings"
-        )
+        logger.info("Email notifications following translation import are disabled by settings")
         return
 
-    ta_group = Group.objects.filter(
-        name=smartling_settings.TRANSLATION_APPROVER_GROUP_NAME
-    )
+    ta_group = Group.objects.filter(name=smartling_settings.TRANSLATION_APPROVER_GROUP_NAME)
     if not ta_group.exists():
         logger.warning(
             f"Could not find the {smartling_settings.TRANSLATION_APPROVER_GROUP_NAME} "
@@ -165,9 +165,7 @@ def send_email_notification_upon_overall_translation_import(
         context={
             "job_name": job_name,
             "translation_source_name": translation_source_name,
-            "translation_target_locales": [
-                x.target_locale for x in translations_imported
-            ],
+            "translation_target_locales": [x.target_locale for x in translations_imported],
         },
     )
 
@@ -177,11 +175,7 @@ def send_email_notification_upon_overall_translation_import(
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=approver_email_addresses,
     )
-    logger.info(
-        f"Translation-imported notification sent to {len(approver_email_addresses)} users"
-    )
+    logger.info(f"Translation-imported notification sent to {len(approver_email_addresses)} users")
 
 
-translation_import_successful.connect(
-    send_email_notification_upon_overall_translation_import, weak=False
-)
+translation_import_successful.connect(send_email_notification_upon_overall_translation_import, weak=False)
