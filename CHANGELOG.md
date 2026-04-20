@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes
 
+## [0.12.2] - 2026-04-20
+
+- Fix blow-up when `post_save` fires with `raw=True` (e.g. during `loaddata`) — skip snippet-published handler early and log at DEBUG - @stevejalim
+- Fix `_model_is_registered_as_snippet` being called with an instance instead of a class - @stevejalim
+
 ## [0.12.1] - 2026-04-06
 
 - Fix blow-up when invisible line breaks are in PO contnet - @stevejalim
