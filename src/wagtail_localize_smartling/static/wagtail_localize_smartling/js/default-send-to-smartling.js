@@ -4,10 +4,12 @@
 //
 // The Python hook only loads this script when the setting is on, so the
 // script itself unconditionally attempts to tick the box. It bails out
-// when the checkbox is already ticked or when the page contains visible
-// form errors (so we don't override a user who deliberately unticked
-// the box on a re-render after a validation error elsewhere on the
-// form).
+// when the checkbox is already ticked or when an error-message element
+// is present on the page (so we don't override a user who deliberately
+// unticked the box on a re-render after a validation error elsewhere
+// on the form). The check is a presence check, not a visibility check
+// — Wagtail/Django only emit `.error-message` / `.errorlist` markup
+// when there's an actual error to render, so presence is the signal.
 (function () {
     var CHECKBOX_SELECTOR =
         'input[type="checkbox"][name="component-wagtail_localize_smartling_job-enabled"]';
