@@ -1,6 +1,9 @@
 from django.apps import AppConfig
 
 
+_PATCH_APPLIED = False
+
+
 class WagtailLocalizeSmartlingAppConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     label = "wagtail_localize_smartling"
@@ -25,15 +28,16 @@ def _patch_translation_component_default_enabled():
     consult our setting for the smartling Job component, so the host
     project can opt the checkbox into being pre-ticked.
     """
+    global _PATCH_APPLIED
+    if _PATCH_APPLIED:
+        return
+
+    from django import forms
+
     from wagtail_localize.components import (
         BaseComponentManager,
         accepts_parameter,
     )
-
-    if getattr(BaseComponentManager.from_request, "_smartling_patched", False):
-        return
-
-    from django import forms
 
     @classmethod
     def from_request(cls, request, source_object_instance=None):
@@ -84,8 +88,8 @@ def _patch_translation_component_default_enabled():
 
         return cls(components)
 
-    from_request._smartling_patched = True
-    BaseComponentManager.from_request = from_request
+    BaseComponentManager.from_request = from_request  # pyright: ignore[reportAttributeAccessIssue]
+    _PATCH_APPLIED = True
 
 
 def _is_smartling_default_enabled(component):
