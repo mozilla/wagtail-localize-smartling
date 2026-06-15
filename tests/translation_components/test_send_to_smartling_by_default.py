@@ -1,7 +1,12 @@
 """
 Tests for SmartlingSettings.SEND_TO_SMARTLING_BY_DEFAULT — the toggle
 that controls whether the "Send to Smartling" checkbox is pre-ticked
-on the submit-translations form.
+on the submit/update-translation forms.
+
+Pre-ticking is implemented client-side via an `insert_global_admin_js`
+hook (see `wagtail_hooks.default_send_to_smartling_js`), so these
+tests assert on the rendered admin response containing the expected
+inline script.
 """
 
 import pytest
@@ -10,55 +15,40 @@ from django.urls import reverse
 
 from wagtail_localize_smartling.models import Job
 
-from testapp.factories import InfoPageFactory
-
 
 pytestmark = pytest.mark.django_db
 
 
-def _get_enabled_field(client, page):
-    submit_url = reverse(
-        "wagtail_localize:submit_page_translation",
-        kwargs={"page_id": page.pk},
-    )
-    response = client.get(submit_url)
-    assert response.status_code == 200
-
-    component_mgr = response.context["components"]
-    assert len(component_mgr.components) == 1
-    _component, _instance, form = component_mgr.components[0]
-
-    assert "enabled" in form.fields
-    return form["enabled"]
+SCRIPT_FINGERPRINT = "tickSendToSmartling"
 
 
-def test_send_to_smartling_default_on(
-    client, root_page, superuser, smartling_project, smartling_settings
-):
+def _expected_selector():
+    name = f"component-{Job._meta.db_table}-enabled"
+    return f'input[type="checkbox"][name="{name}"]'
+
+
+def test_js_hook_renders_script_when_default_on(client, superuser, smartling_settings):
     smartling_settings.SEND_TO_SMARTLING_BY_DEFAULT = True
-
-    page = InfoPageFactory(parent=root_page, title="Default-on test page")
     client.force_login(superuser)
 
-    enabled = _get_enabled_field(client, page)
-    assert enabled.field.initial is True
-    assert enabled.value() is True
+    response = client.get(reverse("wagtailadmin_home"))
+    body = response.content.decode()
+
+    assert SCRIPT_FINGERPRINT in body
+    assert _expected_selector() in body
 
 
-def test_send_to_smartling_default_off(
-    client, root_page, superuser, smartling_project, smartling_settings
-):
+def test_js_hook_omits_script_when_default_off(client, superuser, smartling_settings):
     smartling_settings.SEND_TO_SMARTLING_BY_DEFAULT = False
-
-    page = InfoPageFactory(parent=root_page, title="Default-off test page")
     client.force_login(superuser)
 
-    enabled = _get_enabled_field(client, page)
-    assert enabled.field.initial is False
-    assert enabled.value() is False
+    response = client.get(reverse("wagtailadmin_home"))
+    body = response.content.decode()
+
+    assert SCRIPT_FINGERPRINT not in body
 
 
-def test_settings_default_uses_django_DEV_flag(settings, smartling_settings):
+def test_settings_default_uses_django_DEV_flag(settings):
     # The default value (when SEND_TO_SMARTLING_BY_DEFAULT is omitted
     # from WAGTAIL_LOCALIZE_SMARTLING) flips based on `settings.DEV`:
     # off in dev environments, on otherwise.

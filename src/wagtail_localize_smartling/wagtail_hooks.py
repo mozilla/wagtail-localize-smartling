@@ -1,10 +1,12 @@
 from django.urls import include, path, reverse
+from django.utils.html import format_html
 from django.utils.translation import gettext as _
 from wagtail import hooks
 from wagtail.admin.menu import MenuItem
 
 from . import admin_urls
 from .components import LandedTranslationsPanel
+from .models import Job
 from .settings import settings as smartling_settings
 from .views import SmartlingResubmitJobView
 from .viewsets import smartling_job_viewset
@@ -45,3 +47,52 @@ def add_landed_translations_panel(request, panels):
                 max_to_show=smartling_settings.MAX_APPROVAL_TASKS_ON_DASHBOARD
             )
         )
+
+
+@hooks.register("insert_global_admin_js")  # pyright: ignore[reportOptionalCall]
+def default_send_to_smartling_js():
+    """
+    Pre-tick the "Send to Smartling" checkbox on the wagtail-localize
+    submit/update-translation forms when the host project has opted in.
+
+    wagtail-localize generates the checkbox as
+    `<input type="checkbox" name="component-{Job._meta.db_table}-enabled">`
+    with the initial state hardcoded to unchecked. Rather than patching
+    upstream internals, we hook a tiny page-load script onto the admin
+    that ticks the box client-side iff:
+
+    - the host project has set `SEND_TO_SMARTLING_BY_DEFAULT` (or its
+      DEV-derived default resolves to True), AND
+    - the checkbox is currently unchecked, AND
+    - there are no visible form errors on the page (so we don't override
+      a user who deliberately unticked it on a re-render after a
+      validation error elsewhere on the form).
+    """
+    if not smartling_settings.SEND_TO_SMARTLING_BY_DEFAULT:
+        return ""
+
+    name = f"component-{Job._meta.db_table}-enabled"
+    return format_html(
+        """
+        <script>
+        (function () {{
+            function tickSendToSmartling() {{
+                var cb = document.querySelector(
+                    'input[type="checkbox"][name="{name}"]'
+                );
+                if (!cb || cb.checked) {{ return; }}
+                if (document.querySelector('.error-message, .errorlist')) {{
+                    return;
+                }}
+                cb.checked = true;
+            }}
+            if (document.readyState === 'loading') {{
+                document.addEventListener('DOMContentLoaded', tickSendToSmartling);
+            }} else {{
+                tickSendToSmartling();
+            }}
+        }})();
+        </script>
+        """,
+        name=name,
+    )
