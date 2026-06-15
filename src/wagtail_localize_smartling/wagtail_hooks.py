@@ -3,10 +3,10 @@ from django.utils.html import format_html
 from django.utils.translation import gettext as _
 from wagtail import hooks
 from wagtail.admin.menu import MenuItem
+from wagtail.admin.staticfiles import versioned_static
 
 from . import admin_urls
 from .components import LandedTranslationsPanel
-from .models import Job
 from .settings import settings as smartling_settings
 from .views import SmartlingResubmitJobView
 from .viewsets import smartling_job_viewset
@@ -52,47 +52,24 @@ def add_landed_translations_panel(request, panels):
 @hooks.register("insert_global_admin_js")  # pyright: ignore[reportOptionalCall]
 def default_send_to_smartling_js():
     """
-    Pre-tick the "Send to Smartling" checkbox on the wagtail-localize
-    submit/update-translation forms when the host project has opted in.
+    Pre-tick the "Send to Smartling" checkbox on wagtail-localize's
+    submit/update-translation forms when the host project has opted in
+    via `SEND_TO_SMARTLING_BY_DEFAULT`.
 
-    wagtail-localize generates the checkbox as
-    `<input type="checkbox" name="component-{Job._meta.db_table}-enabled">`
-    with the initial state hardcoded to unchecked. Rather than patching
-    upstream internals, we hook a tiny page-load script onto the admin
-    that ticks the box client-side iff:
-
-    - the host project has set `SEND_TO_SMARTLING_BY_DEFAULT` (or its
-      DEV-derived default resolves to True), AND
-    - the checkbox is currently unchecked, AND
-    - there are no visible form errors on the page (so we don't override
-      a user who deliberately unticked it on a re-render after a
-      validation error elsewhere on the form).
+    wagtail-localize hardcodes the checkbox's initial state to
+    unchecked, with no parameter, hook, or settable attribute to
+    override it. Rather than patching upstream internals at runtime,
+    we ship a small static script that ticks the checkbox client-side.
+    Loading via `<script src>` (rather than inline) keeps the script
+    compatible with hosts running a `script-src 'self'` CSP without
+    needing `'unsafe-inline'`.
     """
     if not smartling_settings.SEND_TO_SMARTLING_BY_DEFAULT:
         return ""
 
-    name = f"component-{Job._meta.db_table}-enabled"
     return format_html(
-        """
-        <script>
-        (function () {{
-            function tickSendToSmartling() {{
-                var cb = document.querySelector(
-                    'input[type="checkbox"][name="{name}"]'
-                );
-                if (!cb || cb.checked) {{ return; }}
-                if (document.querySelector('.error-message, .errorlist')) {{
-                    return;
-                }}
-                cb.checked = true;
-            }}
-            if (document.readyState === 'loading') {{
-                document.addEventListener('DOMContentLoaded', tickSendToSmartling);
-            }} else {{
-                tickSendToSmartling();
-            }}
-        }})();
-        </script>
-        """,
-        name=name,
+        '<script src="{src}"></script>',
+        src=versioned_static(
+            "wagtail_localize_smartling/js/default-send-to-smartling.js"
+        ),
     )

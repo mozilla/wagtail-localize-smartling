@@ -58,9 +58,11 @@ integrates with the Smartling translation platform.
         # is True unless the host project defines a truthy `settings.DEV`
         # flag, in which case it defaults to False to avoid accidental
         # dev → Smartling sync. Pre-ticking is performed client-side via
-        # a small inline script injected on admin pages; if JavaScript
-        # is unavailable, the checkbox renders unticked. Has no effect
-        # when REQUIRED is True (the checkbox is then hidden entirely).
+        # a small static JS file loaded on admin pages — it is CSP-safe
+        # under `script-src 'self'` and does not require `'unsafe-inline'`.
+        # If JavaScript is unavailable, the checkbox renders unticked.
+        # Has no effect when REQUIRED is True (the checkbox is then
+        # hidden entirely).
         "SEND_TO_SMARTLING_BY_DEFAULT": True,
         "ENVIRONMENT": "production",  # Set this to "staging" to use Smartling's staging API
         "API_TIMEOUT_SECONDS": 5.0,  # Timeout in seconds for requests to the Smartling API

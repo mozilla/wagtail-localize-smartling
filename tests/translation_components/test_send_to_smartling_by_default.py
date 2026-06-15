@@ -4,27 +4,20 @@ that controls whether the "Send to Smartling" checkbox is pre-ticked
 on the submit/update-translation forms.
 
 Pre-ticking is implemented client-side via an `insert_global_admin_js`
-hook (see `wagtail_hooks.default_send_to_smartling_js`), so these
-tests assert on the rendered admin response containing the expected
-inline script.
+hook (see `wagtail_hooks.default_send_to_smartling_js`) that emits a
+`<script src>` tag pointing to a static asset. These tests assert on
+the rendered admin response containing (or omitting) that tag.
 """
 
 import pytest
 
 from django.urls import reverse
 
-from wagtail_localize_smartling.models import Job
-
 
 pytestmark = pytest.mark.django_db
 
 
-SCRIPT_FINGERPRINT = "tickSendToSmartling"
-
-
-def _expected_selector():
-    name = f"component-{Job._meta.db_table}-enabled"
-    return f'input[type="checkbox"][name="{name}"]'
+SCRIPT_PATH = "wagtail_localize_smartling/js/default-send-to-smartling.js"
 
 
 def test_js_hook_renders_script_when_default_on(client, superuser, smartling_settings):
@@ -34,8 +27,7 @@ def test_js_hook_renders_script_when_default_on(client, superuser, smartling_set
     response = client.get(reverse("wagtailadmin_home"))
     body = response.content.decode()
 
-    assert SCRIPT_FINGERPRINT in body
-    assert _expected_selector() in body
+    assert SCRIPT_PATH in body
 
 
 def test_js_hook_omits_script_when_default_off(client, superuser, smartling_settings):
@@ -45,7 +37,7 @@ def test_js_hook_omits_script_when_default_off(client, superuser, smartling_sett
     response = client.get(reverse("wagtailadmin_home"))
     body = response.content.decode()
 
-    assert SCRIPT_FINGERPRINT not in body
+    assert SCRIPT_PATH not in body
 
 
 def test_settings_default_uses_django_DEV_flag(settings):
