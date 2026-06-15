@@ -53,6 +53,12 @@ integrates with the Smartling translation platform.
         "USER_SECRET": "<user_secret>",
         # Optional settings and their default values
         "REQUIRED": False,  # Set this to True to always send translations to Smartling
+        # Whether the "Send to Smartling" checkbox is pre-ticked on the
+        # submit-translation form. If omitted, the default is True unless
+        # the host project defines a truthy `settings.DEV` flag, in which
+        # case it defaults to False to avoid accidental dev → Smartling
+        # sync. Has no effect when REQUIRED is True.
+        "SEND_TO_SMARTLING_BY_DEFAULT": True,
         "ENVIRONMENT": "production",  # Set this to "staging" to use Smartling's staging API
         "API_TIMEOUT_SECONDS": 5.0,  # Timeout in seconds for requests to the Smartling API
     }
