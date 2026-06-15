@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No changes
+- Fix the dashboard "landed translations" panel showing the truncated count instead of the total number of pages awaiting approval (#64) - @stevejalim
 
 ## [0.12.2] - 2026-04-20
 
