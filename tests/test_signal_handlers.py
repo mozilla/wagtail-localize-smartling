@@ -2,8 +2,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-from unittest.mock import Mock
-
 import pytest
 
 from django.contrib.auth.models import User
@@ -42,6 +40,14 @@ def test_translation_import_successful_is_connected_to_the_expected_handlers():
     assert translation_import_successful.receivers[0][1] == send_email_notification_upon_overall_translation_import
 
 
+def _mock_translation(mocker, *, language_code, language_name, edit_path):
+    t = mocker.MagicMock(spec=Translation, name=f"mock-translation-{language_code}")
+    t.target_locale.language_code = language_code
+    t.target_locale.language_name = language_name
+    t.get_target_instance_edit_url.return_value = edit_path
+    return t
+
+
 @override_settings(
     DEFAULT_FROM_EMAIL="from@example.com",
     WAGTAILADMIN_BASE_URL="https://cms.example.com",
@@ -59,6 +65,11 @@ def test_notify_of_imported_translations__happy_path(mocker):
         email="user_1@example.com",
         is_superuser=False,
     )
+    submitter = WagtailUserFactory(
+        username="submitter",
+        email="submitter@example.com",
+        is_superuser=False,
+    )
     WagtailUserFactory(
         username="admin_2",
         email="admin_2@example.com",
@@ -72,13 +83,23 @@ def test_notify_of_imported_translations__happy_path(mocker):
     mock_job = mocker.MagicMock(spec=Job)
     mock_job.name = "Test Job"
     mock_job.pk = 9876
+    mock_job.user = submitter
+    mock_job.user_id = submitter.pk
     mock_source = mocker.Mock(name="test-source")
     mock_job.translation_source.get_source_instance.return_value = mock_source
 
-    mock_translation_fr = mocker.MagicMock(spec=Translation, name="mock-translation-fr")
-    mock_translation_fr.target_locale.language_code = "fr"
-    mock_translation_fr_CA = mocker.MagicMock(spec=Translation, name="mock-translation-fr-CA")
-    mock_translation_fr_CA.target_locale.language_code = "fr-CA"
+    mock_translation_fr = _mock_translation(
+        mocker,
+        language_code="fr",
+        language_name="French",
+        edit_path="/admin/pages/12/edit/",
+    )
+    mock_translation_fr_CA = _mock_translation(
+        mocker,
+        language_code="fr-CA",
+        language_name="French (Canada)",
+        edit_path="/admin/pages/13/edit/",
+    )
 
     mock_send_mail = mocker.patch("wagtail_localize_smartling.signal_handlers.send_mail")
 
@@ -93,69 +114,189 @@ def test_notify_of_imported_translations__happy_path(mocker):
     assert mock_send_mail.call_args[1]["recipient_list"] == [
         "admin_1@example.com",
         "user_1@example.com",
+        "submitter@example.com",
     ]
 
+    message = mock_send_mail.call_args[1]["message"]
     for expected_string in [
         "ACTION REQUIRED: Translations have been synced back from Smartling and need to be published.",
         "They are for Job 'Test Job'",
+        "* French - https://cms.example.com/admin/pages/12/edit/",
+        "* French (Canada) - https://cms.example.com/admin/pages/13/edit/",
     ]:
-        assert expected_string in mock_send_mail.call_args[1]["message"]
-    assert mock_logger_info.call_args_list[0][0][0] == "Translation-imported notification sent to 2 users"
+        assert expected_string in message
+    assert mock_logger_info.call_args_list[0][0][0] == "Translation-imported notification sent to 3 users"
+
+
+@override_settings(
+    DEFAULT_FROM_EMAIL="from@example.com",
+    WAGTAILADMIN_BASE_URL="https://cms.example.com",
+)
+def test_notify_of_imported_translations__submitter_already_in_group_dedupes(mocker):
+    # If the Job submitter is also a Translation Approver, they should
+    # only receive the email once.
+    submitter = WagtailUserFactory(
+        username="submitter",
+        email="approver@example.com",
+        is_superuser=False,
+    )
+
+    ta_group = TranslationApproverGroupFactory()
+    ta_group.user_set.add(submitter)
+
+    mock_job = mocker.MagicMock(spec=Job)
+    mock_job.name = "Test Job"
+    mock_job.user = submitter
+    mock_job.user_id = submitter.pk
+    mock_job.translation_source.get_source_instance.return_value = mocker.Mock(name="src")
+
+    mock_translation = _mock_translation(
+        mocker,
+        language_code="fr",
+        language_name="French",
+        edit_path="/admin/pages/1/edit/",
+    )
+
+    mock_send_mail = mocker.patch("wagtail_localize_smartling.signal_handlers.send_mail")
+    translation_import_successful.send(
+        sender=Job,
+        instance=mock_job,
+        translations_imported=[mock_translation],
+    )
+
+    assert mock_send_mail.call_args[1]["recipient_list"] == ["approver@example.com"]
+
+
+@override_settings(
+    DEFAULT_FROM_EMAIL="from@example.com",
+    WAGTAILADMIN_BASE_URL="https://cms.example.com",
+)
+def test_notify_of_imported_translations__submitter_only_when_group_missing(mocker):
+    # When the Translation Approver group doesn't exist, the submitter
+    # alone should still receive the email — previously this branch
+    # returned early.
+    #
+    # Note: a data migration creates the group on install, so we have to
+    # explicitly delete it to exercise the missing-group path.
+    from django.contrib.auth.models import Group
+    Group.objects.filter(name="Translation approver").delete()
+
+    mock_logger_warning = mocker.patch("wagtail_localize_smartling.signal_handlers.logger.warning")
+
+    submitter = WagtailUserFactory(
+        username="submitter",
+        email="submitter@example.com",
+    )
+
+    mock_job = mocker.MagicMock(spec=Job)
+    mock_job.name = "Test Job"
+    mock_job.user = submitter
+    mock_job.user_id = submitter.pk
+    mock_job.translation_source.get_source_instance.return_value = mocker.Mock(name="src")
+
+    mock_translation = _mock_translation(
+        mocker,
+        language_code="fr",
+        language_name="French",
+        edit_path="/admin/pages/1/edit/",
+    )
+
+    mock_send_mail = mocker.patch("wagtail_localize_smartling.signal_handlers.send_mail")
+    translation_import_successful.send(
+        sender=Job,
+        instance=mock_job,
+        translations_imported=[mock_translation],
+    )
+
+    assert mock_send_mail.call_args[1]["recipient_list"] == ["submitter@example.com"]
+    # The missing-group warning still fires.
+    assert any(
+        "Could not find the Translation approver" in call.args[0]
+        for call in mock_logger_warning.call_args_list
+    )
 
 
 @pytest.mark.parametrize(
-    "translation_target_locales",
+    "translation_targets",
     (
         [
-            Mock(language_code="fr"),
-            Mock(language_code="fr-CA"),
-            Mock(language_code="de"),
+            {"locale_name": "French", "edit_url": "https://cms.example.com/admin/pages/1/edit/"},
+            {"locale_name": "French (Canada)", "edit_url": "https://cms.example.com/admin/pages/2/edit/"},
+            {"locale_name": "German", "edit_url": "https://cms.example.com/admin/pages/3/edit/"},
         ],
         [
-            Mock(language_code="fr"),
+            {"locale_name": "French", "edit_url": "https://cms.example.com/admin/pages/1/edit/"},
         ],
     ),
 )
-def test_notification_body_rendering(translation_target_locales):
+def test_notification_body_rendering(translation_targets):
     email_body = render_to_string(
         template_name="wagtail_localize_smartling/admin/email/notifications/translations_imported__body.txt",
         context={
             "job_name": "TEST JOB",
             "translation_source_name": "TS NAME",
-            "translation_target_locales": translation_target_locales,
+            "translation_targets": translation_targets,
         },
     )
-    if len(translation_target_locales) == 1:
+    if len(translation_targets) == 1:
         assert "It is for Job 'TEST JOB' for 'TS NAME" in email_body
     else:
         assert "They are for Job 'TEST JOB' for 'TS NAME" in email_body
 
+    for target in translation_targets:
+        assert f"* {target['locale_name']} - {target['edit_url']}" in email_body
 
-def test_notify_of_imported_translations__no_group_members(mocker):
+
+def test_notification_body_rendering__no_edit_url():
+    # If we couldn't resolve a target's edit URL (deleted instance,
+    # whatever), the locale name still appears but the dash + URL is
+    # suppressed.
+    email_body = render_to_string(
+        template_name="wagtail_localize_smartling/admin/email/notifications/translations_imported__body.txt",
+        context={
+            "job_name": "TEST JOB",
+            "translation_source_name": "TS NAME",
+            "translation_targets": [
+                {"locale_name": "French", "edit_url": ""},
+            ],
+        },
+    )
+    assert "* French" in email_body
+    assert "* French - " not in email_body
+
+
+def test_notify_of_imported_translations__no_group_members_and_no_submitter(mocker):
+    # No approver group members + no submitter on the Job → nothing to send.
     mock_logger_warning = mocker.patch("wagtail_localize_smartling.signal_handlers.logger.warning")
+    TranslationApproverGroupFactory()  # Group exists but is empty.
 
     mock_job = mocker.MagicMock(spec=Job)
     mock_job.name = "Test Job"
     mock_job.pk = 9876
+    mock_job.user = None
+    mock_job.user_id = None
     mock_source = mocker.Mock(name="test-source")
     mock_job.translation_source.get_source_instance.return_value = mock_source
 
-    mock_translation_fr = mocker.MagicMock(spec=Translation, name="mock-translation-fr")
-    mock_translation_fr.target_locale.language_code = "fr"
-    mock_translation_fr_CA = mocker.MagicMock(spec=Translation, name="mock-translation-fr-CA")
-    mock_translation_fr_CA.target_locale.language_code = "fr-CA"
+    mock_translation_fr = _mock_translation(
+        mocker,
+        language_code="fr",
+        language_name="French",
+        edit_path="/admin/pages/1/edit/",
+    )
 
     mock_send_mail = mocker.patch("wagtail_localize_smartling.signal_handlers.send_mail")
 
     translation_import_successful.send(
         sender=Job,
         instance=mock_job,
-        translations_imported=[mock_translation_fr, mock_translation_fr_CA],
+        translations_imported=[mock_translation_fr],
     )
     assert mock_send_mail.call_count == 0
-    assert mock_logger_warning.call_args_list[0][0][0] == (
-        "Unable to send translation-imported email notifications: "
-        "no members of the Translation approver group in the system"
+    assert any(
+        "no members of the Translation approver group in the system "
+        "and no Job submitter email available" in call.args[0]
+        for call in mock_logger_warning.call_args_list
     )
 
 

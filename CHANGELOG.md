@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No changes
+- Notify the Job submitter alongside the Translation Approver group when a Smartling import lands, and include per-locale direct edit links in the notification email (partial #68) - @stevejalim
 
 ## [0.12.2] - 2026-04-20
 
