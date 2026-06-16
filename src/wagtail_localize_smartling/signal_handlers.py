@@ -174,7 +174,7 @@ def send_email_notification_upon_overall_translation_import(
         )
         approver_email_addresses = []
 
-    submitter_email = getattr(instance.user, "email", "") if instance.user_id else ""
+    submitter_email = getattr(instance.user, "email", "") if instance.user else ""
 
     # Build a deduped, order-preserving recipient list: group members
     # first, submitter appended only if not already present.
