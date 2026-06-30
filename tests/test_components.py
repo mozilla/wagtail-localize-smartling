@@ -6,7 +6,7 @@ from wagtail.models import Locale
 from wagtail_localize_smartling.components import LandedTranslationsPanel
 from wagtail_localize_smartling.models import LandedTranslationTask
 
-from testapp.factories import InfoPageFactory
+from testapp.models import InfoPage
 
 
 pytestmark = pytest.mark.django_db
@@ -14,7 +14,7 @@ pytestmark = pytest.mark.django_db
 
 def _make_incomplete_tasks(count):
     locale, _ = Locale.objects.get_or_create(language_code="fr")
-    content_type = ContentType.objects.get_for_model(InfoPageFactory())
+    content_type = ContentType.objects.get_for_model(InfoPage)
     for i in range(count):
         LandedTranslationTask.objects.create(
             content_type=content_type,
