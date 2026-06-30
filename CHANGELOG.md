@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Add `SEND_TO_SMARTLING_BY_DEFAULT` setting to pre-tick the "Send to Smartling" checkbox on the submit-translations form. Defaults to on unless `settings.DEV` is truthy (#63) - @stevejalim
+- Add `SEND_TO_SMARTLING_BY_DEFAULT` setting to pre-tick the "Send to Smartling" checkbox on the submit-translations and update-translation forms. Defaults to on unless `settings.DEV` is truthy (#63) - @stevejalim
 
 ## [0.12.2] - 2026-04-20
 
