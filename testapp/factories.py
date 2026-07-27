@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 import factory
 import factory.django
 import wagtail_factories
@@ -72,11 +76,7 @@ class InfoPageFactory(wagtail_factories.PageFactory):
         default Site.  Any kwargs passed in will be passed to the SiteFactory
         used to create the Site.
         """
-        if (
-            not create
-            or obj.depth != 2
-            or Site.objects.filter(is_default_site=True).exists()
-        ):
+        if not create or obj.depth != 2 or Site.objects.filter(is_default_site=True).exists():
             return
 
         if extracted is not None:
@@ -139,9 +139,7 @@ class TranslationSourceFactory(factory.django.DjangoModelFactory):
         translation_key=factory.SelfAttribute("..source_instance.translation_key"),
         content_type=factory.SelfAttribute("..translatableobject_content_type"),
     )
-    specific_content_type = factory.LazyAttribute(
-        lambda obj: ContentType.objects.get_for_model(obj.source_instance)
-    )
+    specific_content_type = factory.LazyAttribute(lambda obj: ContentType.objects.get_for_model(obj.source_instance))
     translatableobject_content_type = factory.LazyAttribute(
         lambda obj: get_translatableobject_content_type(obj.source_instance)
     )

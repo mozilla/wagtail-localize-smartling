@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """
 Tests for the wagtail-localize translation components functionality when
 submitting a page for translation
@@ -40,9 +44,7 @@ def test_submitting_for_translation_with_no_existing_jobs_no_child_pages(
     page_edit_url = get_edit_url(page)
     assert page_edit_url is not None
 
-    target_locale_ids = Locale.objects.values_list("pk", flat=True).filter(
-        language_code__in=target_locales
-    )
+    target_locale_ids = Locale.objects.values_list("pk", flat=True).filter(language_code__in=target_locales)
 
     component_form_prefix = f"component-{Job._meta.db_table}"
 
@@ -88,17 +90,13 @@ def test_submitting_for_translation_with_no_existing_jobs_no_child_pages(
     job = Job.objects.get(
         first_synced_at=None,
         last_synced_at=None,
-        translation_source__object__content_type=ContentType.objects.get_for_model(
-            Page
-        ),
+        translation_source__object__content_type=ContentType.objects.get_for_model(Page),
         translation_source__object__translation_key=page.translation_key,
     )
 
     assert job.user == superuser
     assert job.translation_source == translation_source
-    assert set(job.translations.values_list("pk", flat=True)) == {
-        t.pk for t in translations
-    }
+    assert set(job.translations.values_list("pk", flat=True)) == {t.pk for t in translations}
     assert job.first_synced_at is None
     assert job.last_synced_at is None
     assert job.due_date is None
@@ -109,9 +107,7 @@ MESSAGE_MANAGED = (
     "lost the next time translations are imported from Smartling. "
     "Job status: STATUS_PLACEHOLDER"
 )
-MESSAGE_RESUBMIT = (
-    "The latest Smartling job for this translation was STATUS_PLACEHOLDER_LOWER"
-)
+MESSAGE_RESUBMIT = "The latest Smartling job for this translation was STATUS_PLACEHOLDER_LOWER"
 
 
 @pytest.mark.parametrize(
@@ -125,16 +121,12 @@ MESSAGE_RESUBMIT = (
         (JobStatus.DELETED, MESSAGE_RESUBMIT),
     ],
 )
-def test_managed_by_message_on_translation(
-    client, root_page, superuser, smartling_project, status, message
-):
+def test_managed_by_message_on_translation(client, root_page, superuser, smartling_project, status, message):
     client.force_login(superuser)
 
     page = InfoPageFactory(parent=root_page, title="Component test page")
 
-    target_locale_ids = Locale.objects.values_list("pk", flat=True).filter(
-        language_code__in=["de"]
-    )
+    target_locale_ids = Locale.objects.values_list("pk", flat=True).filter(language_code__in=["de"])
 
     component_form_prefix = f"component-{Job._meta.db_table}"
 
@@ -167,9 +159,7 @@ def test_managed_by_message_on_translation(
     job = Job.objects.get(
         first_synced_at=None,
         last_synced_at=None,
-        translation_source__object__content_type=ContentType.objects.get_for_model(
-            Page
-        ),
+        translation_source__object__content_type=ContentType.objects.get_for_model(Page),
         translation_source__object__translation_key=page.translation_key,
     )
 
@@ -186,9 +176,9 @@ def test_managed_by_message_on_translation(
 
     response = client.get(redirect_url)
     status_display = job.get_status_display()  # pyright: ignore[reportAttributeAccessIssue]
-    expected_message = message.replace(
-        "STATUS_PLACEHOLDER_LOWER", status_display.lower()
-    ).replace("STATUS_PLACEHOLDER", status_display)
+    expected_message = message.replace("STATUS_PLACEHOLDER_LOWER", status_display.lower()).replace(
+        "STATUS_PLACEHOLDER", status_display
+    )
     assert expected_message in response.content.decode("utf-8")
 
 

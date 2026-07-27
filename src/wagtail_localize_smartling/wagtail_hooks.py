@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 from django.urls import include, path, reverse
 from django.utils.translation import gettext as _
 from wagtail import hooks
@@ -40,8 +44,4 @@ def register_viewset():
 def add_landed_translations_panel(request, panels):
     _group_name = smartling_settings.TRANSLATION_APPROVER_GROUP_NAME
     if _group_name in request.user.groups.all().values_list("name", flat=True):
-        panels.append(
-            LandedTranslationsPanel(
-                max_to_show=smartling_settings.MAX_APPROVAL_TASKS_ON_DASHBOARD
-            )
-        )
+        panels.append(LandedTranslationsPanel(max_to_show=smartling_settings.MAX_APPROVAL_TASKS_ON_DASHBOARD))

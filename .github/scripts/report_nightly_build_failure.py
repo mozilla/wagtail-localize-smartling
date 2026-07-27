@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """
 Called by GH Actions when the nightly build fails.
 
@@ -23,7 +27,4 @@ if SLACK_WEBHOOK_URL := os.getenv("SLACK_WEBHOOK_URL"):
     )
     print("Slack responded with:", response)
 else:
-    print(
-        "Unable to report to #nightly-build-failures slack channel because "
-        "SLACK_WEBHOOK_URL is not set."
-    )
+    print("Unable to report to #nightly-build-failures slack channel because SLACK_WEBHOOK_URL is not set.")
