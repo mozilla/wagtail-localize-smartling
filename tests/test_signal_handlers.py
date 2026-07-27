@@ -171,7 +171,7 @@ def test_notify_of_imported_translations__submitter_already_in_group_dedupes(moc
     DEFAULT_FROM_EMAIL="from@example.com",
     WAGTAILADMIN_BASE_URL="https://cms.example.com",
 )
-def test_notify_of_imported_translations__submitter_only_when_group_missing(mocker):
+def test_notify_of_imported_translations__submitter_only_when_group_missing(mocker, smartling_settings):
     # When the Translation Approver group doesn't exist, the submitter
     # alone should still receive the email — previously this branch
     # returned early.
@@ -179,7 +179,8 @@ def test_notify_of_imported_translations__submitter_only_when_group_missing(mock
     # Note: a data migration creates the group on install, so we have to
     # explicitly delete it to exercise the missing-group path.
     from django.contrib.auth.models import Group
-    Group.objects.filter(name="Translation approver").delete()
+
+    Group.objects.filter(name=smartling_settings.TRANSLATION_APPROVER_GROUP_NAME).delete()
 
     mock_logger_warning = mocker.patch("wagtail_localize_smartling.signal_handlers.logger.warning")
 
@@ -211,7 +212,7 @@ def test_notify_of_imported_translations__submitter_only_when_group_missing(mock
     assert mock_send_mail.call_args[1]["recipient_list"] == ["submitter@example.com"]
     # The missing-group warning still fires.
     assert any(
-        "Could not find the Translation approver" in call.args[0]
+        f"Could not find the {smartling_settings.TRANSLATION_APPROVER_GROUP_NAME}" in call.args[0]
         for call in mock_logger_warning.call_args_list
     )
 
@@ -265,7 +266,7 @@ def test_notification_body_rendering__no_edit_url():
     assert "* French - " not in email_body
 
 
-def test_notify_of_imported_translations__no_group_members_and_no_submitter(mocker):
+def test_notify_of_imported_translations__no_group_members_and_no_submitter(mocker, smartling_settings):
     # No approver group members + no submitter on the Job → nothing to send.
     mock_logger_warning = mocker.patch("wagtail_localize_smartling.signal_handlers.logger.warning")
     TranslationApproverGroupFactory()  # Group exists but is empty.
@@ -294,7 +295,7 @@ def test_notify_of_imported_translations__no_group_members_and_no_submitter(mock
     )
     assert mock_send_mail.call_count == 0
     assert any(
-        "no members of the Translation approver group in the system "
+        f"no members of the {smartling_settings.TRANSLATION_APPROVER_GROUP_NAME} group in the system "
         "and no Job submitter email available" in call.args[0]
         for call in mock_logger_warning.call_args_list
     )

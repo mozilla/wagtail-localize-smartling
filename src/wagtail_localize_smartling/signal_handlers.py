@@ -125,8 +125,7 @@ def _build_translated_target_links(translations_imported: list["Translation"]):
             path = translation.get_target_instance_edit_url()
         except Exception:
             logger.warning(
-                "Could not resolve edit URL for translation %s; "
-                "omitting link from notification email",
+                "Could not resolve edit URL for translation %s; omitting link from notification email",
                 getattr(translation, "pk", "<unknown>"),
             )
             path = ""
@@ -170,7 +169,7 @@ def send_email_notification_upon_overall_translation_import(
     else:
         logger.warning(
             f"Could not find the {smartling_settings.TRANSLATION_APPROVER_GROUP_NAME} "
-            "auth.Group; falling back to notifying only the Job submitter"
+            "auth.Group; will attempt to notify the Job submitter if one is available"
         )
         approver_email_addresses = []
 
