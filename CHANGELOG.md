@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No changes
+- Support optional Slack notifications when jobs are synced to Smartling and are awaiting authorization (#75) - @stevejalim
 
 ## [0.12.2] - 2026-04-20
 

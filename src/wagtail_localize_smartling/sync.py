@@ -13,7 +13,7 @@ from . import utils
 from .api.client import client
 from .api.types import JobStatus
 from .constants import PENDING_STATUSES, TRANSLATED_STATUSES, UNTRANSLATED_STATUSES
-from .signals import individual_translation_imported, translation_import_successful
+from .signals import individual_translation_imported, job_synced_to_smartling, translation_import_successful
 
 
 def _sanitize_po_content(content: str) -> str:
@@ -145,6 +145,12 @@ def _initial_sync(job: "Job") -> None:
 
     # Add context to the job (if settings.VISUAL_CONTEXT_CALLBACK is defined)
     client.add_html_context_to_job(job=job)
+
+    if job.status == JobStatus.AWAITING_AUTHORIZATION:
+        job_synced_to_smartling.send(
+            sender=job.__class__,
+            instance=job,
+        )
 
 
 def _sync(job: "Job") -> None:

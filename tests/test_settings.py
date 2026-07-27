@@ -38,6 +38,9 @@ def test_settings():
     assert smartling_settings.ADD_APPROVAL_TASK_TO_DASHBOARD is True
     assert smartling_settings.MAX_APPROVAL_TASKS_ON_DASHBOARD == 7
     assert smartling_settings.SEND_EMAIL_ON_TRANSLATION_IMPORT is True
+    assert smartling_settings.SLACK_BOT_TOKEN == ""
+    assert smartling_settings.SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID == ""
+    assert smartling_settings.SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE == ""
 
 
 @override_settings(
@@ -246,6 +249,39 @@ def test_max_approval_tasks_on_dashboard():
 def test_send_email_on_translation_import():
     smartling_settings = _init_settings()
     assert smartling_settings.SEND_EMAIL_ON_TRANSLATION_IMPORT is False
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "SLACK_BOT_TOKEN": "xoxb-test-token",
+    }
+)
+def test_slack_bot_token():
+    smartling_settings = _init_settings()
+    assert smartling_settings.SLACK_BOT_TOKEN == "xoxb-test-token"  # noqa: S105
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID": "C0123456789",
+    }
+)
+def test_slack_new_job_notification_channel_id():
+    smartling_settings = _init_settings()
+    assert smartling_settings.SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID == "C0123456789"
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE": "Job {job_name} needs approval",
+    }
+)
+def test_slack_new_job_notification_message_template():
+    smartling_settings = _init_settings()
+    assert smartling_settings.SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE == "Job {job_name} needs approval"
 
 
 @override_settings(
