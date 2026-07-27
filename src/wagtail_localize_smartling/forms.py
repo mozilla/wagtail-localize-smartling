@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 from typing import Any, cast
 
 from django.utils.translation import gettext_lazy as _
@@ -13,9 +17,7 @@ class JobForm(WagtailAdminModelForm):
 
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["due_date"].help_text = _(
-            "Optional due date for the translation Smartling translation job"
-        )
+        self.fields["due_date"].help_text = _("Optional due date for the translation Smartling translation job")
         self.user = user
 
     def clean(self) -> dict[str, Any]:

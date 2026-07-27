@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 import pytest
 
 from rest_framework.exceptions import ValidationError
@@ -40,9 +44,7 @@ def test_UploadFileToBatchResponseSerializer__data_present():
     valid_response = {
         "response": {
             "code": "ACCEPTED",
-            "data": {
-                "file_id": "12345"
-            },  # Unrealistic to get a value back for `data`, but not impossible
+            "data": {"file_id": "12345"},  # Unrealistic to get a value back for `data`, but not impossible
         }
     }
     serializer = UploadFileToBatchResponseSerializer(data=valid_response)

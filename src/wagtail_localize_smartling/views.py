@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 import logging
 
 from typing import Any
@@ -78,9 +82,7 @@ class SmartlingStatusView(WagtailAdminTemplateMixin, TemplateView):  # pyright: 
                     "label": suggested[1],
                 }
                 if locale is not None:
-                    context["suggested_source_locale"]["url"] = reverse(
-                        "wagtaillocales:edit", kwargs={"pk": locale.pk}
-                    )
+                    context["suggested_source_locale"]["url"] = reverse("wagtaillocales:edit", kwargs={"pk": locale.pk})
 
             else:
                 context["suggested_source_locale"] = None

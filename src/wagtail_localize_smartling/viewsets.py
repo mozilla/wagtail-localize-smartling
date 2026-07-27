@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 import django_filters
 
 from django.contrib.auth import get_user_model
@@ -18,9 +22,7 @@ from .templatetags.wagtail_localize_smartling_admin_tags import smartling_job_ur
 
 def get_users_for_filter(user):
     User = get_user_model()
-    return User.objects.filter(
-        pk__in=Job.objects.values_list("user", flat=True)
-    ).order_by(User.USERNAME_FIELD)  # pyright: ignore[reportAttributeAccessIssue]
+    return User.objects.filter(pk__in=Job.objects.values_list("user", flat=True)).order_by(User.USERNAME_FIELD)  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class JobReportFilterSet(WagtailFilterSet):
@@ -55,9 +57,7 @@ class SourceInstanceColumn(TitleColumn):
 class TargetLocalesColumn(Column):
     """Outputs a list of job target locales"""
 
-    cell_template_name = (
-        "wagtail_localize_smartling/admin/tables/target_locales_cell.html"
-    )
+    cell_template_name = "wagtail_localize_smartling/admin/tables/target_locales_cell.html"
 
     def get_value(self, instance):
         return getattr(instance, self.accessor).all()
@@ -106,9 +106,7 @@ class JobIndexView(generic.IndexView):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        return queryset.select_related("translation_source").prefetch_related(
-            "translations__target_locale"
-        )
+        return queryset.select_related("translation_source").prefetch_related("translations__target_locale")
 
 
 class JobInspectView(generic.InspectView):

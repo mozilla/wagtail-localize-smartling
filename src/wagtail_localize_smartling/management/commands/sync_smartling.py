@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 import logging
 
 from django.core.management import BaseCommand
@@ -21,9 +25,7 @@ class Command(BaseCommand):
     def handle(self, *args, **kwargs) -> None:
         project = Project.get_current()
 
-        for job_id in Job.objects.exclude(
-            project=project, status__in=FINAL_STATUSES
-        ).values_list("pk", flat=True):
+        for job_id in Job.objects.exclude(project=project, status__in=FINAL_STATUSES).values_list("pk", flat=True):
             try:
                 sync_job(job_id)
             except SyncJobException:

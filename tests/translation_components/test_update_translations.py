@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 import pytest
 
 from django.urls import reverse
@@ -22,9 +26,7 @@ def test_update_translation_with_existing_pending_job_with_same_content_no_child
     client, root_page, superuser, smartling_project
 ):
     page = InfoPageFactory(parent=root_page, title="Component test page")
-    target_locale_ids = Locale.objects.values_list("pk", flat=True).filter(
-        language_code="de"
-    )
+    target_locale_ids = Locale.objects.values_list("pk", flat=True).filter(language_code="de")
 
     component_form_prefix = f"component-{Job._meta.db_table}"
 
@@ -79,9 +81,7 @@ def test_update_translation_with_existing_pending_job_with_same_content_no_child
         },
     )
 
-    assertRedirects(
-        post_response, reverse("wagtailadmin_explore", args=[page.get_parent().id])
-    )
+    assertRedirects(post_response, reverse("wagtailadmin_explore", args=[page.get_parent().id]))
     assert Job.objects.filter(translation_source=translation_source).count() == 1
 
 
@@ -89,9 +89,7 @@ def test_update_translation_with_existing_completed_job_and_same_content_no_chil
     client, root_page, superuser, smartling_project
 ):
     page = InfoPageFactory(parent=root_page, title="Component test page")
-    target_locale_ids = Locale.objects.values_list("pk", flat=True).filter(
-        language_code="de"
-    )
+    target_locale_ids = Locale.objects.values_list("pk", flat=True).filter(language_code="de")
 
     component_form_prefix = f"component-{Job._meta.db_table}"
 
@@ -162,9 +160,7 @@ def test_update_translation_with_existing_completed_job_and_same_content_no_chil
         },
     )
 
-    assertRedirects(
-        post_response, reverse("wagtailadmin_explore", args=[page.get_parent().id])
-    )
+    assertRedirects(post_response, reverse("wagtailadmin_explore", args=[page.get_parent().id]))
     assert Job.objects.filter(translation_source=translation_source).count() == 2
 
 
@@ -172,9 +168,7 @@ def test_update_translation_with_existing_pending_job_with_new_content_no_child_
     client, root_page, superuser, smartling_project
 ):
     page = InfoPageFactory(parent=root_page, title="Component test page")
-    target_locale_ids = Locale.objects.values_list("pk", flat=True).filter(
-        language_code="de"
-    )
+    target_locale_ids = Locale.objects.values_list("pk", flat=True).filter(language_code="de")
 
     component_form_prefix = f"component-{Job._meta.db_table}"
 
@@ -232,7 +226,5 @@ def test_update_translation_with_existing_pending_job_with_new_content_no_child_
         },
     )
 
-    assertRedirects(
-        post_response, reverse("wagtailadmin_explore", args=[page.get_parent().id])
-    )
+    assertRedirects(post_response, reverse("wagtailadmin_explore", args=[page.get_parent().id]))
     assert Job.objects.filter(translation_source=translation_source).count() == 2

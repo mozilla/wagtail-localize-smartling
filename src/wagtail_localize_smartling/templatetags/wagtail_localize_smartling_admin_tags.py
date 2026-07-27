@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 from typing import Any
 
 from django import template
@@ -40,10 +44,7 @@ def smartling_edit_translation_message(context):
     buttons = []
 
     if latest_job.status in UNTRANSLATED_STATUSES:
-        message = _(
-            "The latest Smartling job for this translation "
-            f"was {latest_job.get_status_display().lower()}."
-        )
+        message = _(f"The latest Smartling job for this translation was {latest_job.get_status_display().lower()}.")
         resubmit_url = set_query_params(
             reverse("wagtail_localize_smartling_retry_job", args=(latest_job.pk,)),
             {"next": context["request"].path},

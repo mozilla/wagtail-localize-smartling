@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 from django.core.management import BaseCommand
 
 from wagtail_localize_smartling.models import Job
@@ -11,22 +15,12 @@ class Command(BaseCommand):
 
     def handle(self, *args, **kwargs) -> None:
         jobs = []
-        for job in Job.objects.filter(content_hash="").select_related(
-            "translation_source"
-        ):
+        for job in Job.objects.filter(content_hash="").select_related("translation_source"):
             job.content_hash = compute_content_hash(job.translation_source.export_po())
             jobs.append(job)
 
         if jobs:
             Job.objects.bulk_update(jobs, ["content_hash"])
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"Successfully populated {len(jobs)} Smartling job content hashes"
-                )
-            )
+            self.stdout.write(self.style.SUCCESS(f"Successfully populated {len(jobs)} Smartling job content hashes"))
         else:
-            self.stdout.write(
-                self.style.WARNING(
-                    "Found no Smartling jobs to populate the content_hash field for."
-                )
-            )
+            self.stdout.write(self.style.WARNING("Found no Smartling jobs to populate the content_hash field for."))

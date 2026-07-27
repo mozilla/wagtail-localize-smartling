@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No changes
+- Add MPL 2.0 license header to all Python source files via `insert-license` pre-commit hook - @stevejalim
 
 ## [0.12.2] - 2026-04-20
 
