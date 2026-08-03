@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add `SEND_TO_SMARTLING_BY_DEFAULT` setting to pre-tick the "Send to Smartling" checkbox on the submit-translations and update-translation forms. Defaults to on unless `settings.DEV` is truthy (#63) - @stevejalim
 - Notify the Job submitter alongside the Translation Approver group when a Smartling import lands, and include per-locale direct edit links in the notification email (partial #68) - @stevejalim
 - Fix the dashboard "landed translations" panel showing the truncated count instead of the total number of pages awaiting approval (#64) - @stevejalim
 
