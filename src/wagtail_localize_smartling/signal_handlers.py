@@ -213,16 +213,15 @@ def send_slack_notification_on_job_sync(
     locale_count = len(locale_codes)
     locale_list = ", ".join(locale_codes)
 
-    message = template.format(
-        job_name=instance.name,
-        job_description=instance.description,
-        project_name=instance.project.name,
-        word_count=word_count,
-        locale_count=locale_count,
-        locale_list=locale_list,
-    )
-
     try:
+        message = template.format(
+            job_name=instance.name,
+            job_description=instance.description,
+            project_name=instance.project.name,
+            word_count=word_count,
+            locale_count=locale_count,
+            locale_list=locale_list,
+        )
         response = requests.post(
             "https://slack.com/api/chat.postMessage",
             headers={

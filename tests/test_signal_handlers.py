@@ -418,6 +418,22 @@ def test_slack_notification__custom_template(mocker, smartling_settings):
     assert text == "Test Job | Mozilla L10n | A test job description | 3 | 2 | fr, de"
 
 
+def test_slack_notification__bad_template(mocker, smartling_settings):
+    smartling_settings.SLACK_BOT_TOKEN = "xoxb-test-token"  # noqa: S105
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID = "C0123456789"
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE = "{unknown_placeholder}"
+
+    mock_post = mocker.patch("wagtail_localize_smartling.signal_handlers.requests.post")
+    mock_logger_exception = mocker.patch("wagtail_localize_smartling.signal_handlers.logger.exception")
+
+    mock_job = _make_mock_job_for_slack(mocker)
+    # Should not raise even with a bad template
+    job_synced_to_smartling.send(sender=Job, instance=mock_job)
+
+    mock_post.assert_not_called()
+    mock_logger_exception.assert_called_once()
+
+
 def test_slack_notification__slack_api_error(mocker, smartling_settings):
     smartling_settings.SLACK_BOT_TOKEN = "xoxb-test-token"  # noqa: S105
     smartling_settings.SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID = "C0123456789"
