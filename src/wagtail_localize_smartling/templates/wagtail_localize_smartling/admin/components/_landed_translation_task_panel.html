@@ -10,7 +10,7 @@
         </button>
             <h2 class="w-panel__heading " id="landed-translations-heading" data-panel-heading="">
                 <span data-panel-heading-text="">
-                    ⚠️ {{tasks.count|apnumber|capfirst}} translation{{tasks.count|pluralize}} must be published
+                    ⚠️ {{total_tasks|apnumber|capfirst}} translation{{total_tasks|pluralize}} must be published
                 </span>
             </h2>
         <a class="w-panel__anchor w-panel__anchor--suffix" href="#landed-translations" aria-labelledby="landed-translations-heading">
@@ -40,10 +40,10 @@
             </li>
             {% endfor %}
         </ul>
-        {% if total_tasks > tasks.count %}
+        {% if total_tasks > tasks|length %}
             <a href="{% url 'wagtail_localize_smartling:landed-translations' %}">
                 <strong>
-                    See all {{tasks.count}} tasks
+                    See all {{total_tasks}} tasks
                 </strong>
             </a>
         {% endif %}
