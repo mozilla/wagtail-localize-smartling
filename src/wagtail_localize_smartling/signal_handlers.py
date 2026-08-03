@@ -2,6 +2,8 @@ import logging
 
 from typing import TYPE_CHECKING, Type  # noqa: UP035
 
+import requests
+
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.contrib.contenttypes.models import ContentType
@@ -16,6 +18,7 @@ from wagtail_localize_smartling.models import LandedTranslationTask
 from wagtail_localize_smartling.settings import settings as smartling_settings
 from wagtail_localize_smartling.signals import (
     individual_translation_imported,
+    job_synced_to_smartling,
     translation_import_successful,
 )
 
@@ -215,3 +218,68 @@ def send_email_notification_upon_overall_translation_import(
 
 
 translation_import_successful.connect(send_email_notification_upon_overall_translation_import, weak=False)
+
+
+_DEFAULT_SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE = (
+    "A new Smartling translation job *{job_name}* has been synced and is awaiting authorization.\n"
+    "Project: {project_name}\n"
+    "Description: {job_description}\n"
+    "Word count: {word_count}\n"
+    "Locales ({locale_count}): {locale_list}"
+)
+
+
+def send_slack_notification_on_job_sync(
+    sender: Type["Job"],  # noqa: UP006
+    instance: "Job",
+    **kwargs,
+):
+    if not smartling_settings.SLACK_BOT_TOKEN or not smartling_settings.SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID:
+        logger.debug("Slack new-job notifications are not configured, skipping")
+        return
+
+    template = (
+        smartling_settings.SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE
+        or _DEFAULT_SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE
+    )
+
+    po = instance.translation_source.export_po()
+    word_count = sum(len(entry.msgid.split()) for entry in po)
+    locale_codes = list(instance.translations.values_list("target_locale__language_code", flat=True))
+    locale_count = len(locale_codes)
+    locale_list = ", ".join(locale_codes)
+
+    try:
+        message = template.format(
+            job_name=instance.name,
+            job_description=instance.description,
+            project_name=instance.project.name,
+            word_count=word_count,
+            locale_count=locale_count,
+            locale_list=locale_list,
+        )
+        response = requests.post(
+            "https://slack.com/api/chat.postMessage",
+            headers={
+                "Authorization": f"Bearer {smartling_settings.SLACK_BOT_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "channel": smartling_settings.SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID,
+                "text": message,
+            },
+            timeout=5,
+        )
+        response_data = response.json()
+        if not response_data.get("ok"):
+            logger.error(
+                "Slack API returned an error when sending new-job notification: %s",
+                response_data.get("error", "unknown error"),
+            )
+        else:
+            logger.info("Slack new-job notification sent for job %s", instance.name)
+    except Exception:
+        logger.exception("Failed to send Slack new-job notification for job %s", instance.name)
+
+
+job_synced_to_smartling.connect(send_slack_notification_on_job_sync, weak=False)

@@ -3,6 +3,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import pytest
+import requests
 
 from django.contrib.auth.models import User
 from django.template.loader import render_to_string
@@ -18,9 +19,11 @@ from wagtail_localize_smartling.signal_handlers import (
     close_translation_landed_task_on_snippet_published,
     create_landed_translation_task,
     send_email_notification_upon_overall_translation_import,
+    send_slack_notification_on_job_sync,
 )
 from wagtail_localize_smartling.signals import (
     individual_translation_imported,
+    job_synced_to_smartling,
     translation_import_successful,
 )
 
@@ -39,6 +42,11 @@ def test_translation_import_successful_is_connected_to_the_expected_handlers():
     assert len(translation_import_successful.receivers) == 1
     assert translation_import_successful.receivers[0][1] == send_email_notification_upon_overall_translation_import
 
+
+def test_job_synced_to_smartling_is_connected_to_the_expected_handlers():
+    assert len(job_synced_to_smartling.receivers) == 1
+    assert job_synced_to_smartling.receivers[0][1] == send_slack_notification_on_job_sync
+    
 
 def _mock_translation(mocker, *, language_code, language_name, edit_path):
     t = mocker.MagicMock(spec=Translation, name=f"mock-translation-{language_code}")
@@ -475,3 +483,128 @@ def test_model_is_registered_as_snippet(is_a_snippet, mocker):
     )
 
     assert _model_is_registered_as_snippet(model_2) == is_a_snippet
+
+
+def _make_mock_job_for_slack(mocker):
+    import polib
+
+    mock_job = mocker.MagicMock(spec=Job)
+    mock_job.name = "Test Job"
+    mock_job.description = "A test job description"
+    mock_job.project.name = "Mozilla L10n"
+
+    po = polib.POFile()
+    po.append(polib.POEntry(msgid="Hello world", msgstr=""))
+    po.append(polib.POEntry(msgid="Goodbye", msgstr=""))
+    mock_job.translation_source.export_po.return_value = po
+    mock_job.translations.values_list.return_value = ["fr", "de"]
+
+    return mock_job
+
+
+def test_slack_notification__happy_path(mocker, smartling_settings):
+    smartling_settings.SLACK_BOT_TOKEN = "xoxb-test-token"  # noqa: S105
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID = "C0123456789"
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE = ""
+
+    mock_post = mocker.patch("wagtail_localize_smartling.signal_handlers.requests.post")
+    mock_post.return_value.json.return_value = {"ok": True}
+
+    mock_job = _make_mock_job_for_slack(mocker)
+
+    job_synced_to_smartling.send(sender=Job, instance=mock_job)
+
+    mock_post.assert_called_once()
+    call_kwargs = mock_post.call_args
+    assert call_kwargs[0][0] == "https://slack.com/api/chat.postMessage"
+    assert call_kwargs[1]["headers"]["Authorization"] == "Bearer xoxb-test-token"
+    assert call_kwargs[1]["json"]["channel"] == "C0123456789"
+    text = call_kwargs[1]["json"]["text"]
+    assert "Test Job" in text
+    assert "Mozilla L10n" in text
+    assert "A test job description" in text
+    assert "3" in text  # word count: "Hello world" (2) + "Goodbye" (1) = 3
+    assert "2" in text  # locale_count
+    assert "fr" in text
+    assert "de" in text
+
+
+def test_slack_notification__not_configured(mocker, smartling_settings):
+    smartling_settings.SLACK_BOT_TOKEN = ""
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID = ""
+
+    mock_post = mocker.patch("wagtail_localize_smartling.signal_handlers.requests.post")
+    mock_logger_debug = mocker.patch("wagtail_localize_smartling.signal_handlers.logger.debug")
+
+    mock_job = _make_mock_job_for_slack(mocker)
+    job_synced_to_smartling.send(sender=Job, instance=mock_job)
+
+    assert not mock_post.called
+    mock_logger_debug.assert_called_once_with("Slack new-job notifications are not configured, skipping")
+
+
+def test_slack_notification__custom_template(mocker, smartling_settings):
+    smartling_settings.SLACK_BOT_TOKEN = "xoxb-test-token"  # noqa: S105
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID = "C0123456789"
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE = (
+        "{job_name} | {project_name} | {job_description} | {word_count} | {locale_count} | {locale_list}"
+    )
+
+    mock_post = mocker.patch("wagtail_localize_smartling.signal_handlers.requests.post")
+    mock_post.return_value.json.return_value = {"ok": True}
+
+    mock_job = _make_mock_job_for_slack(mocker)
+    job_synced_to_smartling.send(sender=Job, instance=mock_job)
+
+    text = mock_post.call_args[1]["json"]["text"]
+    assert text == "Test Job | Mozilla L10n | A test job description | 3 | 2 | fr, de"
+
+
+def test_slack_notification__bad_template(mocker, smartling_settings):
+    smartling_settings.SLACK_BOT_TOKEN = "xoxb-test-token"  # noqa: S105
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID = "C0123456789"
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE = "{unknown_placeholder}"
+
+    mock_post = mocker.patch("wagtail_localize_smartling.signal_handlers.requests.post")
+    mock_logger_exception = mocker.patch("wagtail_localize_smartling.signal_handlers.logger.exception")
+
+    mock_job = _make_mock_job_for_slack(mocker)
+    # Should not raise even with a bad template
+    job_synced_to_smartling.send(sender=Job, instance=mock_job)
+
+    mock_post.assert_not_called()
+    mock_logger_exception.assert_called_once()
+
+
+def test_slack_notification__slack_api_error(mocker, smartling_settings):
+    smartling_settings.SLACK_BOT_TOKEN = "xoxb-test-token"  # noqa: S105
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID = "C0123456789"
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE = ""
+
+    mock_post = mocker.patch("wagtail_localize_smartling.signal_handlers.requests.post")
+    mock_post.return_value.json.return_value = {"ok": False, "error": "channel_not_found"}
+    mock_logger_error = mocker.patch("wagtail_localize_smartling.signal_handlers.logger.error")
+
+    mock_job = _make_mock_job_for_slack(mocker)
+    # Should not raise
+    job_synced_to_smartling.send(sender=Job, instance=mock_job)
+
+    mock_logger_error.assert_called_once()
+    assert "channel_not_found" in mock_logger_error.call_args[0][1]
+
+
+def test_slack_notification__network_error(mocker, smartling_settings):
+    smartling_settings.SLACK_BOT_TOKEN = "xoxb-test-token"  # noqa: S105
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID = "C0123456789"
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE = ""
+
+    mock_post = mocker.patch("wagtail_localize_smartling.signal_handlers.requests.post")
+    mock_post.side_effect = requests.exceptions.ConnectionError("connection refused")
+    mock_logger_exception = mocker.patch("wagtail_localize_smartling.signal_handlers.logger.exception")
+
+    mock_job = _make_mock_job_for_slack(mocker)
+    # Should not raise
+    job_synced_to_smartling.send(sender=Job, instance=mock_job)
+
+    mock_logger_exception.assert_called_once()
+    assert "Test Job" in mock_logger_exception.call_args[0][1]

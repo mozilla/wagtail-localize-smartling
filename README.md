@@ -233,6 +233,27 @@ integrates with the Smartling translation platform.
     You can also control how many tasks are shown on the dashboard
     via the `MAX_APPROVAL_TASKS_ON_DASHBOARD` setting.
 
+    ----
+
+    Optionally, you can have a Slack notification sent to a channel whenever a new
+    Job is synced to Smartling and is awaiting authorization. Configure a
+    [Slack Bot Token](https://api.slack.com/authentication/token-types#bot) with the
+    `chat:write` scope and a target channel ID via the settings:
+
+    ```python
+    WAGTAIL_LOCALIZE_SMARTLING = {
+        # ...
+        "SLACK_BOT_TOKEN": os.getenv("SLACK_BOT_TOKEN", ""),
+        "SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID": os.getenv("SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID", ""),
+        # Optional: override the default message. Supports {job_name}, {job_description},
+        # {project_name}, {word_count}, {locale_count}, and {locale_list} placeholders.
+        "SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE": "",
+    }
+    ```
+
+    If either `SLACK_BOT_TOKEN` or `SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID` is empty,
+    no notification will be sent.
+
 4. Run migrations:
 
     ```sh
