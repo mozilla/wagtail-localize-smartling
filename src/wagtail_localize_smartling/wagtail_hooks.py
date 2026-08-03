@@ -1,7 +1,9 @@
 from django.urls import include, path, reverse
+from django.utils.html import format_html
 from django.utils.translation import gettext as _
 from wagtail import hooks
 from wagtail.admin.menu import MenuItem
+from wagtail.admin.staticfiles import versioned_static
 
 from . import admin_urls
 from .components import LandedTranslationsPanel
@@ -45,3 +47,29 @@ def add_landed_translations_panel(request, panels):
                 max_to_show=smartling_settings.MAX_APPROVAL_TASKS_ON_DASHBOARD
             )
         )
+
+
+@hooks.register("insert_global_admin_js")  # pyright: ignore[reportOptionalCall]
+def default_send_to_smartling_js():
+    """
+    Pre-tick the "Send to Smartling" checkbox on wagtail-localize's
+    submit/update-translation forms when the host project has opted in
+    via `SEND_TO_SMARTLING_BY_DEFAULT`.
+
+    wagtail-localize hardcodes the checkbox's initial state to
+    unchecked, with no parameter, hook, or settable attribute to
+    override it. Rather than patching upstream internals at runtime,
+    we ship a small static script that ticks the checkbox client-side.
+    Loading via `<script src>` (rather than inline) keeps the script
+    compatible with hosts running a `script-src 'self'` CSP without
+    needing `'unsafe-inline'`.
+    """
+    if not smartling_settings.SEND_TO_SMARTLING_BY_DEFAULT:
+        return ""
+
+    return format_html(
+        '<script src="{src}"></script>',
+        src=versioned_static(
+            "wagtail_localize_smartling/js/default-send-to-smartling.js"
+        ),
+    )

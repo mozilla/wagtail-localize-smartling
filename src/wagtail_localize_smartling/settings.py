@@ -24,6 +24,7 @@ class SmartlingSettings:
     USER_IDENTIFIER: str
     USER_SECRET: str
     REQUIRED: bool = False
+    SEND_TO_SMARTLING_BY_DEFAULT: bool = True
     ENVIRONMENT: Literal["production", "staging"] = "production"
     API_TIMEOUT_SECONDS: float = 5.0
     LOCALE_TO_SMARTLING_LOCALE: "dict[str, str]" = dataclasses.field(default_factory=dict)
@@ -67,6 +68,19 @@ def _init_settings() -> SmartlingSettings:
 
     if "REQUIRED" in settings_dict:
         settings_kwargs["REQUIRED"] = bool(settings_dict["REQUIRED"])
+
+    if "SEND_TO_SMARTLING_BY_DEFAULT" in settings_dict:
+        settings_kwargs["SEND_TO_SMARTLING_BY_DEFAULT"] = bool(
+            settings_dict["SEND_TO_SMARTLING_BY_DEFAULT"]
+        )
+    else:
+        # If the host project hasn't pinned a value, default to ON in
+        # production-like environments and OFF when a project-level
+        # `DEV` flag is truthy. The flag is opt-in: projects that don't
+        # define `settings.DEV` get the production default (on).
+        settings_kwargs["SEND_TO_SMARTLING_BY_DEFAULT"] = not bool(
+            getattr(django_settings, "DEV", False)
+        )
 
     if "ENVIRONMENT" in settings_dict:
         if (environment := settings_dict["ENVIRONMENT"]) not in (
