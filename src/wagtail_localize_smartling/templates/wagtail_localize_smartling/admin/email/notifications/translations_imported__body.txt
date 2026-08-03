@@ -2,9 +2,9 @@ Hi there
 
 ACTION REQUIRED: Translations have been synced back from Smartling and need to be published.
 
-{{translation_target_locales|pluralize:"It is,They are"}} for Job '{{job_name}}' for '{{translation_source_name}}' into the following locale{{translation_target_locales|pluralize}}:
-{% for locale in translation_target_locales %}
-* {{locale}}
+{{translation_targets|pluralize:"It is,They are"}} for Job '{{job_name}}' for '{{translation_source_name}}' into the following locale{{translation_targets|pluralize}}:
+{% for target in translation_targets %}
+* {{target.locale_name}}{% if target.edit_url %} - {{target.edit_url}}{% endif %}
 {% endfor %}
 
 Appropriate tasks have been added to your Wagtail dashboard.
