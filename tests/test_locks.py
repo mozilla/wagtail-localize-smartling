@@ -1,10 +1,18 @@
+from datetime import timedelta
+
 import pytest
 
+from django.contrib.auth.models import AnonymousUser
+from django.db import connection, models
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
+from wagtail.locks import BasicLock, ScheduledForPublishLock
 from wagtail_localize.models import Translation
 
 from wagtail_localize_smartling.api.types import JobStatus
 from wagtail_localize_smartling.locks import (
+    PendingTranslationLock,
+    PendingTranslationLockMixin,
     get_in_flight_locales_for_instance,
     get_pending_translation_state,
     is_in_flight_target,
@@ -164,3 +172,161 @@ def test_a_page_with_no_smartling_history_also_costs_one_query(root_page, locale
 
     with django_assert_num_queries(1):
         get_pending_translation_state(page)
+
+
+def test_the_mixin_is_not_a_model():
+    """The mixin must generate no migration wherever it is applied."""
+    assert not issubclass(PendingTranslationLockMixin, models.Model)
+
+
+def test_no_outstanding_job_means_no_lock(root_page, locales):
+    page = InfoPageFactory(parent=root_page, title="Never translated")
+    assert not Job.objects.filter(translation_source__object_id=page.translation_key).exists()
+    assert page.get_lock() is None
+
+
+def test_outstanding_job_locks_the_source_page(smartling_job):
+    lock = source_page_of(smartling_job).get_lock()
+
+    assert isinstance(lock, PendingTranslationLock)
+    assert lock.is_target is False
+    assert language_codes(lock.locales) == ["fr"]
+
+
+def test_outstanding_job_locks_the_translated_page(smartling_job):
+    fr_page = target_page_of(smartling_job.translations.get())
+
+    lock = fr_page.get_lock()
+
+    assert isinstance(lock, PendingTranslationLock)
+    assert lock.is_target is True
+
+
+def test_scheduled_publish_lock_is_not_shadowed(smartling_job):
+    """
+    ScheduledForPublishLock blocks everyone, and carries the "Cancel scheduled publish"
+    button; shadowing it would grant that edit and drop the button.
+    """
+    page = source_page_of(smartling_job)
+    page.save_revision(approved_go_live_at=timezone.now() + timedelta(days=1))
+    # Refetch rather than refresh_from_db(), which leaves the cached
+    # scheduled_revision property in place.
+    page = type(page).objects.get(pk=page.pk)
+
+    assert isinstance(page.get_lock(), ScheduledForPublishLock)
+
+
+def test_manual_lock_is_not_shadowed(smartling_job, regular_user):
+    page = source_page_of(smartling_job)
+    page.locked = True
+    page.locked_by = regular_user
+    page.locked_at = timezone.now()
+    page.save()
+    page.refresh_from_db()
+
+    assert isinstance(page.get_lock(), BasicLock)
+
+
+def test_lock_blocks_a_regular_user_and_not_a_superuser(smartling_job, regular_user, superuser):
+    """
+    The lock object exists for both users, which is what renders the banner, but
+    applies to only one, which is what refuses the save.
+    """
+    lock = source_page_of(smartling_job).get_lock()
+
+    assert lock.for_user(regular_user) is True
+    assert lock.for_user(superuser) is False
+
+
+def test_the_project_decides_who_may_bypass(smartling_job, regular_user, superuser, monkeypatch):
+    """A model that overrides the hook gets its own policy, up to letting nobody through."""
+    page = source_page_of(smartling_job)
+    monkeypatch.setattr(type(page), "can_bypass_pending_translation_lock", lambda self, user: False)
+
+    lock = page.get_lock()
+
+    assert lock.for_user(superuser) is True
+    assert lock.for_user(regular_user) is True
+
+    monkeypatch.setattr(type(page), "can_bypass_pending_translation_lock", lambda self, user: True)
+
+    lock = page.get_lock()
+
+    assert lock.for_user(superuser) is False
+    assert lock.for_user(regular_user) is False
+
+
+def test_get_lock_is_memoised(smartling_job):
+    """
+    The edit view, the status side panel and PagePermissionTester each reach
+    get_lock() during one request, so the repeat call must not re-run our query.
+    """
+    page = source_page_of(smartling_job)
+    plain = InfoPageFactory(parent=page.get_parent(), title="No Smartling history")
+
+    page.get_lock()
+    plain.get_lock()
+
+    with CaptureQueriesContext(connection) as repeated_with_job:
+        page.get_lock()
+    with CaptureQueriesContext(connection) as repeated_without_job:
+        plain.get_lock()
+
+    assert [q for q in repeated_with_job.captured_queries if "smartling" in q["sql"]] == []
+    assert [q for q in repeated_without_job.captured_queries if "smartling" in q["sql"]] == []
+
+
+def test_editor_and_superuser_get_different_messages(smartling_job, regular_user, superuser):
+    lock = source_page_of(smartling_job).get_lock()
+
+    editor_message = str(lock.get_message(regular_user))
+    superuser_message = str(lock.get_message(superuser))
+
+    assert editor_message != superuser_message
+    assert "French" in editor_message
+    assert "French" in superuser_message
+    # The editor is told the page is locked, and why.
+    assert "can't be edited" in editor_message
+    assert "until that translation comes back" in editor_message
+    # The bypassing user is told the consequence of going ahead anyway.
+    assert "mismatch" in superuser_message
+
+
+def test_the_message_follows_the_bypass_policy_not_is_superuser(smartling_job, superuser, monkeypatch):
+    """A superuser the project does not let through is being held like anyone else."""
+    page = source_page_of(smartling_job)
+    monkeypatch.setattr(type(page), "can_bypass_pending_translation_lock", lambda self, user: False)
+
+    message = str(page.get_lock().get_message(superuser))
+
+    assert "can't be edited" in message
+
+
+def test_messages_name_every_locale_in_flight(smartling_job_multi_locale, superuser):
+    lock = source_page_of(smartling_job_multi_locale).get_lock()
+
+    message = str(lock.get_message(superuser))
+
+    assert "French" in message
+    assert "German" in message
+
+
+def test_translated_page_message_is_about_being_overwritten(smartling_job, regular_user):
+    fr_page = target_page_of(smartling_job.translations.get())
+
+    message = str(fr_page.get_lock().get_message(regular_user))
+
+    assert "overwritten" in message
+
+
+def test_lock_furniture(smartling_job, regular_user):
+    lock = source_page_of(smartling_job).get_lock()
+
+    assert str(lock.get_locked_by(regular_user)) == "Being translated"
+    assert lock.get_icon(regular_user) == "wagtail-localize-language"
+    assert "French" in str(lock.get_description(regular_user))
+
+
+def test_an_anonymous_user_is_locked_out(smartling_job):
+    lock = source_page_of(smartling_job).get_lock()
+    assert lock.for_user(AnonymousUser()) is True

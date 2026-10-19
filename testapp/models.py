@@ -7,6 +7,8 @@ from wagtail.images.blocks import ImageChooserBlock
 from wagtail.models import Page, TranslatableMixin
 from wagtail.snippets.models import register_snippet
 
+from wagtail_localize_smartling.locks import PendingTranslationLockMixin
+
 
 class BodyBlock(blocks.StreamBlock):
     heading = blocks.CharBlock(
@@ -18,7 +20,7 @@ class BodyBlock(blocks.StreamBlock):
     image = ImageChooserBlock()
 
 
-class InfoPage(Page):
+class InfoPage(PendingTranslationLockMixin, Page):
     body = StreamField(BodyBlock(), use_json_field=True)
 
     content_panels = Page.content_panels + [

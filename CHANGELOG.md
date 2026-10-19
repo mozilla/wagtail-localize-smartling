@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add `PendingTranslationLockMixin`, which locks a page from submission while its content is being translated in Smartling. The page is blocked until the translation is imported.
+
 ## [0.13.0] - 2026-08-03
 
 - Support optional Slack notifications when jobs are synced to Smartling and are awaiting authorization (#75) - @stevejalim
