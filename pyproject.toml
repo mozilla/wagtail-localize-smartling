@@ -25,7 +25,6 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
     "Framework :: Django",
-    "Framework :: Django :: 5.1",
     "Framework :: Django :: 5.2",
     "Framework :: Django :: 6.0",
     "Framework :: Wagtail",
@@ -37,7 +36,7 @@ dynamic = [
     "version",
 ]
 dependencies = [
-    "Django>=5.1",
+    "Django>=5.2",
     "Wagtail>=6.1",
     "djangorestframework>=3",
     "requests",
