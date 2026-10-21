@@ -61,6 +61,10 @@ def is_in_flight_target(instance):
 class PendingTranslationLock(BaseLock):
     """A Page is considered locked if it has content sitting at Smartling awaiting translation."""
 
+    # Give the pending translation message a unique CSS class, so that it can
+    # be styled as needed in projects.
+    message_class = "smartling-pending-translation-lock"
+
     def __init__(self, object, locales, is_target=False):
         super().__init__(object)
         self.locales = locales
@@ -86,6 +90,9 @@ class PendingTranslationLock(BaseLock):
         return _("This page is being translated in Smartling into %(locales)s.") % {"locales": self.locale_names}
 
     def get_message(self, user):
+        return format_html('<span class="{}">{}</span>', self.message_class, self.get_message_body(user))
+
+    def get_message_body(self, user):
         if self.is_target:
             return format_html(
                 _(

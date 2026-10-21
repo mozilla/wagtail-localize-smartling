@@ -319,6 +319,21 @@ def test_translated_page_message_is_about_being_overwritten(smartling_job, regul
     assert "overwritten" in message
 
 
+def test_every_message_carries_the_marker_class(smartling_job, regular_user, superuser):
+    """The message contains the PendingTranslationLock.message_class CSS class."""
+    source_lock = source_page_of(smartling_job).get_lock()
+    target_lock = target_page_of(smartling_job.translations.get()).get_lock()
+
+    messages = (
+        source_lock.get_message(regular_user),
+        source_lock.get_message(superuser),
+        target_lock.get_message(regular_user),
+    )
+
+    for message in messages:
+        assert PendingTranslationLock.message_class in str(message)
+
+
 def test_lock_furniture(smartling_job, regular_user):
     lock = source_page_of(smartling_job).get_lock()
 
