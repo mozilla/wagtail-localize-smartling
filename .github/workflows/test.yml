@@ -135,10 +135,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: coverage-data-*
-          merge-multiple: true
 
       - name: Combine coverage
         run: |
+          python -Im coverage combine coverage-data-*/.coverage
           python -Im coverage html --skip-covered --skip-empty
           python -Im coverage report
           echo "## Coverage summary" >> $GITHUB_STEP_SUMMARY
