@@ -48,6 +48,9 @@ class JobPermissionPolicy(ModelPermissionPolicy):
         return super().user_has_permission(user, action)
 
 
+job_permission_policy = JobPermissionPolicy(Job)
+
+
 class SourceInstanceColumn(TitleColumn):
     def get_value(self, instance):
         return instance.translation_source.get_source_instance()
@@ -199,9 +202,11 @@ class JobViewSet(ModelViewSet):
     copy_view_enabled = False
     inspect_view_enabled = True
 
-    @property
+    # Wagtail 8.0 resolves this from the policy registry. This property can be
+    # removed when we drop support for Wagtail 7.
+    @cached_property
     def permission_policy(self):
-        return JobPermissionPolicy(self.model)
+        return job_permission_policy
 
     @cached_property
     def url_namespace(self):  # # pyright: ignore[reportIncompatibleVariableOverride]

@@ -7,9 +7,23 @@ from wagtail.admin.staticfiles import versioned_static
 
 from . import admin_urls
 from .components import LandedTranslationsPanel
+from .models import Job
 from .settings import settings as smartling_settings
 from .views import SmartlingResubmitJobView
-from .viewsets import smartling_job_viewset
+from .viewsets import job_permission_policy, smartling_job_viewset
+
+
+try:
+    # The register_permission_policy is added in Wagtail 8.
+    from wagtail.permissions import register_permission_policy
+except ImportError:
+    # Wagtail < 8.0 has no permission policy registry. This branch can be
+    # removed when we drop support for Wagtail 7.
+    pass
+else:
+    # Registering here stops Wagtail 8.0+ from auto-registering the viewset's
+    # permission_policy, which it does with a RemovedInWagtail90Warning.
+    register_permission_policy(Job, job_permission_policy, exact_class=True)
 
 
 @hooks.register("register_admin_urls")  # pyright: ignore[reportOptionalCall]
@@ -42,11 +56,7 @@ def register_viewset():
 def add_landed_translations_panel(request, panels):
     _group_name = smartling_settings.TRANSLATION_APPROVER_GROUP_NAME
     if _group_name in request.user.groups.all().values_list("name", flat=True):
-        panels.append(
-            LandedTranslationsPanel(
-                max_to_show=smartling_settings.MAX_APPROVAL_TASKS_ON_DASHBOARD
-            )
-        )
+        panels.append(LandedTranslationsPanel(max_to_show=smartling_settings.MAX_APPROVAL_TASKS_ON_DASHBOARD))
 
 
 @hooks.register("insert_global_admin_js")  # pyright: ignore[reportOptionalCall]
@@ -69,7 +79,5 @@ def default_send_to_smartling_js():
 
     return format_html(
         '<script src="{src}"></script>',
-        src=versioned_static(
-            "wagtail_localize_smartling/js/default-send-to-smartling.js"
-        ),
+        src=versioned_static("wagtail_localize_smartling/js/default-send-to-smartling.js"),
     )

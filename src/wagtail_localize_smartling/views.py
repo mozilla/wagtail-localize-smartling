@@ -5,6 +5,7 @@ from typing import Any
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.functional import cached_property
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import TemplateView
@@ -97,9 +98,13 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
     template_name = "wagtail_localize_smartling/admin/resubmit_job.html"
     header_icon = "wagtail-localize-language"
     object: Job
-    permission_policy = ModelPermissionPolicy(Job)
     permission_required = "view"
     jobs_report_url: str = ""
+
+    # permission_policy is a cached_property in Wagtail >= 8.0.
+    @cached_property
+    def permission_policy(self):
+        return ModelPermissionPolicy(Job)
 
     def get_breadcrumbs_items(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         # TODO: link to the report view
