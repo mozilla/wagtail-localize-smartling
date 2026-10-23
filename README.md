@@ -301,6 +301,63 @@ As well as the `sync_smartling` management command, the plugin sets the `callbac
 ### Updating translations
 <!-- TODO -->
 
+### Locking content that is being translated
+
+While a page's content is sitting at Smartling awaiting translation, editing it
+in Wagtail creates a mismatch: the text that comes back from Smartling is a
+translation of what was sent, not of what the page says now, and the edits made
+in the meantime are overwritten when the translation is imported.
+
+To guard against that, mix `PendingTranslationLockMixin` into your page model.
+It must come *before* the Wagtail model class, so that its `get_lock()` is
+reached first:
+
+```python
+from wagtail.models import Page
+from wagtail_localize_smartling.locks import PendingTranslationLockMixin
+
+
+class InfoPage(PendingTranslationLockMixin, Page):
+    ...
+```
+
+The page is then locked in the Wagtail admin for as long as it has a Smartling
+job that is unsynced or pending (`DRAFT`, `AWAITING_AUTHORIZATION` or
+`IN_PROGRESS`) and whose translations have not yet been imported.
+
+#### Choosing who can bypass the lock
+
+By default, only superusers can edit a page while its translation is in
+progress. Override `can_bypass_pending_translation_lock()` on your model to
+change that:
+
+```python
+class InfoPage(PendingTranslationLockMixin, Page):
+    def can_bypass_pending_translation_lock(self, user):
+        return user.is_superuser or user.groups.filter(name="Translation approver").exists()
+```
+
+Users who can bypass the lock still see a warning banner.
+
+#### Styling the message
+
+The lock's message is wrapped in a `smartling-pending-translation-lock` CSS
+class, so projects can style it independently of Wagtail's other lock messages.
+
+#### Querying the state directly
+
+Two helpers are available if you need information about the locks:
+
+```python
+from wagtail_localize_smartling.locks import (
+    get_in_flight_locales_for_instance,
+    is_in_flight_target,
+)
+
+get_in_flight_locales_for_instance(page)  # Locales this page is being translated into
+is_in_flight_target(page)  # Is this page the target of a translation still at Smartling?
+```
+
 ## How it works
 <!-- TODO -->
 
