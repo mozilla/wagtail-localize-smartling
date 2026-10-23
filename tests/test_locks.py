@@ -311,7 +311,16 @@ def test_messages_name_every_locale_in_flight(smartling_job_multi_locale, superu
     assert "German" in message
 
 
-def test_translated_page_message_is_about_being_overwritten(smartling_job, regular_user):
+def test_target_page_message_is_about_being_overwritten(smartling_job, regular_user):
+    """
+    Exercises get_message() in isolation.
+
+    Note: this message does not reach the admin, because wagtail-localize's
+    before_edit_page hook overrides the edit view whenever a page
+    is the target of an enabled Translation. The warning the user
+    actually sees on that page comes from the
+    smartling_edit_translation_message tag.
+    """
     fr_page = target_page_of(smartling_job.translations.get())
 
     message = str(fr_page.get_lock().get_message(regular_user))
@@ -320,7 +329,15 @@ def test_translated_page_message_is_about_being_overwritten(smartling_job, regul
 
 
 def test_every_message_carries_the_marker_class(smartling_job, regular_user, superuser):
-    """The message contains the PendingTranslationLock.message_class CSS class."""
+    """
+    The message contains the PendingTranslationLock.message_class CSS class.
+
+    Note: this message does not reach the admin, because wagtail-localize's
+    before_edit_page hook overrides the edit view whenever a page
+    is the target of an enabled Translation. The warning the user
+    actually sees on that page comes from the
+    smartling_edit_translation_message tag.
+    """
     source_lock = source_page_of(smartling_job).get_lock()
     target_lock = target_page_of(smartling_job.translations.get()).get_lock()
 

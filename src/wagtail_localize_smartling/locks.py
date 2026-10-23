@@ -156,6 +156,11 @@ class PendingTranslationLockMixin:
 
         state = get_pending_translation_state(self)
         if state.is_target:
+            # Note: on a target page, this lock blocks unpublishing and
+            # submitting for moderation, but  does not block editing, because
+            # wagtail-localize's before_edit_page hook overrides the edit view.
+            # Warning the user there is already handled by the
+            # smartling_edit_translation_message tag.
             lock = PendingTranslationLock(self, [self.locale], is_target=True)
         elif state.locales:
             lock = PendingTranslationLock(self, state.locales)
