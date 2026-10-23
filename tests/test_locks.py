@@ -2,11 +2,13 @@ from datetime import timedelta
 
 import pytest
 
-from django.contrib.auth.models import AnonymousUser
+from django.contrib.auth.models import AnonymousUser, Group, Permission
 from django.db import connection, models
 from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
 from django.utils import timezone
 from wagtail.locks import BasicLock, ScheduledForPublishLock
+from wagtail.models import GroupApprovalTask, GroupPagePermission, Workflow, WorkflowTask
 from wagtail_localize.models import Translation
 
 from wagtail_localize_smartling.api.types import JobStatus
@@ -23,6 +25,21 @@ from testapp.factories import InfoPageFactory
 
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture()
+def page_editor_and_locker(regular_user, root_page):
+    """A non-superuser who may edit and lock pages, as a real editor would be."""
+    group = Group.objects.create(name="Smartling lock tests")
+    group.permissions.add(Permission.objects.get(codename="access_admin"))
+    for codename in ["add_page", "change_page", "publish_page", "lock_page", "unlock_page"]:
+        GroupPagePermission.objects.create(
+            group=group,
+            page=root_page,
+            permission=Permission.objects.get(codename=codename),
+        )
+    regular_user.groups.add(group)
+    return regular_user
 
 
 def source_page_of(job):
@@ -362,3 +379,92 @@ def test_lock_furniture(smartling_job, regular_user):
 def test_an_anonymous_user_is_locked_out(smartling_job):
     lock = source_page_of(smartling_job).get_lock()
     assert lock.for_user(AnonymousUser()) is True
+
+
+def lock_a_page(page, user):
+    """Lock `page` for `user`, exactly as Wagtail's LockView does."""
+    page.locked = True
+    page.locked_by = user
+    page.locked_at = timezone.now()
+    page.save()
+    # Refetch so the lock is rebuilt from the stored fields.
+    return type(page).objects.get(pk=page.pk)
+
+
+def put_page_in_moderation(page, user):
+    """Start a GroupApprovalTask workflow on `page`, with `user` as a reviewer."""
+    group = Group.objects.create(name="Smartling lock reviewers")
+    user.groups.add(group)
+    task = GroupApprovalTask.objects.create(name="Approve translations")
+    task.groups.set([group])
+    workflow = Workflow.objects.create(name="Moderation for lock tests")
+    WorkflowTask.objects.create(workflow=workflow, task=task, sort_order=0)
+    page.save_revision()
+    workflow.start(page, user)
+    return type(page).objects.get(pk=page.pk)
+
+
+def test_manual_lock_does_not_release_the_smartling_restriction(smartling_job, page_editor_and_locker):
+    """
+    A BasicLock does not apply to the user who owns it, so an editor who locks a
+    page may edit it. That must not also allow them to edit the page while its
+    content is in Smartling.
+    """
+    page = source_page_of(smartling_job)
+
+    # The page has no (Wagtail-native) lock of its own, but it has has (this
+    # package's) PendingTranslationLock.
+    assert page.locked is False
+    assert language_codes(get_in_flight_locales_for_instance(page)) == ["fr"]
+    assert isinstance(page.get_lock(), PendingTranslationLock)
+    assert page.get_lock().for_user(page_editor_and_locker) is True
+
+    # Lock the page.
+    page = lock_a_page(page, page_editor_and_locker)
+
+    # page.get_lock() still returns True.
+    assert page.get_lock().for_user(page_editor_and_locker) is True
+
+
+def test_workflow_lock_does_not_release_the_smartling_restriction(smartling_job, page_editor_and_locker):
+    """
+    Applying a WorkflowLock does not not lift the Smartling restriction.
+    A WorkflowLock does not apply to a reviewer on the current task, but the
+    Smartling restriction applies to all users.
+    """
+    page = source_page_of(smartling_job)
+    # The page has no (Wagtail-native) lock of its own, but it has has (this
+    # package's) PendingTranslationLock.
+    assert page.locked is False
+    assert language_codes(get_in_flight_locales_for_instance(page)) == ["fr"]
+    assert isinstance(page.get_lock(), PendingTranslationLock)
+    assert page.get_lock().for_user(page_editor_and_locker) is True
+
+    # Put the page in moderation.
+    page = put_page_in_moderation(page, page_editor_and_locker)
+
+    # page.get_lock() still returns True.
+    assert page.get_lock().for_user(page_editor_and_locker) is True
+
+
+def test_a_lock_held_by_someone_else_still_blocks(smartling_job, page_editor_and_locker, superuser):
+    """A lock owned by another user still blocks."""
+    page = lock_a_page(source_page_of(smartling_job), superuser)
+    assert page.get_lock().for_user(page_editor_and_locker) is True
+
+
+def test_the_editor_who_locked_the_page_is_still_refused_in_the_admin(smartling_job, page_editor_and_locker, client):
+    """
+    An editor (with lock permission) who locks a page in Smartling can not edit it.
+
+    This test exists to assert a regression does not occur in the way that the
+    native Wagtail lock and the Smartling restriction affect each other.
+    """
+    page = lock_a_page(source_page_of(smartling_job), page_editor_and_locker)
+    client.force_login(page_editor_and_locker)
+
+    response = client.get(reverse("wagtailadmin_pages:edit", args=[page.pk]))
+
+    assert response.status_code == 200
+    assert response.context["locked_for_user"] is True
+    assert PendingTranslationLock.message_class in response.content.decode()

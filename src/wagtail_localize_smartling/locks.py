@@ -1,3 +1,4 @@
+from copy import copy
 from dataclasses import dataclass
 
 from django.db.models import Q
@@ -124,6 +125,53 @@ class PendingTranslationLock(BaseLock):
         )
 
 
+class CombinedLockMixin(BaseLock):
+    """Adds the Smartling restriction to one of Wagtail's own locks."""
+
+    # Always set by combine().
+    pending_lock: PendingTranslationLock
+
+    @classmethod
+    def combine(cls, native_lock, pending_lock):
+        """Return `native_lock` with the Smartling restriction applied on top of it."""
+        native_class = type(native_lock)
+
+        # Copy rather than re-class in place, so a project that memoises its own
+        # get_lock() does not find its cached lock changed underneath it.
+        combined = copy(native_lock)
+        combined.__class__ = type(
+            f"PendingTranslation{native_class.__name__}",
+            (cls, native_class),
+            {},
+        )
+        combined.pending_lock = pending_lock
+        return combined
+
+    def for_user(self, user):
+        return super().for_user(user) or self.pending_lock.for_user(user)
+
+    def get_message(self, user):
+        # The page editor renders the banner straight from this, so the user
+        # has to be told which of the two restrictions is holding them.
+        if self.pending_lock.for_user(user):
+            return self.pending_lock.get_message(user)
+        return super().get_message(user)
+
+    def get_context_for_user(self, user, parent_context=None):
+        context = super().get_context_for_user(user, parent_context)
+        if self.pending_lock.for_user(user):
+            context.update(
+                {
+                    "locked": True,
+                    "message": self.pending_lock.get_message(user),
+                    "icon": self.pending_lock.get_icon(user),
+                    "locked_by": self.pending_lock.get_locked_by(user),
+                    "description": self.pending_lock.get_description(user),
+                }
+            )
+        return context
+
+
 class PendingTranslationLockMixin:
     """
     Mix into a translatable page model to lock it while its content is at Smartling.
@@ -141,13 +189,15 @@ class PendingTranslationLockMixin:
         return user.is_superuser
 
     def get_lock(self):
-        # Wagtail's own locks win. ScheduledForPublishLock applies to everyone, and
-        # BasicLock and WorkflowLock carry the affordances that undo them, all of
-        # which returning ours first would hide.
+        # Wagtail enforces one lock, and this project adds PendingTranslationLock.
+        # The two are combined here, so they are both used together.
         lock = super().get_lock()
-        if lock is not None:
+        pending = self._get_pending_translation_lock()
+        if lock is None:
+            return pending
+        if pending is None:
             return lock
-        return self._get_pending_translation_lock()
+        return CombinedLockMixin.combine(lock, pending)
 
     def _get_pending_translation_lock(self):
         # Memoise for the life of the instance, so different callers can use it.
