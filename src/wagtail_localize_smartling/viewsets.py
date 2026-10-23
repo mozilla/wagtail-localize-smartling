@@ -1,3 +1,5 @@
+from typing import cast
+
 import django_filters
 
 from django.contrib.auth import get_user_model
@@ -18,9 +20,11 @@ from .templatetags.wagtail_localize_smartling_admin_tags import smartling_job_ur
 
 def get_users_for_filter(user):
     User = get_user_model()
-    return User.objects.filter(
-        pk__in=Job.objects.values_list("user", flat=True)
-    ).order_by(User.USERNAME_FIELD)  # pyright: ignore[reportAttributeAccessIssue]
+    # USERNAME_FIELD is a str at runtime, but django-stubs models get_user_model()'s
+    # return as a placeholder whose __getattr__ only knows "objects".
+    username_field = cast(str, User.USERNAME_FIELD)  # pyright: ignore[reportArgumentType]
+
+    return User.objects.filter(pk__in=Job.objects.values_list("user", flat=True)).order_by(username_field)
 
 
 class JobReportFilterSet(WagtailFilterSet):
@@ -44,6 +48,9 @@ class JobPermissionPolicy(ModelPermissionPolicy):
         return super().user_has_permission(user, action)
 
 
+job_permission_policy = JobPermissionPolicy(Job)
+
+
 class SourceInstanceColumn(TitleColumn):
     def get_value(self, instance):
         return instance.translation_source.get_source_instance()
@@ -55,9 +62,7 @@ class SourceInstanceColumn(TitleColumn):
 class TargetLocalesColumn(Column):
     """Outputs a list of job target locales"""
 
-    cell_template_name = (
-        "wagtail_localize_smartling/admin/tables/target_locales_cell.html"
-    )
+    cell_template_name = "wagtail_localize_smartling/admin/tables/target_locales_cell.html"
 
     def get_value(self, instance):
         return getattr(instance, self.accessor).all()
@@ -106,9 +111,7 @@ class JobIndexView(generic.IndexView):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        return queryset.select_related("translation_source").prefetch_related(
-            "translations__target_locale"
-        )
+        return queryset.select_related("translation_source").prefetch_related("translations__target_locale")
 
 
 class JobInspectView(generic.InspectView):
@@ -199,9 +202,11 @@ class JobViewSet(ModelViewSet):
     copy_view_enabled = False
     inspect_view_enabled = True
 
-    @property
+    # Wagtail 8.0 resolves this from the policy registry. This property can be
+    # removed when we drop support for Wagtail 7.
+    @cached_property
     def permission_policy(self):
-        return JobPermissionPolicy(self.model)
+        return job_permission_policy
 
     @cached_property
     def url_namespace(self):  # # pyright: ignore[reportIncompatibleVariableOverride]

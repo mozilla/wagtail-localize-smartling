@@ -17,9 +17,9 @@ integrates with the Smartling translation platform.
 
 ## Supported versions
 
-- Python 3.8+
-- Django 4.2+
-- Wagtail 6.1+
+- Python 3.11+
+- Django 5.2+
+- Wagtail 7.0+
 
 ## Installation
 

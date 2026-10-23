@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add support for Wagtail 7.4 and 8.0 - @dchukhin
+- The minimum required Django version is now 5.2 - @dchukhin
+- The minimum required Wagtail version is now 7.0 - @dchukhin
+
 ## [0.13.0] - 2026-08-03
 
 - Support optional Slack notifications when jobs are synced to Smartling and are awaiting authorization (#75) - @stevejalim

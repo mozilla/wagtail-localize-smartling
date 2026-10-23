@@ -5,6 +5,7 @@ from typing import Any
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.functional import cached_property
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import TemplateView
@@ -32,7 +33,9 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 
-class SmartlingStatusView(WagtailAdminTemplateMixin, TemplateView):  # pyright: ignore[reportIncompatibleMethodOverride]
+class SmartlingStatusView(  # pyright: ignore[reportIncompatibleMethodOverride, reportGeneralTypeIssues]
+    WagtailAdminTemplateMixin, TemplateView
+):
     _show_breadcrumbs = True
     page_title = _("Smartling")
     template_name = "wagtail_localize_smartling/admin/smartling_status.html"
@@ -78,9 +81,7 @@ class SmartlingStatusView(WagtailAdminTemplateMixin, TemplateView):  # pyright: 
                     "label": suggested[1],
                 }
                 if locale is not None:
-                    context["suggested_source_locale"]["url"] = reverse(
-                        "wagtaillocales:edit", kwargs={"pk": locale.pk}
-                    )
+                    context["suggested_source_locale"]["url"] = reverse("wagtaillocales:edit", kwargs={"pk": locale.pk})
 
             else:
                 context["suggested_source_locale"] = None
@@ -89,7 +90,7 @@ class SmartlingStatusView(WagtailAdminTemplateMixin, TemplateView):  # pyright: 
         return super().get_context_data(**context)
 
 
-class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverride]
+class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverride, reportGeneralTypeIssues]
     PermissionCheckedMixin, WagtailAdminTemplateMixin, TemplateView
 ):
     _show_breadcrumbs = True
@@ -97,9 +98,13 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
     template_name = "wagtail_localize_smartling/admin/resubmit_job.html"
     header_icon = "wagtail-localize-language"
     object: Job
-    permission_policy = ModelPermissionPolicy(Job)
     permission_required = "view"
     jobs_report_url: str = ""
+
+    # permission_policy is a cached_property in Wagtail >= 8.0.
+    @cached_property
+    def permission_policy(self):
+        return ModelPermissionPolicy(Job)
 
     def get_breadcrumbs_items(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         # TODO: link to the report view
