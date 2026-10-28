@@ -13,8 +13,10 @@ from django.utils import timezone
 # flushes it; without the serialized snapshot, rows that earlier migrations
 # created never come back, and the autouse locales fixture in conftest.py then
 # fails in the setup of the next test in this file.
+PRE_ORDER_MODELS_MIGRATION = ("wagtail_localize_smartling", "0008_jobtranslation_content_hash")
 PRE_ORDERS_MIGRATION = ("wagtail_localize_smartling", "0009_job_sync_started_at_alter_job_translation_source_and_more")
 POPULATE_ORDERS_MIGRATION = ("wagtail_localize_smartling", "0010_populate_orders")
+GRANT_ORDER_PERMISSIONS_MIGRATION = ("wagtail_localize_smartling", "0011_data_grant_order_permissions")
 
 
 def _build_pre_orders_job(state, **overrides):
@@ -216,3 +218,44 @@ def test_reversing_the_backfill_keeps_what_it_created(migrator, django_db_serial
     Job = forward.apps.get_model("wagtail_localize_smartling", "Job")
     assert Order.objects.count() == 1
     assert Job.objects.get().files.count() == 1
+
+
+@pytest.mark.django_db
+def test_groups_that_can_submit_translations_can_manage_orders(migrator, django_db_serialized_rollback):
+    """Groups that submit translations are given permissions to use Orders."""
+    old_state = migrator.apply_initial_migration(PRE_ORDER_MODELS_MIGRATION)
+    Group = old_state.apps.get_model("auth", "Group")
+    Permission = old_state.apps.get_model("auth", "Permission")
+    submit_translation_permission = Permission.objects.get(
+        codename="submit_translation", content_type__app_label="wagtail_localize"
+    )
+    translators = Group.objects.create(name="Translators")
+    # Translators have the "submit_translation" permission.
+    translators.permissions.add(submit_translation_permission)
+    # Bystanders have no permissions.
+    Group.objects.create(name="Bystanders")
+
+    new_state = migrator.apply_tested_migration(GRANT_ORDER_PERMISSIONS_MIGRATION)
+
+    Group = new_state.apps.get_model("auth", "Group")
+    translator_permissions = Group.objects.get(name="Translators").permissions
+    # The names are asserted alongside the codenames because Django only ever
+    # writes a permission's name when it creates the row, so a wrong one here
+    # would stay wrong on every site that upgrades.
+    permissions_granted_to_translators = set(
+        translator_permissions.filter(
+            content_type__app_label="wagtail_localize_smartling",
+            content_type__model="order",
+        ).values_list("codename", "name")
+    )
+    assert permissions_granted_to_translators == {
+        ("add_order", "Can add order"),
+        ("change_order", "Can change order"),
+        ("delete_order", "Can delete order"),
+        ("view_order", "Can view order"),
+    }
+    # Translators still have the permissions they had before the
+    # GRANT_ORDER_PERMISSIONS_MIGRATION.
+    assert translator_permissions.filter(codename="submit_translation").exists()
+    # Bystanders still have no permissions.
+    assert not Group.objects.get(name="Bystanders").permissions.exists()

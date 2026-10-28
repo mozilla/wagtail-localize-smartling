@@ -293,6 +293,15 @@ As well as the `sync_smartling` management command, the plugin sets the `callbac
 > [!WARNING]
 > Callbacks should not be relied on as the only method for downloading translations. Always make sure the `sync_smartling` command is run regularly to ensure your translations are up-to-date.
 
+### Permissions
+
+The `Order` model groups jobs together, and has the four standard Django permissions:
+
+- `wagtail_localize_smartling.add_order`
+- `wagtail_localize_smartling.change_order`
+- `wagtail_localize_smartling.delete_order`
+- `wagtail_localize_smartling.view_order`
+
 ## Usage
 
 ### Submitting new content for translation
