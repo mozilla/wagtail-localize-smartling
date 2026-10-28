@@ -32,7 +32,9 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 
-class SmartlingStatusView(WagtailAdminTemplateMixin, TemplateView):  # pyright: ignore[reportIncompatibleMethodOverride]
+class SmartlingStatusView(  # pyright: ignore[reportIncompatibleMethodOverride, reportGeneralTypeIssues]
+    WagtailAdminTemplateMixin, TemplateView
+):
     _show_breadcrumbs = True
     page_title = _("Smartling")
     template_name = "wagtail_localize_smartling/admin/smartling_status.html"
@@ -78,9 +80,7 @@ class SmartlingStatusView(WagtailAdminTemplateMixin, TemplateView):  # pyright: 
                     "label": suggested[1],
                 }
                 if locale is not None:
-                    context["suggested_source_locale"]["url"] = reverse(
-                        "wagtaillocales:edit", kwargs={"pk": locale.pk}
-                    )
+                    context["suggested_source_locale"]["url"] = reverse("wagtaillocales:edit", kwargs={"pk": locale.pk})
 
             else:
                 context["suggested_source_locale"] = None
@@ -89,7 +89,7 @@ class SmartlingStatusView(WagtailAdminTemplateMixin, TemplateView):  # pyright: 
         return super().get_context_data(**context)
 
 
-class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverride]
+class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverride, reportGeneralTypeIssues]
     PermissionCheckedMixin, WagtailAdminTemplateMixin, TemplateView
 ):
     _show_breadcrumbs = True
