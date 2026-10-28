@@ -1,6 +1,7 @@
 import pytest
 
 from django.contrib.contenttypes.models import ContentType
+from django.db.utils import IntegrityError
 from django.urls import reverse
 from django.utils import timezone
 from freezegun import freeze_time
@@ -8,15 +9,31 @@ from wagtail.models import Locale
 from wagtail_localize.models import Translation, TranslationSource
 from wagtail_localize.operations import translate_object
 
+from wagtail_localize_smartling import models as wls_models
 from wagtail_localize_smartling.api.types import JobStatus
 from wagtail_localize_smartling.models import Job, JobTranslation, LandedTranslationTask
 from wagtail_localize_smartling.utils import compute_content_hash, get_snippet_admin_url
 
-from testapp.factories import InfoPageFactory, InfoSnippetFactory, UserFactory
+from testapp.factories import (
+    InfoPageFactory,
+    InfoSnippetFactory,
+    TranslationSourceFactory,
+    UserFactory,
+)
 from testapp.settings import job_description_callback
+from tests.factories import JobFactory, OrderFactory
 
 
 pytestmark = pytest.mark.django_db
+
+
+def target_locales():
+    """Every locale the autouse `locales` fixture installs, source locale excluded."""
+    return list(Locale.objects.exclude(pk=Locale.get_default().pk))
+
+
+def _second_page(root_page):
+    return InfoPageFactory(parent=root_page, title="Second page")
 
 
 def test_default_job_description(smartling_job: "Job"):
@@ -274,6 +291,7 @@ def test_get_or_create_adds_locales_to_unsynced_job(smartling_project, root_page
         content_hash=content_hash,
         status=JobStatus.UNSYNCED,
     )
+    wls_models.JobFile.objects.create(job=job, translation_source=translation_source)
     job.translations.set([fr_translation])
 
     # Now try to add de locale
@@ -327,6 +345,7 @@ def test_get_or_create_adds_locales_to_draft_job(smartling_project, root_page, s
         first_synced_at=now,
         last_synced_at=now,
     )
+    wls_models.JobFile.objects.create(job=job, translation_source=translation_source)
     job.translations.set([fr_translation])
 
     # Mock the API call
@@ -382,6 +401,7 @@ def test_get_or_create_creates_new_job_for_in_progress(smartling_project, root_p
         first_synced_at=now,
         last_synced_at=now,
     )
+    wls_models.JobFile.objects.create(job=job, translation_source=translation_source)
     job.translations.set([fr_translation])
 
     # Now try to add de locale
@@ -430,6 +450,7 @@ def test_get_or_create_no_action_when_all_locales_covered(smartling_project, roo
         content_hash=content_hash,
         status=JobStatus.UNSYNCED,
     )
+    wls_models.JobFile.objects.create(job=job, translation_source=translation_source)
     job.translations.set([fr_translation])
 
     # Try to submit the same locale again
@@ -536,6 +557,7 @@ def test_get_or_create_excluded_locale_not_added_to_existing_job(smartling_proje
         content_hash=content_hash,
         status=JobStatus.UNSYNCED,
     )
+    wls_models.JobFile.objects.create(job=job, translation_source=translation_source)
     job.translations.set([fr_translation])
 
     # Submit both fr (already covered) and de (excluded)
@@ -555,3 +577,92 @@ def test_get_or_create_excluded_locale_not_added_to_existing_job(smartling_proje
     assert Job.objects.count() == 1
     assert job.translations.count() == 1
     assert set(job.translations.all()) == {fr_translation}
+
+
+def test_order_starts_as_a_draft(superuser):
+    order = wls_models.Order.objects.create(name="WNP 157", created_by=superuser)
+
+    assert order.is_draft is True
+    assert order.reference_number != ""
+
+
+def test_order_reference_number_is_stable_across_saves(superuser):
+    order = wls_models.Order.objects.create(name="WNP 157", created_by=superuser)
+    original_reference_number = order.reference_number
+
+    order.name = "WNP 158"
+    order.save()
+    order.refresh_from_db()
+
+    assert order.reference_number == original_reference_number
+
+
+def test_an_order_item_remembers_the_locales_it_was_added_for(superuser, root_page, locales):
+    order = wls_models.Order.objects.create(name="WNP 157", created_by=superuser)
+    source = TranslationSourceFactory(source_instance=root_page)
+    french = Translation.objects.create(source=source, target_locale=Locale.objects.get(language_code="fr"))
+    order_item = wls_models.OrderItem.objects.create(order=order, translation_source=source, added_by=superuser)
+    order_item.translations.set([french])
+
+    # A locale the editor did not tick. What was stored must not widen to match
+    # what could be derived from the source.
+    Translation.objects.create(source=source, target_locale=Locale.objects.get(language_code="de"))
+    # The source page has translations in "fr" and "de" locales.
+    assert set(source.translations.values_list("target_locale__language_code", flat=True)) == {"fr", "de"}
+
+    assert list(order_item.translations.all()) == [french]
+
+
+def test_a_page_cannot_be_added_to_the_same_order_twice(superuser, root_page):
+    order = wls_models.Order.objects.create(name="WNP 157", created_by=superuser)
+    source = TranslationSourceFactory(source_instance=root_page)
+    wls_models.OrderItem.objects.create(order=order, translation_source=source, added_by=superuser)
+
+    with pytest.raises(IntegrityError):
+        wls_models.OrderItem.objects.create(order=order, translation_source=source, added_by=superuser)
+
+
+def test_a_page_cannot_appear_twice_in_one_job(superuser, root_page):
+    job = JobFactory(source_instance=root_page)
+    source = job.files.get().translation_source
+
+    with pytest.raises(IntegrityError):
+        wls_models.JobFile.objects.create(job=job, translation_source=source)
+
+
+def test_order_latest_job_is_the_most_recent_send_not_the_most_recently_synced(
+    root_page, locales, superuser, smartling_project
+):
+    order = OrderFactory(created_by=superuser)
+    failed = JobFactory(source_instance=root_page, order=order, unsynced=True)
+    resent = JobFactory(source_instance=_second_page(root_page), order=order, synced=True)
+
+    # A failed send never gets a first_synced_at, so Job's own ordering puts it first.
+    assert order.jobs.first() == failed
+    # The get_latest_job() method returns the Job that was created most recently.
+    assert order.get_latest_job() == resent
+
+
+def test_a_resend_is_suggested_a_distinct_job_name(superuser, root_page, smartling_settings):
+    smartling_settings.JOB_NAME_PREFIX = "www.firefox.com"
+    order = OrderFactory(name="WNP 157", created_by=superuser)
+
+    assert order.suggested_job_name() == "www.firefox.com WNP 157"
+
+    JobFactory(source_instance=root_page, order=order, synced=True)
+
+    assert order.suggested_job_name() == "www.firefox.com WNP 157-2"
+
+
+def test_creating_a_job_also_creates_its_file(root_page, locales, superuser, smartling_project):
+    source = TranslationSourceFactory(source_instance=root_page)
+    translations = [Translation.objects.create(source=source, target_locale=locale) for locale in target_locales()]
+
+    assert wls_models.Job.objects.exists() is False
+
+    wls_models.Job.get_or_create_from_source_and_translation_data(source, translations, user=superuser, due_date=None)
+
+    job = wls_models.Job.objects.get()
+    job_file = job.files.get()
+    assert job_file.translation_source_id == source.pk
+    assert job_file.content_hash == compute_content_hash(source.export_po())

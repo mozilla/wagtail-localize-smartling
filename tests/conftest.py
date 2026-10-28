@@ -319,7 +319,7 @@ def smartling_job(smartling_project, superuser, root_page) -> "Job":
     from wagtail_localize.models import Translation, TranslationSource
 
     from wagtail_localize_smartling.api.types import JobStatus
-    from wagtail_localize_smartling.models import Job
+    from wagtail_localize_smartling.models import Job, JobFile, Order, OrderItem
     from wagtail_localize_smartling.utils import compute_content_hash
 
     from testapp.factories import InfoPageFactory
@@ -333,8 +333,13 @@ def smartling_job(smartling_project, superuser, root_page) -> "Job":
     )
 
     now = timezone.now()
+    order = Order.objects.create(name="Component test page", created_by=superuser, submitted_at=now)
+    order_item = OrderItem.objects.create(order=order, translation_source=translation_source, added_by=superuser)
+    order_item.translations.set([page_translation])
+
     job = Job.objects.create(
         project=smartling_project,
+        order=order,
         translation_source=translation_source,
         user=superuser,
         name=Job.get_default_name(translation_source, [page_translation]),
@@ -346,6 +351,12 @@ def smartling_job(smartling_project, superuser, root_page) -> "Job":
         status=JobStatus.DRAFT,
         translation_job_uid="job_to_be_cancelled",
         file_uri="job_1_ts_1.po",
+    )
+    JobFile.objects.create(
+        job=job,
+        translation_source=translation_source,
+        file_uri=f"job_{job.pk}_ts_{translation_source.pk}.po",
+        content_hash=compute_content_hash(translation_source.export_po()),
     )
     job.translations.set([page_translation])
 
@@ -360,7 +371,7 @@ def smartling_job_multi_locale(smartling_project, superuser, root_page) -> "Job"
     from wagtail_localize.models import Translation, TranslationSource
 
     from wagtail_localize_smartling.api.types import JobStatus
-    from wagtail_localize_smartling.models import Job
+    from wagtail_localize_smartling.models import Job, JobFile, Order, OrderItem
     from wagtail_localize_smartling.utils import compute_content_hash
 
     from testapp.factories import InfoPageFactory
@@ -378,8 +389,13 @@ def smartling_job_multi_locale(smartling_project, superuser, root_page) -> "Job"
     )
 
     now = timezone.now()
+    order = Order.objects.create(name="Multi-locale test page", created_by=superuser, submitted_at=now)
+    order_item = OrderItem.objects.create(order=order, translation_source=translation_source, added_by=superuser)
+    order_item.translations.set([fr_translation, de_translation])
+
     job = Job.objects.create(
         project=smartling_project,
+        order=order,
         translation_source=translation_source,
         user=superuser,
         name=Job.get_default_name(translation_source, [fr_translation, de_translation]),
@@ -391,6 +407,12 @@ def smartling_job_multi_locale(smartling_project, superuser, root_page) -> "Job"
         status=JobStatus.IN_PROGRESS,
         translation_job_uid="multi_locale_job",
         file_uri="job_multi_locale.po",
+    )
+    JobFile.objects.create(
+        job=job,
+        translation_source=translation_source,
+        file_uri=f"job_{job.pk}_ts_{translation_source.pk}.po",
+        content_hash=compute_content_hash(translation_source.export_po()),
     )
     job.translations.set([fr_translation, de_translation])
 

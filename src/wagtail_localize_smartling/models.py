@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import uuid
 
 from collections.abc import Iterable
 from datetime import datetime
@@ -169,6 +170,112 @@ class ProjectTargetLocale(models.Model):
         return f"{self.description}"
 
 
+class Order(models.Model):
+    """
+    A batch of pages submitted to Smartling together, with the metadata that
+    tells translators what they are looking at.
+
+    An Order holds the data for Smartling's concept of a "job", but it is
+    specific to this library:
+      - an Order is created here, and can be edited before sending to Smartling
+        (before Smartling creates its job for it)
+      - an Order can actually have multiple Smartling jobs, because it allows
+        resubmitting. So, a user may submit an Order, get an error from
+        Smartling, then resubmit the Order. In this library, that is considered
+        the same Order. In Smartling, it is considered different jobs.
+    """
+
+    # Shorter than Job.name because the job's name is built from this one plus
+    # the configured prefix and a resend suffix, and Smartling rejects a name
+    # over its own limit.
+    name = models.CharField(max_length=100)
+    notes = models.TextField(blank=True)
+    due_date = models.DateTimeField(blank=True, null=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    # Everyone who added a page, which is what reaches translators in the job
+    # description. Distinct from created_by, who only opened the order.
+    contributors = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name="+", blank=True)
+    submitted_at = models.DateTimeField(null=True, editable=False)
+    reference_number = models.CharField(
+        max_length=170,
+        editable=False,
+        help_text=(
+            "Sent to Smartling as the reference number of every job this order creates. "
+            "Smartling shows it for each job, which connects it to the Order it came from."
+        ),
+    )
+
+    jobs: Manager["Job"]
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.reference_number:
+            # Stable for the life of the order so that every send of it can
+            # carry one number to Smartling, whose UI has no view of the FK.
+            self.reference_number = uuid.uuid4().hex
+        super().save(*args, **kwargs)
+
+    @property
+    def is_draft(self) -> bool:
+        return self.submitted_at is None
+
+    def get_latest_job(self) -> "Job | None":
+        """Return the most recent Job created for this order."""
+        # Note: this is not self.jobs.first() because Job orders by
+        # first_synced_at with nulls first.
+        return self.jobs.order_by("-pk").first()
+
+    def suggested_job_name(self) -> str:
+        """
+        A Smartling job name for the next send of this order.
+
+        Smartling rejects a duplicate job name, so a resend cannot reuse the
+        first one.
+        """
+        send_number = self.jobs.count() + 1
+        name = self.name if send_number == 1 else f"{self.name}-{send_number}"
+        if smartling_settings.JOB_NAME_PREFIX:
+            name = f"{smartling_settings.JOB_NAME_PREFIX} {name}"
+        return name
+
+
+class OrderItem(models.Model):
+    """A page in an order, recorded while the order is still being assembled."""
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="order_items")
+    translation_source = models.ForeignKey(TranslationSource, on_delete=models.CASCADE, related_name="+")
+    # What the editor actually ticked, after the excluded locales and the
+    # already-translated ones have been taken out. A draft order has no Job and
+    # so no JobTranslation, and re-deriving this from the source would put both
+    # of those back.
+    translations = models.ManyToManyField(Translation, related_name="smartling_order_items")
+    added_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="+",
+    )
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [("order", "translation_source")]
+        ordering = ["added_at"]
+
+    def __str__(self):
+        return f"{self.translation_source} in {self.order}"
+
+
 @register_translation_component(
     required=smartling_settings.REQUIRED,
     heading=_("Mark translation for Smartling processing"),
@@ -188,10 +295,22 @@ class Job(SyncedModel):
         on_delete=models.CASCADE,
         related_name="+",
     )
+    order = models.ForeignKey(
+        "Order",
+        on_delete=models.PROTECT,
+        related_name="jobs",
+        null=True,
+        blank=True,
+    )
+    # Set while a worker is pushing this job to Smartling, so a second worker
+    # can tell a job waiting to be pushed from one already in flight.
+    sync_started_at = models.DateTimeField(null=True, editable=False)
     translation_source = models.ForeignKey(
         TranslationSource,
         on_delete=models.CASCADE,
         related_name="smartling_jobs",
+        null=True,
+        blank=True,
     )
     translations = models.ManyToManyField(
         Translation,
@@ -232,6 +351,8 @@ class Job(SyncedModel):
     #   https://api-reference.smartling.com/#tag/Jobs/operation/getJobFilesList
     #
     file_uri = models.CharField(max_length=255, blank=True, editable=False)
+
+    files: Manager["JobFile"]
 
     base_form_class = JobForm
     panels = [FieldPanel("due_date")]
@@ -429,6 +550,11 @@ class Job(SyncedModel):
                 due_date=due_date,
                 content_hash=content_hash,
             )
+            JobFile.objects.create(
+                job=job,
+                translation_source=translation_source,
+                content_hash=content_hash,
+            )
             job.translations.set(new_translations)
 
             if isinstance(background, ImmediateBackend):
@@ -440,6 +566,35 @@ class Job(SyncedModel):
             # If we get here we've got a proper background worker, so we can safely
             # enqueue the syncing of the job.
             background.enqueue(sync_job, args=(job.pk,), kwargs={})
+
+
+class JobFile(models.Model):
+    """
+    One translatable object within a Job  (one .po file uploaded to Smartling).
+
+    A Job can reference several TranslationSource, because an order is a batch
+    of pages submitted together.
+    """
+
+    job = models.ForeignKey("Job", on_delete=models.CASCADE, related_name="files")
+    translation_source = models.ForeignKey(
+        TranslationSource,
+        on_delete=models.CASCADE,
+        related_name="smartling_job_files",
+    )
+    file_uri = models.CharField(max_length=255, blank=True, editable=False)
+    content_hash = models.CharField(max_length=64, blank=True)
+
+    translation_source_id: int
+
+    class Meta:
+        unique_together = [("job", "translation_source")]
+        # Make sure the order is always the same, since several pieces of logic
+        # walk a job's files and pair them up positionally.
+        ordering = ["pk"]
+
+    def __str__(self):
+        return self.file_uri or f"file for source {self.translation_source_id}"
 
 
 def _add_locales_to_existing_job(job: "Job", translations: list[Translation]) -> None:
