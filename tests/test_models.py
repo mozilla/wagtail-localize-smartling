@@ -1,7 +1,7 @@
 import pytest
 
 from django.contrib.contenttypes.models import ContentType
-from django.db.utils import IntegrityError
+from django.db.utils import DatabaseError, IntegrityError
 from django.urls import reverse
 from django.utils import timezone
 from freezegun import freeze_time
@@ -652,6 +652,29 @@ def test_a_resend_is_suggested_a_distinct_job_name(superuser, root_page, smartli
     JobFactory(source_instance=root_page, order=order, synced=True)
 
     assert order.suggested_job_name() == "www.firefox.com WNP 157-2"
+
+
+def test_a_job_is_not_left_behind_when_its_file_cannot_be_created(
+    root_page, locales, superuser, smartling_project, mocker
+):
+    """
+    If a Job's JobFile can not be created, then the Job is not created.
+
+    Having a Job with no JobFile would result in sending the (invalid) job to
+    Smartling, so we avoid creating it in the first place.
+    """
+    source = TranslationSourceFactory(source_instance=root_page)
+    translations = [Translation.objects.create(source=source, target_locale=locale) for locale in target_locales()]
+    mocker.patch.object(
+        wls_models.JobFile.objects, "create", side_effect=DatabaseError("the file could not be written")
+    )
+
+    with pytest.raises(DatabaseError, match="the file could not be written"):
+        wls_models.Job.get_or_create_from_source_and_translation_data(
+            source, translations, user=superuser, due_date=None
+        )
+
+    assert wls_models.Job.objects.exists() is False
 
 
 def test_creating_a_job_also_creates_its_file(root_page, locales, superuser, smartling_project):

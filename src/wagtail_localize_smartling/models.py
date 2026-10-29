@@ -539,22 +539,25 @@ class Job(SyncedModel):
         # Create a new job for any remaining locales not covered by existing jobs
         if remaining_translations:
             new_translations = list(remaining_translations.values())
-            job = cls.objects.create(
-                project=project,
-                translation_source=translation_source,
-                user=user,
-                name=cls.get_default_name(translation_source, new_translations),
-                description=cls.get_description(translation_source, new_translations),
-                reference_number=cls.get_default_reference_number(translation_source, new_translations),
-                due_date=due_date,
-                content_hash=content_hash,
-            )
-            JobFile.objects.create(
-                job=job,
-                translation_source=translation_source,
-                content_hash=content_hash,
-            )
-            job.translations.set(new_translations)
+            # Create Job and JobFile in 1 transaction to avoid having an invalid
+            # Job (that later gets sent to Smartling).
+            with transaction.atomic():
+                job = cls.objects.create(
+                    project=project,
+                    translation_source=translation_source,
+                    user=user,
+                    name=cls.get_default_name(translation_source, new_translations),
+                    description=cls.get_description(translation_source, new_translations),
+                    reference_number=cls.get_default_reference_number(translation_source, new_translations),
+                    due_date=due_date,
+                    content_hash=content_hash,
+                )
+                JobFile.objects.create(
+                    job=job,
+                    translation_source=translation_source,
+                    content_hash=content_hash,
+                )
+                job.translations.set(new_translations)
 
             if isinstance(background, ImmediateBackend):
                 # Don't enqueue anything slow if we're using the dummy background
