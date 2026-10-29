@@ -390,13 +390,23 @@ class SmartlingAPIClient:
 
         return result["batchUid"]
 
-    def upload_files_to_job_batch(self, *, job: "Job", batch_uid: str) -> str:
-        job_file = job.files.get()
+    def upload_file_to_job_batch(self, *, job_file: "JobFile", batch_uid: str) -> str:
         file_uri = self.get_file_uri_for_job_file(job_file=job_file)
 
+        # Only the locales this file was ordered in. Taking them from the whole
+        # job would order every page of a multi-page job in every locale that
+        # any one of its pages wanted.
         locales_to_authorize = [
-            utils.format_smartling_locale_id(t.target_locale.language_code) for t in job.translations.all()
+            utils.format_smartling_locale_id(job_translation.translation.target_locale.language_code)
+            for job_translation in job_file.job.job_translations.filter(
+                translation__source=job_file.translation_source
+            ).select_related("translation__target_locale")
         ]
+
+        if not locales_to_authorize:
+            # A file uploaded with no locales means that translators have
+            # nothing to do, so we raise an error here.
+            raise ValueError(f"No locales to authorize for {file_uri}")
 
         data_payload = {
             "fileUri": file_uri,
@@ -410,7 +420,7 @@ class SmartlingAPIClient:
 
         self._request(
             method="POST",
-            path=f"/job-batches-api/v2/projects/{quote(job.project.project_id)}/batches/{batch_uid}/file",
+            path=f"/job-batches-api/v2/projects/{quote(job_file.job.project.project_id)}/batches/{batch_uid}/file",
             response_serializer_class=UploadFileToBatchResponseSerializer,
             files=file_payload,
             data=data_payload,

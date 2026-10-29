@@ -1,10 +1,12 @@
 import json
+import re
 
 from unittest.mock import Mock
 
 import pytest
 
-from wagtail_localize.models import TranslationSource
+from wagtail.models import Locale
+from wagtail_localize.models import Translation, TranslationSource
 
 from wagtail_localize_smartling.api.client import InvalidResponse, client
 from wagtail_localize_smartling.exceptions import IncapableVisualContextCallback
@@ -15,6 +17,11 @@ from tests.factories import JobFactory
 
 
 pytestmark = pytest.mark.django_db
+
+
+def get_authorized_locales_from_request_body(request):
+    """The localeIdsToAuthorize[] values of a multipart file-upload request, in the order sent."""
+    return re.findall(r'name="localeIdsToAuthorize\[\]"\r\n\r\n(.*?)\r\n', request.body.decode(errors="ignore"))
 
 
 @pytest.mark.skip("WRITE ME")
@@ -151,19 +158,19 @@ def test_client__create_batch_for_job__error_path(
     )
 
 
-def test_client__upload_files_to_job_batch__happy_path(
+def test_client__upload_file_to_job_batch__happy_path(
     smartling_job,
     smartling_upload_files_to_job_batch,
 ):
-    client.upload_files_to_job_batch(job=smartling_job, batch_uid="test-batch-uid")
+    client.upload_file_to_job_batch(job_file=smartling_job.files.get(), batch_uid="test-batch-uid")
 
 
-def test_client__upload_files_to_job_batch__error_path(
+def test_client__upload_file_to_job_batch__error_path(
     smartling_job,
     smartling_upload_files_to_job_batch__error_response,
 ):
     with pytest.raises(InvalidResponse) as exc:
-        client.upload_files_to_job_batch(job=smartling_job, batch_uid="test-batch-uid")
+        client.upload_file_to_job_batch(job_file=smartling_job.files.get(), batch_uid="test-batch-uid")
 
     assert exc.value.args == (
         "Response did not match expected format: {'response': {'code': 'VALIDATION_ERROR', 'data': [{'key': 'some upload key', 'message': 'some upload message', 'details': 'some upload details'}]}}",  # noqa: E501
@@ -200,11 +207,48 @@ def test_upload_sends_the_po_of_the_file_whose_uri_it_names(root_page, smartling
     ordered_source, _ = TranslationSource.get_or_create_from_instance(ordered_page)
     job = JobFactory(source_instance=root_page, files=[ordered_source])
 
-    client.upload_files_to_job_batch(job=job, batch_uid="test-batch-uid")
+    client.upload_file_to_job_batch(job_file=job.files.get(), batch_uid="test-batch-uid")
 
     uploaded = responses.calls[-1].request.body.decode(errors="ignore")
     assert f"job_{job.pk}_ts_{ordered_source.pk}.po" in uploaded
     assert "The page that was ordered" in uploaded
+
+
+def test_upload_authorizes_only_the_locales_this_file_asked_for(
+    root_page, smartling_upload_files_to_job_batch, responses
+):
+    """
+    Uploading requests only the locales that each particular page needs.
+
+    Authorizing the whole job's locales would request every locale for every
+    page, which is not correct.
+    """
+    ordered_source = TranslationSourceFactory(source_instance=root_page)
+    other_source = TranslationSourceFactory(source_instance=InfoPageFactory(parent=root_page, title="Second page"))
+    job = JobFactory(source_instance=root_page, files=[ordered_source, other_source], translations=[])
+    job.translations.set(
+        [
+            Translation.objects.create(source=ordered_source, target_locale=Locale.objects.get(language_code="fr")),
+            Translation.objects.create(source=other_source, target_locale=Locale.objects.get(language_code="de")),
+        ]
+    )
+
+    client.upload_file_to_job_batch(
+        job_file=job.files.get(translation_source=ordered_source), batch_uid="test-batch-uid"
+    )
+
+    assert get_authorized_locales_from_request_body(responses.calls[-1].request) == ["fr"]
+
+
+def test_uploading_a_file_with_no_authorized_locales_is_refused(root_page, smartling_upload_files_to_job_batch):
+    job = JobFactory(source_instance=root_page, translations=[])
+    job_file = job.files.get()
+    # Nobody ordered this file's page in any locale, which is what makes the
+    # upload refusable rather than the job merely being empty.
+    assert not job_file.job.translations.filter(source=job_file.translation_source).exists()
+
+    with pytest.raises(ValueError):
+        client.upload_file_to_job_batch(job_file=job_file, batch_uid="test-batch-uid")
 
 
 def test_create_batch_declares_every_file_of_the_job(root_page, smartling_create_batch_for_job, responses):

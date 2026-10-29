@@ -134,8 +134,8 @@ def _initial_sync(job: "Job") -> None:
     batch_uid = client.create_batch_for_job(job=job)
 
     # Upload the TranslationSource's PO file to the Batch in Smartling
-    file_uri = client.upload_files_to_job_batch(
-        job=job,
+    file_uri = client.upload_file_to_job_batch(
+        job_file=job.files.get(),
         batch_uid=batch_uid,
     )
 

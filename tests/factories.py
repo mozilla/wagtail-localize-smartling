@@ -127,7 +127,8 @@ class JobFactory(factory.django.DjangoModelFactory):
                 # get_or_create on the source factories means two jobs built
                 # for the same page share one source. A plain create raises on
                 # the second job.
-                Translation.objects.get_or_create(source=source, target_locale=target_locale)
+                translation, _ = Translation.objects.get_or_create(source=source, target_locale=target_locale)
+                obj.translations.add(translation)
 
 
 class TranslationApproverGroupFactory(factory.django.DjangoModelFactory):
