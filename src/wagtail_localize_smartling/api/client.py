@@ -47,7 +47,7 @@ from .serializers import (
 
 
 if TYPE_CHECKING:
-    from ..models import Job
+    from ..models import Job, JobFile
 
 
 logger = logging.getLogger(__name__)
@@ -327,10 +327,9 @@ class SmartlingAPIClient:
             else:
                 raise
 
-    def get_file_uri_for_job(self, *, job: "Job") -> str:
-        # One Wagtail content object (Page or Snippet, usually) mapes to one
-        # Smartling Job containing one .po file, and we use Job to get a URI
-        # for that PO file.
+    def get_file_uri_for_job_file(self, *, job_file: "JobFile") -> str:
+        # One Wagtail content object (Page or Snippet, usually) maps to one
+        # .po file within a Smartling Job, and a Job can carry several of them.
 
         # Why are we using the Job PK as part of the file URI, rather than just
         # "file.po" or something fixed?
@@ -344,16 +343,16 @@ class SmartlingAPIClient:
         # (This is something we may need to watch out for in the future, too.)
 
         # NB: This HAS to be deterministic and stable, so that it can be
-        # called at any point for the given Job to get the same value back.
+        # called at any point for the given file to get the same value back.
 
-        # Here, we're combining the Job ID and its TranslationSource to try to
+        # Here, we're combining the Job ID and the file's TranslationSource to try to
         # make this more unique and traceable. If we need greater uniqueness,
         # we can add in (part of) the UUID-sourced string from
-        # job.translation_source.object.translation_key.hex or pass in a
+        # job_file.translation_source.object.translation_key.hex or pass in a
         # salt of some kind that's still deterministic based on the state
         # of the Wagtail object - such as a hash of JSON content
 
-        file_uri = f"job_{job.pk}_ts_{job.translation_source.pk}.po"
+        file_uri = f"job_{job_file.job_id}_ts_{job_file.translation_source_id}.po"
         logger.info(f"Generated file_uri {file_uri}")
         return file_uri
 
@@ -366,10 +365,9 @@ class SmartlingAPIClient:
         body: dict[str, Any] = {
             "authorize": False,
             "translationJobUid": job.translation_job_uid,
-            "fileUris": [
-                # NB we just send one file per Job
-                self.get_file_uri_for_job(job=job),
-            ],
+            # Smartling needs these distinct within the batch, which they are
+            # because a job cannot hold the same source twice.
+            "fileUris": [self.get_file_uri_for_job_file(job_file=job_file) for job_file in job.files.all()],
             # Not sending "localeWorkflows" key/value pair - doesn't look like
             # we really need them. If we do, that would need us to maintain
             # a map of language codes to workflow IDs in configuration,
@@ -393,23 +391,21 @@ class SmartlingAPIClient:
         return result["batchUid"]
 
     def upload_files_to_job_batch(self, *, job: "Job", batch_uid: str) -> str:
-        file_uri = self.get_file_uri_for_job(job=job)
+        job_file = job.files.get()
+        file_uri = self.get_file_uri_for_job_file(job_file=job_file)
 
         locales_to_authorize = [
             utils.format_smartling_locale_id(t.target_locale.language_code) for t in job.translations.all()
         ]
 
         data_payload = {
-            # NB: If we switch to multiple files per Batch (e.g. different
-            # locales per upload to the batch, for some reason), the fileUri must
-            # be unique _per Batch_. With a single file, it's not a concern.
             "fileUri": file_uri,
             "fileType": "gettext",
             "localeIdsToAuthorize[]": locales_to_authorize,
         }
 
         file_payload = {
-            "file": (file_uri, str(job.translation_source.export_po())),
+            "file": (file_uri, str(job_file.translation_source.export_po())),
         }
 
         self._request(

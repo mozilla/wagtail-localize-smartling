@@ -340,11 +340,10 @@ class Job(SyncedModel):
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="jobs")
     translations_imported_at = models.DateTimeField(null=True, editable=False)
-    # NB - `file_uri`` isn't a field that the Smartling API returns. The
+    # NB - `file_uri` isn't a field that the Smartling API returns. The
     # intended way to get this information is from the sourceFiles value in the
-    # job details data or via the dedicated endpoint that lists file within a
-    # job. However, we only ever have one file per job, so we store the URI of
-    # that file here for convenience once it's been added.
+    # job details data or via the dedicated endpoint that lists files within a
+    # job, so the URI is stored here for convenience once the upload returns it.
     #
     # Refs:
     #   https://api-reference.smartling.com/#tag/Jobs/operation/getJobDetails
@@ -585,6 +584,7 @@ class JobFile(models.Model):
     file_uri = models.CharField(max_length=255, blank=True, editable=False)
     content_hash = models.CharField(max_length=64, blank=True)
 
+    job_id: int
     translation_source_id: int
 
     class Meta:

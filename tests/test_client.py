@@ -1,10 +1,17 @@
+import json
+
 from unittest.mock import Mock
 
 import pytest
 
+from wagtail_localize.models import TranslationSource
+
 from wagtail_localize_smartling.api.client import InvalidResponse, client
 from wagtail_localize_smartling.exceptions import IncapableVisualContextCallback
 from wagtail_localize_smartling.models import Job
+
+from testapp.factories import InfoPageFactory, TranslationSourceFactory
+from tests.factories import JobFactory
 
 
 pytestmark = pytest.mark.django_db
@@ -163,11 +170,59 @@ def test_client__upload_files_to_job_batch__error_path(
     )
 
 
-def test_get_file_uri_for_job():
-    mock_job = Mock(spec=Job)
-    mock_job.pk = 23
-    mock_job.translation_source.pk = 45
-    assert client.get_file_uri_for_job(job=mock_job) == "job_23_ts_45.po"
+def test_file_uri_is_per_file_not_per_job(root_page):
+    # A source the job never sends, so that file ids and source ids do not
+    # line up and a URI built from the wrong one of the two cannot pass by luck.
+    TranslationSourceFactory(source_instance=InfoPageFactory(parent=root_page, title="A page nobody sent"))
+
+    job = JobFactory(
+        source_instance=root_page,
+        files=[
+            TranslationSourceFactory(source_instance=root_page),
+            TranslationSourceFactory(source_instance=InfoPageFactory(parent=root_page, title="Second page")),
+        ],
+    )
+    first_file, second_file = job.files.all()
+
+    assert (
+        client.get_file_uri_for_job_file(job_file=first_file)
+        == f"job_{job.pk}_ts_{first_file.translation_source_id}.po"
+    )
+    assert (
+        client.get_file_uri_for_job_file(job_file=second_file)
+        == f"job_{job.pk}_ts_{second_file.translation_source_id}.po"
+    )
+
+
+def test_upload_sends_the_po_of_the_file_whose_uri_it_names(root_page, smartling_upload_files_to_job_batch, responses):
+    """The bytes and the URI have to come from the same source, or Smartling namespaces them wrongly."""
+    ordered_page = InfoPageFactory(parent=root_page, title="The page that was ordered")
+    ordered_source, _ = TranslationSource.get_or_create_from_instance(ordered_page)
+    job = JobFactory(source_instance=root_page, files=[ordered_source])
+
+    client.upload_files_to_job_batch(job=job, batch_uid="test-batch-uid")
+
+    uploaded = responses.calls[-1].request.body.decode(errors="ignore")
+    assert f"job_{job.pk}_ts_{ordered_source.pk}.po" in uploaded
+    assert "The page that was ordered" in uploaded
+
+
+def test_create_batch_declares_every_file_of_the_job(root_page, smartling_create_batch_for_job, responses):
+    job = JobFactory(
+        source_instance=root_page,
+        synced=True,
+        files=[
+            TranslationSourceFactory(source_instance=root_page),
+            TranslationSourceFactory(source_instance=InfoPageFactory(parent=root_page, title="Second page")),
+        ],
+    )
+
+    client.create_batch_for_job(job=job)
+
+    body = json.loads(responses.calls[-1].request.body)
+    assert sorted(body["fileUris"]) == sorted(
+        f"job_{job.pk}_ts_{job_file.translation_source_id}.po" for job_file in job.files.all()
+    )
 
 
 # =============================================================================
