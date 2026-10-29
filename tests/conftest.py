@@ -191,6 +191,45 @@ def smartling_add_visual_context__error_response(responses, settings, smartling_
     )
 
 
+CREATE_JOB_RESPONSE_BODY = {
+    "response": {
+        "code": "SUCCESS",
+        "data": {
+            "callbackMethod": None,
+            "callbackUrl": None,
+            "createdByUserUid": "dummy_user_uid",
+            "createdDate": "2025-01-01T00:00:00Z",
+            "description": "",
+            "dueDate": None,
+            "firstCompletedDate": None,
+            "firstAuthorizedDate": None,
+            "jobName": "Dummy job",
+            "jobNumber": None,
+            "jobStatus": "AWAITING_AUTHORIZATION",
+            "lastCompletedDate": None,
+            "lastAuthorizedDate": None,
+            "modifiedByUserUid": None,
+            "modifiedDate": "2025-01-01T00:00:00Z",
+            "targetLocaleIds": ["fr", "de"],
+            "translationJobUid": "dummy_translation_job_uid",
+            "referenceNumber": None,
+            "issues": None,
+        },
+    },
+}
+
+
+@pytest.fixture()
+def smartling_create_job(responses, settings, smartling_auth):
+    # Mock API request for creating a job
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+    responses.add(
+        method="POST",
+        url=f"https://api.smartling.com/jobs-api/v3/projects/{quote(project_id)}/jobs",
+        body=json.dumps(CREATE_JOB_RESPONSE_BODY),
+    )
+
+
 @pytest.fixture()
 def smartling_create_batch_for_job(responses, settings, smartling_auth):
     # Mock API request for creating a batch
