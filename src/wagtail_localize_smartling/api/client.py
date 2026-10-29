@@ -606,34 +606,35 @@ class SmartlingAPIClient:
             with ZipFile(buffer) as zf:
                 yield zf
 
-    def get_file_status_for_locale(self, *, job: "Job", locale_id: str) -> types.FileStatusResponseData:
+    def get_file_status_for_locale(self, *, job_file: "JobFile", locale_id: str) -> types.FileStatusResponseData:
         """
-        Get translation status for a specific locale.
+        Get translation status for one file of a job in a specific locale.
 
         Returns completion information including completedStringCount and totalStringCount
         which can be used to determine if all strings are translated for that locale.
 
         API docs: https://api-reference.smartling.com/#tag/Files/operation/getFileStatus
         """
+        project_id = job_file.job.project.project_id
         return cast(
             types.FileStatusResponseData,
             self._request(
                 method="GET",
-                path=f"/files-api/v2/projects/{quote(job.project.project_id)}/locales/{quote(locale_id)}/file/status",
+                path=f"/files-api/v2/projects/{quote(project_id)}/locales/{quote(locale_id)}/file/status",
                 response_serializer_class=GetFileStatusResponseSerializer,
-                params={"fileUri": job.file_uri},
+                params={"fileUri": job_file.file_uri},
             ),
         )
 
-    def download_translation_for_locale(self, *, job: "Job", locale_id: str) -> bytes:
+    def download_translation_for_locale(self, *, job_file: "JobFile", locale_id: str) -> bytes:
         """
-        Download the translated PO file for a specific locale.
+        Download the translated PO file for one file of a job in a specific locale.
 
         API docs: https://api-reference.smartling.com/#tag/Files/operation/downloadTranslatedFileSingleLocale
         """
         url = urljoin(
             self._base_url,
-            f"/files-api/v2/projects/{quote(job.project.project_id)}/locales/{quote(locale_id)}/file",
+            f"/files-api/v2/projects/{quote(job_file.job.project.project_id)}/locales/{quote(locale_id)}/file",
         )
 
         logger.info("Smartling API request: GET %s", url)
@@ -641,7 +642,7 @@ class SmartlingAPIClient:
             url,
             headers=self._headers,
             params={
-                "fileUri": job.file_uri,
+                "fileUri": job_file.file_uri,
                 "retrievalType": "published",
                 "includeOriginalStrings": False,
             },

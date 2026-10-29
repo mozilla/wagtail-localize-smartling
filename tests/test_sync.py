@@ -4,7 +4,7 @@ import json
 
 from datetime import timedelta
 from unittest.mock import patch
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlsplit
 
 import pytest
 
@@ -13,6 +13,7 @@ from django.utils import timezone
 from wagtail.models import Locale
 from wagtail_localize.models import Translation
 
+from wagtail_localize_smartling.api.client import client
 from wagtail_localize_smartling.api.types import JobStatus
 from wagtail_localize_smartling.models import Job, JobTranslation
 from wagtail_localize_smartling.sync import (
@@ -85,6 +86,27 @@ def two_file_job(root_page, **kwargs):
         ],
         **kwargs,
     )
+
+
+def locales_and_files_requested(responses, *, path_ends_with: str) -> set:
+    """The (locale, fileUri) pairs this run asked Smartling about at one endpoint."""
+    pairs = set()
+    for call in responses.calls:
+        url = urlsplit(call.request.url)
+        if not url.path.endswith(path_ends_with):
+            continue
+        locale_id = url.path.split("/locales/")[1].split("/")[0]
+        pairs.add((locale_id, parse_qs(url.query).get("fileUri", [""])[0]))
+    return pairs
+
+
+def mark_files_uploaded(job) -> list:
+    """Give each of a job's files the URI a finished upload would have left on it."""
+    job_files = list(job.files.all())
+    for job_file in job_files:
+        job_file.file_uri = client.get_file_uri_for_job_file(job_file=job_file)
+        job_file.save(update_fields=["file_uri"])
+    return job_files
 
 
 @pytest.fixture
@@ -225,7 +247,7 @@ class TestImportTranslationForLocale:
         smartling_download_translation_for_locale("fr")
 
         translation = smartling_job.translations.first()
-        _import_translation_for_locale(smartling_job, translation, "fr")
+        _import_translation_for_locale(smartling_job, smartling_job.files.get(), translation, "fr")
 
         # The translation should have been imported (import_po was called)
         # We can verify by checking that no exception was raised
@@ -293,7 +315,7 @@ msgstr "Kontrolle \u2028über KI"
         smartling_download_translation_for_locale("fr", po_content=po_content)
         translation = smartling_job.translations.first()
         # Should not raise
-        _import_translation_for_locale(smartling_job, translation, "fr")
+        _import_translation_for_locale(smartling_job, smartling_job.files.get(), translation, "fr")
 
 
 class TestPushIsIncomplete:
@@ -633,3 +655,85 @@ class TestInitialSyncIsResumable:
             sync_job(job.pk)
 
         announce.assert_called_once()
+
+
+class TestPollingIsPerFile:
+    def test_a_locale_lands_for_the_file_that_finished_first(
+        self,
+        root_page,
+        smartling_get_file_status,
+        smartling_download_translation_for_locale,
+        responses,
+        disable_signals,
+    ):
+        """
+        One page of an order can be finished while another is still being
+        worked on, so a locale is complete for a file, not for the job.
+
+        French is finished for the later of the job's two files only.
+        """
+        job = two_file_job(root_page, synced=True, status=JobStatus.IN_PROGRESS)
+        mark_files_uploaded(job)
+        earlier_file, finished_file = job.files.order_by("pk")
+        # The job carries no file_uri.
+        assert job.file_uri == ""
+
+        smartling_get_file_status("fr", total_strings=10, completed_strings=10, file_uri=finished_file.file_uri)
+        smartling_get_file_status("de", total_strings=10, completed_strings=4, file_uri=finished_file.file_uri)
+        smartling_get_file_status("fr", total_strings=10, completed_strings=4, file_uri=earlier_file.file_uri)
+        smartling_get_file_status("de", total_strings=10, completed_strings=4, file_uri=earlier_file.file_uri)
+        smartling_download_translation_for_locale("fr", file_uri=finished_file.file_uri)
+
+        imported = _check_and_import_completed_locales(job)
+
+        assert [(translation.source.pk, translation.target_locale.language_code) for translation in imported] == [
+            (finished_file.translation_source_id, "fr")
+        ]
+        # Both files were asked about, each under its own URI, in both of the
+        # locales it was ordered in.
+        assert locales_and_files_requested(responses, path_ends_with="/file/status") == {
+            ("fr", earlier_file.file_uri),
+            ("de", earlier_file.file_uri),
+            ("fr", finished_file.file_uri),
+            ("de", finished_file.file_uri),
+        }
+        # Only the file Smartling called finished was downloaded, and the PO
+        # fetched was that file's, not the job's first file's.
+        assert locales_and_files_requested(responses, path_ends_with="/file") == {("fr", finished_file.file_uri)}
+
+    def test_a_translation_belonging_to_no_file_is_skipped(
+        self,
+        root_page,
+        smartling_get_file_status,
+        smartling_download_translation_for_locale,
+        responses,
+        disable_signals,
+    ):
+        """
+        There is no file to ask Smartling about, so the rest of the job is
+        imported and the stray translation is left pending.
+        """
+        job = JobFactory(source_instance=root_page, synced=True, status=JobStatus.IN_PROGRESS, translations=[])
+        job_file = mark_files_uploaded(job)[0]
+        job.translations.add(
+            Translation.objects.create(
+                source=job_file.translation_source,
+                target_locale=Locale.objects.get(language_code="fr"),
+            ),
+            # This translation does not belong to any JobFile, so it is skipped.
+            Translation.objects.create(
+                source=TranslationSourceFactory(
+                    source_instance=InfoPageFactory(parent=root_page, title="Never ordered")
+                ),
+                target_locale=Locale.objects.get(language_code="fr"),
+            ),
+        )
+        smartling_get_file_status("fr", total_strings=10, completed_strings=10, file_uri=job_file.file_uri)
+        smartling_download_translation_for_locale("fr", file_uri=job_file.file_uri)
+
+        imported = _check_and_import_completed_locales(job)
+
+        assert [translation.source.pk for translation in imported] == [job_file.translation_source_id]
+        assert JobTranslation.objects.filter(job=job, imported_at__isnull=True).count() == 1
+        # Nothing was asked about on the stray translation's behalf.
+        assert locales_and_files_requested(responses, path_ends_with="/file/status") == {("fr", job_file.file_uri)}

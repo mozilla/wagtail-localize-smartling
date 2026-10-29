@@ -279,9 +279,12 @@ def test_client__get_file_status_for_locale(
     smartling_get_file_status,
 ):
     """Test getting file status for a specific locale."""
-    smartling_get_file_status("fr", total_strings=10, completed_strings=8)
+    job_file = smartling_job.files.get()
+    # Keyed on the file's own URI, which the smartling_job fixture deliberately
+    # makes different from the job's.
+    smartling_get_file_status("fr", total_strings=10, completed_strings=8, file_uri=job_file.file_uri)
 
-    result = client.get_file_status_for_locale(job=smartling_job, locale_id="fr")
+    result = client.get_file_status_for_locale(job_file=job_file, locale_id="fr")
 
     assert result["totalStringCount"] == 10
     assert result["completedStringCount"] == 8
@@ -300,9 +303,10 @@ msgstr ""
 msgid "Test"
 msgstr "Test traduit"
 """
-    smartling_download_translation_for_locale("fr", po_content)
+    job_file = smartling_job.files.get()
+    smartling_download_translation_for_locale("fr", po_content, file_uri=job_file.file_uri)
 
-    result = client.download_translation_for_locale(job=smartling_job, locale_id="fr")
+    result = client.download_translation_for_locale(job_file=job_file, locale_id="fr")
 
     assert b"Test traduit" in result
 

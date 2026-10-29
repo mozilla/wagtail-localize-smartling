@@ -8,6 +8,7 @@ from urllib.parse import quote
 import pytest
 
 from django.contrib.auth.models import Permission
+from responses import matchers
 from wagtail.coreutils import get_supported_content_language_variant
 from wagtail.models import Locale, Page
 from wagtail_localize.models import LocaleSynchronization
@@ -458,6 +459,13 @@ def smartling_job_multi_locale(smartling_project, superuser, root_page) -> "Job"
     return job
 
 
+def _file_uri_matchers(file_uri: str) -> list:
+    """Match the request's fileUri when the caller named one."""
+    if not file_uri:
+        return []
+    return [matchers.query_param_matcher({"fileUri": file_uri}, strict_match=False)]
+
+
 @pytest.fixture()
 def smartling_get_file_status(responses, settings, smartling_auth):
     """Mock API response for getting file status per locale."""
@@ -467,6 +475,7 @@ def smartling_get_file_status(responses, settings, smartling_auth):
         locale_id: str,
         total_strings: int = 10,
         completed_strings: int = 10,
+        file_uri: str = "",
     ):
         responses.add(
             method="GET",
@@ -476,7 +485,7 @@ def smartling_get_file_status(responses, settings, smartling_auth):
                     "response": {
                         "code": "SUCCESS",
                         "data": {
-                            "fileUri": "test.po",
+                            "fileUri": file_uri or "test.po",
                             "totalStringCount": total_strings,
                             "totalWordCount": total_strings * 5,
                             "authorizedStringCount": total_strings,
@@ -490,6 +499,7 @@ def smartling_get_file_status(responses, settings, smartling_auth):
                 }
             ),
             match_querystring=False,
+            match=_file_uri_matchers(file_uri),
         )
 
     return add_file_status_response
@@ -500,7 +510,7 @@ def smartling_download_translation_for_locale(responses, settings, smartling_aut
     """Mock API response for downloading translation for a single locale."""
     project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
 
-    def add_download_response(locale_id: str, po_content: str = ""):
+    def add_download_response(locale_id: str, po_content: str = "", file_uri: str = ""):
         if not po_content:
             po_content = """
 msgid ""
@@ -516,6 +526,7 @@ msgstr "Bonjour"
             body=po_content.encode("utf-8"),
             status=200,
             match_querystring=False,
+            match=_file_uri_matchers(file_uri),
         )
 
     return add_download_response

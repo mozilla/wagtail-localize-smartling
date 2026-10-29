@@ -46,7 +46,7 @@ def _compute_translation_hash(content: str) -> str:
 
 
 if TYPE_CHECKING:
-    from .models import Job, JobTranslation
+    from .models import Job, JobFile, JobTranslation
 
 
 logger = logging.getLogger(__name__)
@@ -323,11 +323,11 @@ def _sync(job: "Job") -> None:
 
 def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
     """
-    Check each locale's completion status and import any that are 100% complete
-    but not yet imported.
+    Import every pending translation whose file Smartling reports as fully
+    translated in that translation's locale.
 
-    This allows individual locales to be imported as they complete, rather than
-    waiting for the entire job to finish.
+    A locale finishes at different times for different files of the same job,
+    and each one is imported as soon as its own file is done.
 
     Returns a list of Translation objects that were imported.
     """
@@ -337,7 +337,7 @@ def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
     # Get all JobTranslation records that haven't been imported yet
     pending_job_translations: list[JobTranslation] = list(
         job.job_translations.filter(imported_at__isnull=True).select_related(  # pyright: ignore[reportAttributeAccessIssue]
-            "translation__target_locale"
+            "translation__target_locale", "translation__source"
         )
     )
 
@@ -345,17 +345,32 @@ def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
         logger.info("No pending translations to check for job %s", job)
         return imported_translations
 
+    # Keyed by source because a file's locales are separate translations of it.
+    job_files_by_source = {job_file.translation_source_id: job_file for job_file in job.files.all()}
+    for job_file in job_files_by_source.values():
+        # Both API calls below reach the project through job_file.job.
+        job_file.job = job
     now = timezone.now()
 
     for job_translation in pending_job_translations:
         translation = job_translation.translation
+        job_file = job_files_by_source.get(translation.source_id)
+        if job_file is None:
+            logger.warning(
+                "Translation %s belongs to no file of job %s, skipping",
+                translation.pk,
+                job,
+            )
+            continue
+
         smartling_locale_id = utils.format_smartling_locale_id(translation.target_locale.language_code)
 
         try:
-            file_status = client.get_file_status_for_locale(job=job, locale_id=smartling_locale_id)
+            file_status = client.get_file_status_for_locale(job_file=job_file, locale_id=smartling_locale_id)
         except Exception:
             logger.exception(
-                "Error getting file status for locale %s, skipping",
+                "Could not get the status of %s in locale %s, skipping",
+                job_file,
                 smartling_locale_id,
             )
             continue
@@ -364,7 +379,8 @@ def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
         completed_strings = file_status["completedStringCount"]
 
         logger.info(
-            "Locale %s: %d/%d strings completed",
+            "%s in locale %s: %d/%d strings completed",
+            job_file,
             smartling_locale_id,
             completed_strings,
             total_strings,
@@ -375,7 +391,7 @@ def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
             try:
                 # Make sure we record the imported time and the content..
                 with transaction.atomic():
-                    content_hash = _import_translation_for_locale(job, translation, smartling_locale_id)
+                    content_hash = _import_translation_for_locale(job, job_file, translation, smartling_locale_id)
                     job_translation.imported_at = now
                     job_translation.content_hash = content_hash
                     job_translation.save(update_fields=["imported_at", "content_hash"])
@@ -391,13 +407,15 @@ def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
     return imported_translations
 
 
-def _import_translation_for_locale(job: "Job", translation: Translation, smartling_locale_id: str) -> str:
+def _import_translation_for_locale(
+    job: "Job", job_file: "JobFile", translation: Translation, smartling_locale_id: str
+) -> str:
     """
-    Download and import the translation for a single locale.
+    Download and import the translation for a single locale of a single file.
 
     Returns the content hash of the imported translation.
     """
-    content = client.download_translation_for_locale(job=job, locale_id=smartling_locale_id)
+    content = client.download_translation_for_locale(job_file=job_file, locale_id=smartling_locale_id)
     content_str = content.decode("utf-8")
     content_hash = _compute_translation_hash(content_str)
     po_file = polib.pofile(_sanitize_po_content(content_str))
