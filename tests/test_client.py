@@ -142,7 +142,7 @@ def test_client__create_batch_for_job__happy_path(
     smartling_job: "Job",
     smartling_create_batch_for_job,
 ):
-    batch_uid = client.create_batch_for_job(job=smartling_job)
+    batch_uid = client.create_batch_for_job(job=smartling_job, job_files=smartling_job.files.all())
     assert batch_uid == "dummy_batch_uid"
 
 
@@ -151,7 +151,7 @@ def test_client__create_batch_for_job__error_path(
     smartling_create_batch_for_job__error_response,
 ):
     with pytest.raises(InvalidResponse) as exc:
-        client.create_batch_for_job(job=smartling_job)
+        client.create_batch_for_job(job=smartling_job, job_files=smartling_job.files.all())
 
     assert exc.value.args == (
         "Response did not match expected format: {'response': {'code': 'VALIDATION_ERROR', 'data': [{'key': 'some batch key', 'message': 'some batch message', 'details': 'some batch details'}]}}",  # noqa: E501
@@ -251,7 +251,8 @@ def test_uploading_a_file_with_no_authorized_locales_is_refused(root_page, smart
         client.upload_file_to_job_batch(job_file=job_file, batch_uid="test-batch-uid")
 
 
-def test_create_batch_declares_every_file_of_the_job(root_page, smartling_create_batch_for_job, responses):
+def test_create_batch_declares_only_the_files_it_is_given(root_page, smartling_create_batch_for_job, responses):
+    """A push that is finishing an interrupted one declares what it is about to upload, and nothing else."""
     job = JobFactory(
         source_instance=root_page,
         synced=True,
@@ -260,13 +261,12 @@ def test_create_batch_declares_every_file_of_the_job(root_page, smartling_create
             TranslationSourceFactory(source_instance=InfoPageFactory(parent=root_page, title="Second page")),
         ],
     )
+    still_to_upload = job.files.last()
 
-    client.create_batch_for_job(job=job)
+    client.create_batch_for_job(job=job, job_files=[still_to_upload])
 
     body = json.loads(responses.calls[-1].request.body)
-    assert sorted(body["fileUris"]) == sorted(
-        f"job_{job.pk}_ts_{job_file.translation_source_id}.po" for job_file in job.files.all()
-    )
+    assert body["fileUris"] == [f"job_{job.pk}_ts_{still_to_upload.translation_source_id}.po"]
 
 
 # =============================================================================

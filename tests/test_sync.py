@@ -10,6 +10,8 @@ import pytest
 
 from django.db import DatabaseError
 from django.utils import timezone
+from wagtail.models import Locale
+from wagtail_localize.models import Translation
 
 from wagtail_localize_smartling.api.types import JobStatus
 from wagtail_localize_smartling.models import Job, JobTranslation
@@ -19,6 +21,7 @@ from wagtail_localize_smartling.sync import (
     _check_and_import_completed_locales,
     _compute_translation_hash,
     _import_translation_for_locale,
+    _initial_sync,
     _push_is_incomplete,
     _release_claim,
     _sanitize_po_content,
@@ -26,6 +29,7 @@ from wagtail_localize_smartling.sync import (
     sync_job,
 )
 
+from testapp.factories import InfoPageFactory, TranslationSourceFactory
 from tests.conftest import CREATE_JOB_RESPONSE_BODY
 from tests.factories import JobFactory
 
@@ -57,6 +61,29 @@ def register_file_upload_to_batch(responses, settings, *, succeeds: bool) -> Non
         url=f"https://api.smartling.com/job-batches-api/v2/projects/{quote(project_id)}/batches/{BATCH_UID}/file",
         body=json.dumps(body),
         status=status,
+    )
+
+
+def get_batch_uploads_from_responses(responses) -> list:
+    """The per-file uploads, as opposed to the call that creates the batch they go into."""
+    return [call for call in responses.calls if "/batches/" in call.request.url]
+
+
+def request_body_of(responses, *, path_ends_with: str) -> dict:
+    """The JSON body of the first request this run made to a path ending that way."""
+    call = next(call for call in responses.calls if call.request.url.endswith(path_ends_with))
+    return json.loads(call.request.body)
+
+
+def two_file_job(root_page, **kwargs):
+    """A job holding two pages, as an order of several pages produces."""
+    return JobFactory(
+        source_instance=root_page,
+        files=[
+            TranslationSourceFactory(source_instance=root_page),
+            TranslationSourceFactory(source_instance=InfoPageFactory(parent=root_page, title="Second page")),
+        ],
+        **kwargs,
     )
 
 
@@ -462,3 +489,147 @@ class TestSyncJobClaim:
 
         job.refresh_from_db()
         assert job.translation_job_uid == "dummy_translation_job_uid"
+
+
+class TestInitialSyncIsResumable:
+    """A push that stopped part-way is finished by the next sweep, not started over."""
+
+    def test_every_file_of_the_job_is_uploaded(
+        self, root_page, smartling_create_job, smartling_create_batch_for_job, responses, settings
+    ):
+        job = two_file_job(root_page, unsynced=True)
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+
+        _initial_sync(job)
+
+        assert not job.files.filter(file_uri="").exists()
+        assert len(get_batch_uploads_from_responses(responses)) == 2
+
+    def test_the_job_is_created_for_the_union_of_its_files_locales(
+        self, root_page, smartling_create_job, smartling_create_batch_for_job, responses, settings
+    ):
+        source_a = TranslationSourceFactory(source_instance=root_page)
+        source_b = TranslationSourceFactory(source_instance=InfoPageFactory(parent=root_page, title="Second page"))
+        job = JobFactory(source_instance=root_page, files=[source_a, source_b], translations=[], unsynced=True)
+        job.translations.set(
+            [
+                Translation.objects.create(source=source_a, target_locale=Locale.objects.get(language_code="fr")),
+                Translation.objects.create(source=source_b, target_locale=Locale.objects.get(language_code="de")),
+            ]
+        )
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+
+        _initial_sync(job)
+
+        assert sorted(request_body_of(responses, path_ends_with="/jobs")["targetLocaleIds"]) == ["de", "fr"]
+
+    def test_a_resumed_push_uploads_only_what_is_left(
+        self, root_page, smartling_create_batch_for_job, responses, settings
+    ):
+        """No create-job response is registered, so a resume that asked for a second job would find none."""
+        job = two_file_job(root_page, synced=True)
+        landed, pending = job.files.all()
+        landed.file_uri = f"job_{job.pk}_ts_{landed.translation_source_id}.po"
+        landed.save(update_fields=["file_uri"])
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+
+        _initial_sync(job)
+
+        batch = request_body_of(responses, path_ends_with="/batches")
+        assert batch["fileUris"] == [f"job_{job.pk}_ts_{pending.translation_source_id}.po"]
+        assert len(get_batch_uploads_from_responses(responses)) == 1
+
+    def test_the_job_records_a_file_uri_for_downloading(
+        self, root_page, smartling_create_job, smartling_create_batch_for_job, responses, settings
+    ):
+        job = two_file_job(root_page, unsynced=True)
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+
+        _initial_sync(job)
+
+        job.refresh_from_db()
+        assert job.file_uri == job.files.first().file_uri
+
+    def test_a_first_push_announces_the_job(
+        self, root_page, smartling_create_job, smartling_create_batch_for_job, responses, settings
+    ):
+        job = JobFactory(source_instance=root_page, unsynced=True)
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+
+        with patch("wagtail_localize_smartling.sync.job_synced_to_smartling.send") as announce:
+            _initial_sync(job)
+
+        announce.assert_called_once()
+
+    def test_a_resumed_push_does_not_announce_the_job_again(
+        self, root_page, smartling_create_batch_for_job, responses, settings
+    ):
+        job = two_file_job(root_page, synced=True)
+        landed = job.files.first()
+        landed.file_uri = f"job_{job.pk}_ts_{landed.translation_source_id}.po"
+        landed.save(update_fields=["file_uri"])
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+
+        with patch("wagtail_localize_smartling.sync.job_synced_to_smartling.send") as announce:
+            _initial_sync(job)
+
+        announce.assert_not_called()
+
+    def test_a_file_with_no_locales_stops_the_push_before_anything_is_sent(self, root_page, responses):
+        source_a = TranslationSourceFactory(source_instance=root_page)
+        source_b = TranslationSourceFactory(source_instance=InfoPageFactory(parent=root_page, title="Second page"))
+        job = JobFactory(source_instance=root_page, files=[source_a, source_b], translations=[], unsynced=True)
+        job.translations.set(
+            [Translation.objects.create(source=source_a, target_locale=Locale.objects.get(language_code="fr"))]
+        )
+        # What makes source_b's file unorderable is that this job asked for no
+        # locale for it, not that nobody ever translated the page.
+        Translation.objects.create(source=source_b, target_locale=Locale.objects.get(language_code="de"))
+
+        with pytest.raises(ValueError):
+            _initial_sync(job)
+
+        job.refresh_from_db()
+        assert [call.request.url for call in responses.calls] == []
+        assert job.translation_job_uid == ""
+
+    def test_a_job_with_no_files_is_never_created_in_smartling(self, root_page, responses):
+        """An empty Smartling job cannot be authorized, and every later sweep would poll it for ever."""
+        job = JobFactory(source_instance=root_page, files=[], unsynced=True)
+
+        with pytest.raises(ValueError):
+            _initial_sync(job)
+
+        job.refresh_from_db()
+        assert [call.request.url for call in responses.calls] == []
+        assert job.translation_job_uid == ""
+
+    def test_a_push_that_stops_part_way_keeps_the_files_that_landed(
+        self, root_page, smartling_create_job, smartling_create_batch_for_job, responses, settings
+    ):
+        job = two_file_job(root_page, unsynced=True)
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+        register_file_upload_to_batch(responses, settings, succeeds=False)
+
+        with pytest.raises(SyncJobException):
+            sync_job(job.pk)
+
+        assert job.files.first().file_uri != ""
+        assert job.files.last().file_uri == ""
+
+    def test_the_job_is_announced_even_when_an_upload_then_fails(
+        self, root_page, smartling_create_job, smartling_create_batch_for_job, responses, settings
+    ):
+        job = JobFactory(source_instance=root_page, unsynced=True)
+        register_file_upload_to_batch(responses, settings, succeeds=False)
+
+        with (
+            patch("wagtail_localize_smartling.sync.job_synced_to_smartling.send") as announce,
+            pytest.raises(SyncJobException),
+        ):
+            sync_job(job.pk)
+
+        announce.assert_called_once()

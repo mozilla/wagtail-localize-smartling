@@ -2,7 +2,7 @@ import logging
 import pprint
 import textwrap
 
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from functools import cached_property
@@ -356,7 +356,7 @@ class SmartlingAPIClient:
         logger.info(f"Generated file_uri {file_uri}")
         return file_uri
 
-    def create_batch_for_job(self, *, job: "Job") -> str:
+    def create_batch_for_job(self, *, job: "Job", job_files: Iterable["JobFile"]) -> str:
         # Create a Batch for uploading files to the given Job,
         # specifying the file(s) upfront.
         #
@@ -365,9 +365,10 @@ class SmartlingAPIClient:
         body: dict[str, Any] = {
             "authorize": False,
             "translationJobUid": job.translation_job_uid,
-            # Smartling needs these distinct within the batch, which they are
-            # because a job cannot hold the same source twice.
-            "fileUris": [self.get_file_uri_for_job_file(job_file=job_file) for job_file in job.files.all()],
+            # Only the files the caller is about to upload. Smartling needs
+            # these distinct within the batch, which they are because a job
+            # cannot hold the same source twice.
+            "fileUris": [self.get_file_uri_for_job_file(job_file=job_file) for job_file in job_files],
             # Not sending "localeWorkflows" key/value pair - doesn't look like
             # we really need them. If we do, that would need us to maintain
             # a map of language codes to workflow IDs in configuration,

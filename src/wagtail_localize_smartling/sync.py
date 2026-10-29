@@ -153,67 +153,105 @@ def _push_is_incomplete(job: "Job") -> bool:
     return job.translation_job_uid == "" or job.files.filter(file_uri="").exists()
 
 
+def _check_job_can_be_authorized(job: "Job") -> None:
+    """
+    Raise unless the job has files and every one of them is ordered in at least
+    one locale.
+    """
+    if not job.files.exists():
+        raise ValueError(f"No files to translate in {job}")
+
+    sources_with_locales = set(job.translations.values_list("source_id", flat=True))
+    files_without_locales = [
+        job_file for job_file in job.files.all() if job_file.translation_source_id not in sources_with_locales
+    ]
+    if files_without_locales:
+        # Named by file URI, which is how the upload itself refuses them.
+        file_uris = ", ".join(client.get_file_uri_for_job_file(job_file=job_file) for job_file in files_without_locales)
+        raise ValueError(f"No locales to authorize for {file_uris}")
+
+
 def _initial_sync(job: "Job") -> None:
     """
-    For jobs that have never been synced before, create the job in Smartling and
-    add the PO file from the TranslationSource.
+    Create the job in Smartling, if it is not there yet, and upload a PO file
+    for each of the job's files that has not been uploaded already.
+
+    Safe to call again on a job whose push stopped part-way through: it sends
+    what is still missing rather than ordering the whole job a second time.
 
     Also add Visual Context for Smartling CAT, if a callback to get that is configured
     """
     logger.info("Performing initial sync for job %s", job)
 
-    # Create the job in the Smartling API
-    target_locale_ids = [
-        utils.format_smartling_locale_id(lc)
-        for lc in job.translations.values_list("target_locale__language_code", flat=True)
-    ]
+    _check_job_can_be_authorized(job)
 
-    job_data = client.create_job(
-        job_name=job.name,
-        target_locale_ids=target_locale_ids,
-        description=job.description,
-        reference_number=job.reference_number,
-        due_date=job.due_date,
-    )
+    if not job.translation_job_uid:
+        # Every locale any of the job's files was ordered in. Each file is
+        # then authorized for only its own subset when it is uploaded.
+        target_locale_ids = [
+            utils.format_smartling_locale_id(lc)
+            for lc in job.translations.values_list("target_locale__language_code", flat=True)
+        ]
 
-    job.translation_job_uid = job_data["translationJobUid"]
-    job.status = job_data["jobStatus"]
+        job_data = client.create_job(
+            job_name=job.name,
+            target_locale_ids=target_locale_ids,
+            description=job.description,
+            reference_number=job.reference_number,
+            due_date=job.due_date,
+        )
 
-    now = timezone.now()
-    job.first_synced_at = now
-    job.last_synced_at = now
+        job.translation_job_uid = job_data["translationJobUid"]
+        job.status = job_data["jobStatus"]
 
-    job.full_clean()
-    job.save(update_fields=["translation_job_uid", "status", "first_synced_at", "last_synced_at"])
+        now = timezone.now()
+        job.first_synced_at = now
+        job.last_synced_at = now
+
+        job.full_clean()
+        # Recorded before the first upload: a later run that asked Smartling
+        # for a second job would be turned away for the duplicate name, and
+        # the order would need repairing by hand in Smartling.
+        job.save(update_fields=["translation_job_uid", "status", "first_synced_at", "last_synced_at"])
+
+        if job.status == JobStatus.AWAITING_AUTHORIZATION:
+            # Announced as soon as the job exists in Smartling. Everything
+            # below can fail, and the run that picks the job up afterwards
+            # finds the uid already recorded and announces nothing.
+            job_synced_to_smartling.send(
+                sender=job.__class__,
+                instance=job,
+            )
 
     # Create a Job Batch so we can upload Files without race conditions
     # in associating them with a Job (even a single PO file can go in a batch)
-    batch_uid = client.create_batch_for_job(job=job)
+    # It covers only what is left to send: the files that already landed belong
+    # to the job whether or not a later batch names them.
+    # Uploading a file reads its source, its job and that job's project, which
+    # is three queries per file of an order without the select_related.
+    pending_files = list(job.files.filter(file_uri="").select_related("translation_source", "job__project"))
+    if pending_files:
+        batch_uid = client.create_batch_for_job(job=job, job_files=pending_files)
 
-    # Upload the TranslationSource's PO file to the Batch in Smartling
-    job_file = job.files.get()
-    file_uri = client.upload_file_to_job_batch(
-        job_file=job_file,
-        batch_uid=batch_uid,
-    )
+        for job_file in pending_files:
+            file_uri = client.upload_file_to_job_batch(
+                job_file=job_file,
+                batch_uid=batch_uid,
+            )
 
-    # The file's copy is what marks it uploaded and the job's is what the
-    # download path reads, so a job carrying only one of the two is a job that
-    # looks pushed and then cannot take its translations back.
-    with transaction.atomic():
-        job_file.file_uri = file_uri
-        job_file.save(update_fields=["file_uri"])
-        job.file_uri = file_uri
-        job.save(update_fields=["file_uri"])
+            # The file's copy is what marks it uploaded and the job's is what
+            # the download path reads, so a job carrying only one of the two is
+            # a job that looks pushed and then cannot take its translations
+            # back. The job takes the URI of the first file to land.
+            with transaction.atomic():
+                job_file.file_uri = file_uri
+                job_file.save(update_fields=["file_uri"])
+                if not job.file_uri:
+                    job.file_uri = file_uri
+                    job.save(update_fields=["file_uri"])
 
     # Add context to the job (if settings.VISUAL_CONTEXT_CALLBACK is defined)
     client.add_html_context_to_job(job=job)
-
-    if job.status == JobStatus.AWAITING_AUTHORIZATION:
-        job_synced_to_smartling.send(
-            sender=job.__class__,
-            instance=job,
-        )
 
 
 def _sync(job: "Job") -> None:
