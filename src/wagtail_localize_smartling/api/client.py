@@ -546,19 +546,19 @@ class SmartlingAPIClient:
         return result
 
     @contextmanager
-    def download_translations(self, *, job: "Job") -> Generator[ZipFile]:
+    def download_translations(self, *, job_file: "JobFile") -> Generator[ZipFile]:
         # This is an unusual case where a successful response is a ZIP file,
         # rather than JSON. JSON responses will be returned for errors.
 
         url = urljoin(
             self._base_url,
-            f"/files-api/v2/projects/{quote(job.project.project_id)}/locales/all/file/zip",
+            f"/files-api/v2/projects/{quote(job_file.job.project.project_id)}/locales/all/file/zip",
         )
         with requests.get(
             url,
             headers=self._headers,
             params={
-                "fileUri": job.file_uri,
+                "fileUri": job_file.file_uri,
                 "retrievalType": "published",
                 "includeOriginalStrings": False,
             },

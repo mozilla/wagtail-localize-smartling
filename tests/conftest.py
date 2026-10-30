@@ -1,9 +1,11 @@
 import dataclasses
 import json
 
+from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from urllib.parse import quote
+from zipfile import ZipFile
 
 import pytest
 
@@ -530,6 +532,28 @@ msgstr "Bonjour"
         )
 
     return add_download_response
+
+
+@pytest.fixture()
+def smartling_translations_zip(responses, settings, smartling_auth):
+    """Mock API response for the bulk download of one file's translations."""
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+
+    def add_translations_zip_response(*, file_uri: str, entries: dict):
+        buffer = BytesIO()
+        with ZipFile(buffer, "w") as archive:
+            for name, content in entries.items():
+                archive.writestr(name, content)
+
+        responses.add(
+            method="GET",
+            url=f"https://api.smartling.com/files-api/v2/projects/{quote(project_id)}/locales/all/file/zip",
+            body=buffer.getvalue(),
+            status=200,
+            match=_file_uri_matchers(file_uri),
+        )
+
+    return add_translations_zip_response
 
 
 @pytest.fixture()

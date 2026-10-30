@@ -61,7 +61,7 @@ class JobNotFound(SyncJobException):
 
 
 class FileURIMismatch(SyncJobException):
-    pass
+    """Smartling answered with a file URI that belongs to no file of the job."""
 
 
 # How long a claim on a Job is honoured before another worker may take it over.
@@ -347,9 +347,6 @@ def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
 
     # Keyed by source because a file's locales are separate translations of it.
     job_files_by_source = {job_file.translation_source_id: job_file for job_file in job.files.all()}
-    for job_file in job_files_by_source.values():
-        # Both API calls below reach the project through job_file.job.
-        job_file.job = job
     now = timezone.now()
 
     for job_translation in pending_job_translations:
@@ -430,9 +427,10 @@ def _import_translation_for_locale(
 
 def _download_and_apply_translations(job: "Job") -> None:
     """
-    Download the translated files from a Smartling job and apply them.
+    Download every file of a Smartling job and apply the translations in it.
 
-    This marks all JobTranslation records as imported.
+    One zip per file, each carrying all of that file's locales, and each entry
+    imported into the page its file was uploaded from.
     """
 
     logger.info("Downloading and importing translations for job %s", job)
@@ -440,62 +438,86 @@ def _download_and_apply_translations(job: "Job") -> None:
     _translations_imported = []
     now = timezone.now()
 
-    with client.download_translations(job=job) as translations_zip:
-        for zipinfo in translations_zip.infolist():
-            # Filenames are of the format "{localeId}/{fileUri}"
-            smartling_locale_id, file_uri = zipinfo.filename.split("/")
+    # The endpoint takes one fileUri and answers with every locale of it, so a
+    # job of many pages costs one zip per page rather than one per page and
+    # locale.
+    job_files_by_uri = {job_file.file_uri: job_file for job_file in job.files.select_related("translation_source")}
+    unknown_file_uris = []
 
-            if file_uri != job.file_uri:
-                raise FileURIMismatch(f"File URI mismatch: expected {job.file_uri}, got {file_uri}")
+    for job_file in job_files_by_uri.values():
+        with client.download_translations(job_file=job_file) as translations_zip:
+            for zipinfo in translations_zip.infolist():
+                # Filenames are of the format "{localeId}/{fileUri}"
+                smartling_locale_id, file_uri = zipinfo.filename.split("/")
 
-            wagtail_locale_id = utils.format_wagtail_locale_id(smartling_locale_id)
-            try:
-                translation: Translation = job.translations.get(target_locale__language_code=wagtail_locale_id)
-            except job.translations.model.DoesNotExist:
-                logger.info("Translation not found for locale %s, skipping", wagtail_locale_id)
-                continue
+                entry_file = job_files_by_uri.get(file_uri)
+                if entry_file is None:
+                    # Raised once the loop is over. Stopping here would leave
+                    # every page after this entry unimported, and a stray entry
+                    # is deterministic, so no later run would get past it.
+                    unknown_file_uris.append(file_uri)
+                    continue
 
-            job_translation = job.job_translations.filter(  # pyright: ignore[reportAttributeAccessIssue]
-                translation=translation
-            ).first()
-
-            with translations_zip.open(zipinfo) as f:
-                content = f.read().decode("utf-8")
-                content_hash = _compute_translation_hash(content)
-
-                # Skip if already imported with the same content hash
-                if job_translation and job_translation.imported_at and job_translation.content_hash == content_hash:
+                wagtail_locale_id = utils.format_wagtail_locale_id(smartling_locale_id)
+                try:
+                    # Found by file as well as by locale: a locale on its own
+                    # cannot tell one page's translation from another's, and
+                    # pages in one order can be ordered in different locales.
+                    translation: Translation = job.translations.get(
+                        source=entry_file.translation_source,
+                        target_locale__language_code=wagtail_locale_id,
+                    )
+                except job.translations.model.DoesNotExist:
                     logger.info(
-                        "Translation for locale %s already imported with same content, skipping",
+                        "Translation not found for %s in locale %s, skipping",
+                        entry_file,
                         wagtail_locale_id,
                     )
                     continue
 
-                if job_translation and job_translation.imported_at:
-                    logger.info(
-                        "Translation for locale %s changed since per-locale import, re-importing",
-                        wagtail_locale_id,
-                    )
+                job_translation = job.job_translations.filter(  # pyright: ignore[reportAttributeAccessIssue]
+                    translation=translation
+                ).first()
 
-                # A locale half imported, or imported without its marker,
-                # would be worse than one this pass did not reach.
-                with transaction.atomic():
-                    po_file = polib.pofile(_sanitize_po_content(content))
-                    translation.import_po(po_file)
-                    individual_translation_imported.send(
-                        sender=job.__class__,
-                        instance=job,
-                        translation=translation,
-                    )
+                with translations_zip.open(zipinfo) as f:
+                    content = f.read().decode("utf-8")
+                    content_hash = _compute_translation_hash(content)
 
-                    # Mark as imported with content hash
-                    if job_translation:
-                        job_translation.imported_at = now
-                        job_translation.content_hash = content_hash
-                        job_translation.save(update_fields=["imported_at", "content_hash"])
+                    # Skip if already imported with the same content hash
+                    if job_translation and job_translation.imported_at and job_translation.content_hash == content_hash:
+                        logger.info(
+                            "%s in locale %s already imported with same content, skipping",
+                            entry_file,
+                            wagtail_locale_id,
+                        )
+                        continue
 
-                logger.info("Imported translations for %s", translation)
-                _translations_imported.append(translation)
+                    if job_translation and job_translation.imported_at:
+                        logger.info(
+                            "%s in locale %s changed since per-locale import, re-importing",
+                            entry_file,
+                            wagtail_locale_id,
+                        )
+
+                    # A locale half imported, or imported without its marker,
+                    # would be worse than one this pass did not reach.
+                    with transaction.atomic():
+                        po_file = polib.pofile(_sanitize_po_content(content))
+                        translation.import_po(po_file)
+                        individual_translation_imported.send(
+                            sender=job.__class__,
+                            instance=job,
+                            translation=translation,
+                        )
+
+                        # Mark as imported with content hash
+                        if job_translation:
+                            job_translation.imported_at = now
+                            job_translation.content_hash = content_hash
+                            job_translation.save(update_fields=["imported_at", "content_hash"])
+
+                    logger.info("Imported translations for %s", translation)
+                    _translations_imported.append(translation)
 
     if _translations_imported:
         translation_import_successful.send(
@@ -503,3 +525,6 @@ def _download_and_apply_translations(job: "Job") -> None:
             instance=job,
             translations_imported=_translations_imported,
         )
+
+    if unknown_file_uris:
+        raise FileURIMismatch(f"{', '.join(unknown_file_uris)} belong to no file of job {job.pk}")

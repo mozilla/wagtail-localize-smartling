@@ -11,16 +11,18 @@ import pytest
 from django.db import DatabaseError
 from django.utils import timezone
 from wagtail.models import Locale
-from wagtail_localize.models import Translation
+from wagtail_localize.models import StringTranslation, Translation, TranslationSource
 
 from wagtail_localize_smartling.api.client import client
 from wagtail_localize_smartling.api.types import JobStatus
 from wagtail_localize_smartling.models import Job, JobTranslation
 from wagtail_localize_smartling.sync import (
     SYNC_LEASE_SECONDS,
+    FileURIMismatch,
     SyncJobException,
     _check_and_import_completed_locales,
     _compute_translation_hash,
+    _download_and_apply_translations,
     _import_translation_for_locale,
     _initial_sync,
     _push_is_incomplete,
@@ -98,6 +100,38 @@ def locales_and_files_requested(responses, *, path_ends_with: str) -> set:
         locale_id = url.path.split("/locales/")[1].split("/")[0]
         pairs.add((locale_id, parse_qs(url.query).get("fileUri", [""])[0]))
     return pairs
+
+
+def job_over_pages_with_content(root_page, titles, **kwargs):
+    """
+    A job holding a file per title, each with its page's real segments.
+
+    TranslationSourceFactory stores no content, so a PO exported from one of
+    its sources has nothing for an import to land on.
+    """
+    sources = [
+        TranslationSource.get_or_create_from_instance(InfoPageFactory(parent=root_page, title=title))[0]
+        for title in titles
+    ]
+    return JobFactory(source_instance=root_page, files=sources, **kwargs)
+
+
+def po_with_same_answer_for_each_string(translation_source, msgstr: str) -> str:
+    """The page's own PO, with the same answer against every one of its strings."""
+    po_file = translation_source.export_po()
+    for entry in po_file:
+        entry.msgstr = msgstr
+    return str(po_file)
+
+
+def get_string_translations_for_page(translation_source, language_code: str) -> set:
+    """What was imported for one page in one locale."""
+    return set(
+        StringTranslation.objects.filter(
+            context__object_id=translation_source.object_id,
+            locale__language_code=language_code,
+        ).values_list("data", flat=True)
+    )
 
 
 def mark_files_uploaded(job) -> list:
@@ -658,8 +692,12 @@ class TestInitialSyncIsResumable:
 
 
 class TestPollingIsPerFile:
-    def test_a_locale_lands_for_the_file_that_finished_first(
+    @pytest.mark.parametrize(
+        "finished_position", [0, 1], ids=["the job's first file finishes", "the job's second file finishes"]
+    )
+    def test_a_locale_lands_for_whichever_file_finished(
         self,
+        finished_position,
         root_page,
         smartling_get_file_status,
         smartling_download_translation_for_locale,
@@ -670,18 +708,22 @@ class TestPollingIsPerFile:
         One page of an order can be finished while another is still being
         worked on, so a locale is complete for a file, not for the job.
 
-        French is finished for the later of the job's two files only.
+        Each of the job's two files takes a turn at being the finished one,
+        because code that reached for a file by position rather than by page
+        would serve whichever of the two happened to sit there.
         """
         job = two_file_job(root_page, synced=True, status=JobStatus.IN_PROGRESS)
         mark_files_uploaded(job)
-        earlier_file, finished_file = job.files.order_by("pk")
-        # The job carries no file_uri.
+        job_files = list(job.files.order_by("pk"))
+        finished_file = job_files.pop(finished_position)
+        unfinished_file = job_files[0]
+        # Nor is there a job-level URI to reach either file by.
         assert job.file_uri == ""
 
         smartling_get_file_status("fr", total_strings=10, completed_strings=10, file_uri=finished_file.file_uri)
         smartling_get_file_status("de", total_strings=10, completed_strings=4, file_uri=finished_file.file_uri)
-        smartling_get_file_status("fr", total_strings=10, completed_strings=4, file_uri=earlier_file.file_uri)
-        smartling_get_file_status("de", total_strings=10, completed_strings=4, file_uri=earlier_file.file_uri)
+        smartling_get_file_status("fr", total_strings=10, completed_strings=4, file_uri=unfinished_file.file_uri)
+        smartling_get_file_status("de", total_strings=10, completed_strings=4, file_uri=unfinished_file.file_uri)
         smartling_download_translation_for_locale("fr", file_uri=finished_file.file_uri)
 
         imported = _check_and_import_completed_locales(job)
@@ -692,8 +734,8 @@ class TestPollingIsPerFile:
         # Both files were asked about, each under its own URI, in both of the
         # locales it was ordered in.
         assert locales_and_files_requested(responses, path_ends_with="/file/status") == {
-            ("fr", earlier_file.file_uri),
-            ("de", earlier_file.file_uri),
+            ("fr", unfinished_file.file_uri),
+            ("de", unfinished_file.file_uri),
             ("fr", finished_file.file_uri),
             ("de", finished_file.file_uri),
         }
@@ -737,3 +779,126 @@ class TestPollingIsPerFile:
         assert JobTranslation.objects.filter(job=job, imported_at__isnull=True).count() == 1
         # Nothing was asked about on the stray translation's behalf.
         assert locales_and_files_requested(responses, path_ends_with="/file/status") == {("fr", job_file.file_uri)}
+
+
+class TestDownloadIsPerFile:
+    def test_each_zip_entry_is_imported_into_its_own_page(self, root_page, smartling_translations_zip, disable_signals):
+        job = job_over_pages_with_content(root_page, ["First ordered page", "Second ordered page"], synced=True)
+        first_file, second_file = mark_files_uploaded(job)
+        first_po = po_with_same_answer_for_each_string(first_file.translation_source, "Première page")
+        second_po = po_with_same_answer_for_each_string(second_file.translation_source, "Deuxième page")
+        smartling_translations_zip(file_uri=first_file.file_uri, entries={f"fr/{first_file.file_uri}": first_po})
+        smartling_translations_zip(file_uri=second_file.file_uri, entries={f"fr/{second_file.file_uri}": second_po})
+
+        _download_and_apply_translations(job)
+
+        assert get_string_translations_for_page(first_file.translation_source, "fr") == {"Première page"}
+        assert get_string_translations_for_page(second_file.translation_source, "fr") == {"Deuxième page"}
+
+    def test_each_file_is_downloaded_under_its_own_uri(
+        self, root_page, smartling_translations_zip, responses, disable_signals
+    ):
+        job = two_file_job(root_page, synced=True)
+        first_file, second_file = mark_files_uploaded(job)
+        for job_file in (first_file, second_file):
+            smartling_translations_zip(file_uri=job_file.file_uri, entries={})
+
+        with patch("wagtail_localize_smartling.sync.translation_import_successful") as announce:
+            _download_and_apply_translations(job)
+
+        assert locales_and_files_requested(responses, path_ends_with="/file/zip") == {
+            ("all", first_file.file_uri),
+            ("all", second_file.file_uri),
+        }
+        # Smartling had nothing for either file, so nobody is told a
+        # translation landed.
+        announce.send.assert_not_called()
+
+    def test_an_entry_for_a_file_outside_the_job_is_loud(self, root_page, smartling_translations_zip, disable_signals):
+        """
+        Smartling answered with a file this job does not hold, so which page it
+        belongs to is unknown and importing it anywhere would be a guess.
+        """
+        job = JobFactory(source_instance=root_page, synced=True)
+        job_file = mark_files_uploaded(job)[0]
+        smartling_translations_zip(
+            file_uri=job_file.file_uri,
+            entries={"fr/job_999_ts_999.po": po_with_same_answer_for_each_string(job_file.translation_source, "Nope")},
+        )
+
+        with pytest.raises(FileURIMismatch):
+            _download_and_apply_translations(job)
+
+    def test_a_stray_entry_does_not_abandon_the_rest_of_the_order(
+        self, root_page, smartling_translations_zip, disable_signals
+    ):
+        """
+        The stray entry is deterministic, so a run that stopped at it would
+        leave every page after it unimported on this run and on every later
+        one, and would never announce the pages that did come back.
+        """
+        job = job_over_pages_with_content(root_page, ["Page whose zip goes wrong", "Page behind it"], synced=True)
+        # Files are walked in pk order, so the stray entry arrives before the
+        # page that has to survive it.
+        first_file, later_file = mark_files_uploaded(job)
+        later_po = po_with_same_answer_for_each_string(later_file.translation_source, "Page intacte")
+        # Nothing about the file itself is stray, but its zip carries an entry
+        # named for a file URI that no file of this job has.
+        assert not job.files.filter(file_uri="job_999_ts_999.po").exists()
+        smartling_translations_zip(file_uri=first_file.file_uri, entries={"fr/job_999_ts_999.po": 'msgid ""\n'})
+        smartling_translations_zip(file_uri=later_file.file_uri, entries={f"fr/{later_file.file_uri}": later_po})
+
+        with (
+            patch("wagtail_localize_smartling.sync.translation_import_successful") as announce,
+            pytest.raises(FileURIMismatch),
+        ):
+            _download_and_apply_translations(job)
+
+        assert get_string_translations_for_page(later_file.translation_source, "fr") == {"Page intacte"}
+        announce.send.assert_called_once()
+        assert [translation.source.pk for translation in announce.send.call_args.kwargs["translations_imported"]] == [
+            later_file.translation_source_id
+        ]
+
+    def test_an_entry_is_not_imported_into_another_page_that_shares_its_locale(
+        self, root_page, smartling_translations_zip, disable_signals
+    ):
+        """
+        Pages of one order can be ordered in different locales. This file was
+        not ordered in French and another page of the job was, so a lookup by
+        locale alone would mark that page's translation imported from this
+        file's content, with nothing to show it had happened.
+        """
+        job = job_over_pages_with_content(
+            root_page, ["Page ordered in French", "Page ordered in German"], synced=True, translations=[]
+        )
+        french_file, german_file = mark_files_uploaded(job)
+        french_translation = Translation.objects.create(
+            source=french_file.translation_source, target_locale=Locale.objects.get(language_code="fr")
+        )
+        job.translations.set(
+            [
+                french_translation,
+                Translation.objects.create(
+                    source=german_file.translation_source, target_locale=Locale.objects.get(language_code="de")
+                ),
+            ]
+        )
+        # Smartling answers for the German page in a locale only the French
+        # page was ordered in.
+        smartling_translations_zip(file_uri=french_file.file_uri, entries={})
+        smartling_translations_zip(
+            file_uri=german_file.file_uri,
+            entries={
+                # The German file's response in the French locale. This is a
+                # mismatch, and we don't import the data into another page.
+                f"fr/{german_file.file_uri}": po_with_same_answer_for_each_string(
+                    german_file.translation_source, "Nope"
+                )
+            },
+        )
+
+        _download_and_apply_translations(job)
+
+        assert JobTranslation.objects.get(job=job, translation=french_translation).imported_at is None
+        assert get_string_translations_for_page(french_file.translation_source, "fr") == set()

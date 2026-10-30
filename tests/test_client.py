@@ -44,9 +44,13 @@ def test_client__get_job_details():
     pass
 
 
-@pytest.mark.skip("WRITE ME")
-def test_client__download_translations():
-    pass
+def test_client__download_translations(smartling_job: "Job", smartling_translations_zip):
+    """The zip is fetched for one file of the job, under that file's own URI."""
+    job_file = smartling_job.files.get()
+    smartling_translations_zip(file_uri=job_file.file_uri, entries={f"fr/{job_file.file_uri}": 'msgid ""\nmsgstr ""\n'})
+
+    with client.download_translations(job_file=job_file) as translations_zip:
+        assert translations_zip.namelist() == [f"fr/{job_file.file_uri}"]
 
 
 @pytest.mark.parametrize("bootstrap_callback", (True, False))
