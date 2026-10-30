@@ -40,13 +40,12 @@ def _second_page(root_page):
 
 def test_default_job_description(smartling_job: "Job"):
     page = smartling_job.translation_source.get_source_instance()
-    assert smartling_job.description == f"CMS translation job for info page '{page}'."
+    assert smartling_job.description == f"Order: {page}\n\n- info page '{page}'"
 
 
 def test_job_description_callback(smartling_job: "Job", smartling_settings):
     smartling_settings.JOB_DESCRIPTION_CALLBACK = job_description_callback
-    description = smartling_job.get_description(smartling_job.translation_source, smartling_job.translations.all())
-    assert description == "1337"
+    assert Job.get_description_for_order(smartling_job.order, job=smartling_job) == "1337"
 
 
 @pytest.mark.parametrize("name_prefix", (None, "Test prefix 123"))
@@ -993,3 +992,86 @@ def test_a_resend_keeps_the_time_the_order_was_first_submitted(root_page, locale
     order.submit(user=superuser)
 
     assert wls_models.Order.objects.get(pk=order.pk).submitted_at == first_submitted_at
+
+
+def test_an_order_job_is_described_by_its_pages_its_notes_and_its_contributors(
+    root_page, locales, superuser, smartling_project
+):
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157", notes="Ship with 157.")
+    source = TranslationSourceFactory(source_instance=root_page)
+    OrderItemFactory(
+        order=order,
+        translation_source=source,
+        added_by=superuser,
+        translations=[Translation.objects.create(source=source, target_locale=locale) for locale in target_locales()],
+    )
+    # Somebody other than the order's creator and the submitter, so that naming
+    # either of those instead would not satisfy the assertion.
+    assembler = UserFactory()
+    order.contributors.add(assembler)
+
+    job = order.submit(user=superuser)
+
+    assert "WNP 157" in job.description
+    assert "Ship with 157." in job.description
+    assert assembler.get_username() in job.description
+    assert str(source.get_source_instance()) in job.description
+
+
+def test_a_partial_send_describes_only_the_pages_it_carries(root_page, locales, superuser, smartling_project):
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    source_a = TranslationSourceFactory(source_instance=root_page)
+    source_b = TranslationSourceFactory(source_instance=_second_page(root_page))
+    wanted = {}
+    for source in (source_a, source_b):
+        wanted[source] = [
+            Translation.objects.create(source=source, target_locale=locale) for locale in target_locales()
+        ]
+        OrderItemFactory(order=order, translation_source=source, added_by=superuser, translations=wanted[source])
+
+    job = order.submit(user=superuser, translations=wanted[source_a])
+
+    assert order.order_items.count() == 2
+    assert str(source_a.get_source_instance()) in job.description
+    assert str(source_b.get_source_instance()) not in job.description
+
+
+def test_a_send_now_job_still_describes_its_page(root_page, locales, superuser, smartling_project):
+    page = InfoPageFactory(parent=root_page, title="Page sent on its own")
+    source = TranslationSourceFactory(source_instance=page)
+    translations = [Translation.objects.create(source=source, target_locale=locale) for locale in target_locales()]
+
+    wls_models.Job.get_or_create_from_source_and_translation_data(source, translations, user=superuser, due_date=None)
+
+    # The order of one is named after the page as well, so only the file line
+    # tells us the job's pages were listed at all.
+    assert f"- info page '{page}'" in wls_models.Job.objects.get().description
+
+
+def test_the_description_callback_receives_the_job(
+    root_page, locales, superuser, smartling_project, smartling_settings
+):
+    received = {}
+
+    def callback(default_description, job):
+        received["default_description"] = default_description
+        received["job"] = job
+        return "overridden"
+
+    smartling_settings.JOB_DESCRIPTION_CALLBACK = callback
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    source = TranslationSourceFactory(source_instance=root_page)
+    OrderItemFactory(
+        order=order,
+        translation_source=source,
+        added_by=superuser,
+        translations=[Translation.objects.create(source=source, target_locale=locale) for locale in target_locales()],
+    )
+
+    job = order.submit(user=superuser)
+
+    assert received["job"] == job
+    assert "WNP 157" in received["default_description"]
+    # Read back rather than off the instance, which holds the callback's answer
+    # either way: what needs pinning is that it reached the database.
+    assert wls_models.Job.objects.get(pk=job.pk).description == "overridden"

@@ -308,7 +308,6 @@ class Order(models.Model):
                 order=self,
                 user=user,
                 name=job_name or self.suggested_job_name(),
-                description=self.notes,
                 reference_number=self.reference_number,
                 due_date=due_date,
             )
@@ -328,6 +327,10 @@ class Order(models.Model):
                     for translation in wanted_for_order_item
                 ]
             )
+            # Described last: the description names the files, so it cannot be
+            # written until they exist.
+            job.description = Job.get_description_for_order(self, job=job)
+            job.save(update_fields=["description"])
 
             if self.is_draft:
                 self.submitted_at = timezone.now()
@@ -531,26 +534,29 @@ class Job(SyncedModel):
         return f"{translation_source.object.translation_key}"
 
     @staticmethod
-    def get_description(
-        translation_source: TranslationSource,
-        translations: Iterable[Translation],
-    ) -> str:
+    def get_description_for_order(order: "Order", *, job: "Job") -> str:
         """
         Default description to use for the job in Smartling. This is
-        human-readable and contains a link to the edit view for the translatable
-        model.
-
-        If the JOB_DESCRIPTION_CALLBACK setting is set to a function or importable
-        string, it will be called with the default description, the translation source
-        and the target translations. It is expected to return a string.
+        human-readable and names the order, the pages this job carries, whoever
+        assembled it, and whatever the editor wrote.
         """
-        source_instance = translation_source.get_source_instance()
-        ct_name = type(source_instance)._meta.verbose_name
+        lines = [f"Order: {order.name}", ""]
 
-        description = f"CMS translation job for {ct_name} '{source_instance}'."
+        for job_file in job.files.select_related("translation_source"):
+            source_instance = job_file.translation_source.get_source_instance()
+            lines.append(f"- {type(source_instance)._meta.verbose_name} '{source_instance}'")
+
+        contributors = [contributor.get_username() for contributor in order.contributors.all()]
+        if contributors:
+            lines += ["", f"Assembled by: {', '.join(contributors)}"]
+
+        if order.notes:
+            lines += ["", order.notes]
+
+        description = "\n".join(lines)
 
         if callback_fn := smartling_settings.JOB_DESCRIPTION_CALLBACK:
-            description = callback_fn(description, source_instance, translations)
+            description = callback_fn(description, job)
 
         return description
 
@@ -694,7 +700,6 @@ class Job(SyncedModel):
                     translation_source=translation_source,
                     user=user,
                     name=cls.get_default_name(translation_source, new_translations),
-                    description=cls.get_description(translation_source, new_translations),
                     reference_number=cls.get_default_reference_number(translation_source, new_translations),
                     due_date=due_date,
                     content_hash=content_hash,
@@ -705,6 +710,8 @@ class Job(SyncedModel):
                     content_hash=content_hash,
                 )
                 job.translations.set(new_translations)
+                job.description = cls.get_description_for_order(job_order, job=job)
+                job.save(update_fields=["description"])
 
             if isinstance(background, ImmediateBackend):
                 # Don't enqueue anything slow if we're using the dummy background

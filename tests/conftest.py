@@ -385,7 +385,6 @@ def smartling_job(smartling_project, superuser, root_page) -> "Job":
         translation_source=translation_source,
         user=superuser,
         name=Job.get_default_name(translation_source, [page_translation]),
-        description=Job.get_description(translation_source, [page_translation]),
         reference_number=Job.get_default_reference_number(translation_source, [page_translation]),
         content_hash=compute_content_hash(translation_source.export_po()),
         first_synced_at=now,
@@ -401,6 +400,8 @@ def smartling_job(smartling_project, superuser, root_page) -> "Job":
         content_hash=compute_content_hash(translation_source.export_po()),
     )
     job.translations.set([page_translation])
+    job.description = Job.get_description_for_order(order, job=job)
+    job.save(update_fields=["description"])
 
     return job
 
@@ -441,7 +442,6 @@ def smartling_job_multi_locale(smartling_project, superuser, root_page) -> "Job"
         translation_source=translation_source,
         user=superuser,
         name=Job.get_default_name(translation_source, [fr_translation, de_translation]),
-        description=Job.get_description(translation_source, [fr_translation, de_translation]),
         reference_number=Job.get_default_reference_number(translation_source, [fr_translation, de_translation]),
         content_hash=compute_content_hash(translation_source.export_po()),
         first_synced_at=now,
@@ -457,6 +457,8 @@ def smartling_job_multi_locale(smartling_project, superuser, root_page) -> "Job"
         content_hash=compute_content_hash(translation_source.export_po()),
     )
     job.translations.set([fr_translation, de_translation])
+    job.description = Job.get_description_for_order(order, job=job)
+    job.save(update_fields=["description"])
 
     return job
 

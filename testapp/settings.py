@@ -210,7 +210,7 @@ def map_project_locale_to_smartling(locale: str) -> str:
     return locale
 
 
-def job_description_callback(description: str, translation_source, translations) -> str:
+def job_description_callback(description: str, job: "Job") -> str:
     return "1337"
 
 

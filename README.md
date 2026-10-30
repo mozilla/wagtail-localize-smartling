@@ -123,20 +123,14 @@ integrates with the Smartling translation platform.
     the `JOB_DESCRIPTION_CALLBACK` setting:
 
     ```python
-    from typing import Iterable
-    from wagtail_localize.models import Translation, TranslationSource
+    from wagtail_localize_smartling.models import Job
 
-    def enhance_job_description(
-        description: str,
-        translation_source: TranslationSource,
-        translations: Iterable[Translation]
-   ) -> str:
-        # note: to get the source instance, use translation_source.get_source_instance()
+    def enhance_job_description(description: str, job: Job) -> str:
+        # note: the pages the job carries are job.files, each with a translation_source
         return description + " my text."
     ```
 
-    The callback receives the default description string, the job `TranslationSource` instance, and the list of
-    target `Translation`s. It expected to return string.
+    The callback receives the default description string and the `Job`. It is expected to return a string.
 
     ----
 
