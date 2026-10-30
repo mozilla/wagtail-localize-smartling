@@ -11,6 +11,8 @@ from django.utils.module_loading import import_string
 
 
 if TYPE_CHECKING:
+    from wagtail_localize.models import TranslationSource
+
     from wagtail_localize_smartling.models import Job
 
 logger = logging.getLogger(__name__)
@@ -30,7 +32,7 @@ class SmartlingSettings:
     REFORMAT_LANGUAGE_CODES: bool = True
     JOB_NAME_PREFIX: str | None = None
     JOB_DESCRIPTION_CALLBACK: Callable[[str, "Job"], str] | None = None
-    VISUAL_CONTEXT_CALLBACK: Callable[["Job"], tuple[str, str]] | None = None
+    VISUAL_CONTEXT_CALLBACK: Callable[["Job", "TranslationSource"], tuple[str, str]] | None = None
     TRANSLATION_APPROVER_GROUP_NAME: str = "Translation approver"
     ADD_APPROVAL_TASK_TO_DASHBOARD: bool = True
     MAX_APPROVAL_TASKS_ON_DASHBOARD: int = 7

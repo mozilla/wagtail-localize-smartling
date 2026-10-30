@@ -24,6 +24,14 @@ def get_authorized_locales_from_request_body(request):
     return re.findall(r'name="localeIdsToAuthorize\[\]"\r\n\r\n(.*?)\r\n', request.body.decode(errors="ignore"))
 
 
+def _visual_context_calls(responses):
+    return [call for call in responses.calls if "contexts/upload-and-match-async" in call.request.url]
+
+
+def _second_page(root_page):
+    return InfoPageFactory(parent=root_page, title="Second page")
+
+
 @pytest.mark.skip("WRITE ME")
 def test_client__get_project_details():
     pass
@@ -74,7 +82,7 @@ def test_client__add_html_context_to_job__depends_on_callback_availability(
     client.add_html_context_to_job(job=smartling_job)
 
     if bootstrap_callback:
-        callback_func.assert_called_once_with(smartling_job)
+        callback_func.assert_called_once_with(smartling_job, smartling_job.files.get().translation_source)
     else:
         assert not callback_func.called
 
@@ -83,6 +91,7 @@ def test_client__add_html_context_to_job__happy_path(
     smartling_job: "Job",
     smartling_settings,
     smartling_add_visual_context,
+    responses,
 ):
     # Very similar to test_client__add_html_context_to_job__depends_on_callback_availability
     # but separate for regression-protection value
@@ -95,15 +104,16 @@ def test_client__add_html_context_to_job__happy_path(
     )
 
     smartling_settings.VISUAL_CONTEXT_CALLBACK = callback_func
-    resp = client.add_html_context_to_job(job=smartling_job)
-    callback_func.assert_called_once_with(smartling_job)
-    assert resp == {"processUid": "dummy_process_uid"}
+    client.add_html_context_to_job(job=smartling_job)
+    callback_func.assert_called_once_with(smartling_job, smartling_job.files.get().translation_source)
+    assert len(_visual_context_calls(responses)) == 1
 
 
 def test_client__add_html_context_to_job__callback_does_not_provide_visual_context_data(
     smartling_job: "Job",
     smartling_settings,
     smartling_add_visual_context,
+    responses,
 ):
     callback_func = Mock(
         name="fake callback",
@@ -111,9 +121,9 @@ def test_client__add_html_context_to_job__callback_does_not_provide_visual_conte
     )
 
     smartling_settings.VISUAL_CONTEXT_CALLBACK = callback_func
-    resp = client.add_html_context_to_job(job=smartling_job)
-    callback_func.assert_called_once_with(smartling_job)
-    assert resp is None
+    client.add_html_context_to_job(job=smartling_job)
+    callback_func.assert_called_once_with(smartling_job, smartling_job.files.get().translation_source)
+    assert _visual_context_calls(responses) == []
 
 
 def test_client__add_html_context_to_job__error_path(
@@ -139,7 +149,63 @@ def test_client__add_html_context_to_job__error_path(
         "Response did not match expected format: {'response': {'code': 'VALIDATION_ERROR', 'data': [{'key': 'some key', 'message': 'some message', 'details': 'some details'}]}}",  # noqa: E501
     )
 
-    callback_func.assert_called_once_with(smartling_job)
+    callback_func.assert_called_once_with(smartling_job, smartling_job.files.get().translation_source)
+
+
+def test_visual_context_is_sent_once_per_file(
+    root_page,
+    locales,
+    smartling_settings,
+    smartling_add_visual_context,
+    responses,
+):
+    source_a = TranslationSourceFactory(source_instance=root_page)
+    source_b = TranslationSourceFactory(source_instance=_second_page(root_page))
+    job = JobFactory(source_instance=root_page, files=[source_a, source_b], synced=True)
+    asked_about = []
+
+    def callback(job, translation_source):
+        asked_about.append(translation_source)
+        return (f"https://example.com/{translation_source.pk}/", "<html><body>test</body></html>")
+
+    smartling_settings.VISUAL_CONTEXT_CALLBACK = callback
+
+    client.add_html_context_to_job(job=job)
+
+    assert {source.pk for source in asked_about} == {source_a.pk, source_b.pk}
+    assert len(_visual_context_calls(responses)) == 2
+
+
+# Parametrized over which of the two files refuses, because a job that gave up
+# at the first refusal would look right whenever the refusing file came last.
+@pytest.mark.parametrize("incapable_file", (0, 1), ids=["the first file refuses", "the second file refuses"])
+def test_one_file_without_visual_context_does_not_silence_the_others(
+    incapable_file,
+    root_page,
+    locales,
+    smartling_settings,
+    smartling_add_visual_context,
+    responses,
+):
+    sources = [
+        TranslationSourceFactory(source_instance=root_page),
+        TranslationSourceFactory(source_instance=_second_page(root_page)),
+    ]
+    job = JobFactory(source_instance=root_page, files=sources, synced=True)
+    expected_source = sources[1 - incapable_file]
+
+    def callback(job, translation_source):
+        if translation_source.pk == sources[incapable_file].pk:
+            raise IncapableVisualContextCallback("Snippets have no page to show")
+        return (f"https://example.com/{translation_source.pk}/", "<html><body>test</body></html>")
+
+    smartling_settings.VISUAL_CONTEXT_CALLBACK = callback
+
+    client.add_html_context_to_job(job=job)
+
+    sent = _visual_context_calls(responses)
+    assert len(sent) == 1
+    assert f"https://example.com/{expected_source.pk}/" in sent[0].request.body.decode(errors="ignore")
 
 
 def test_client__create_batch_for_job__happy_path(

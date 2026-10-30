@@ -15,6 +15,8 @@ import dj_database_url
 
 
 if typing.TYPE_CHECKING:
+    from wagtail_localize.models import TranslationSource
+
     from wagtail_localize_smartling.models import Job
 
 
@@ -214,7 +216,7 @@ def job_description_callback(description: str, job: "Job") -> str:
     return "1337"
 
 
-def visual_context_callback(job: "Job") -> tuple[str, str]:
+def visual_context_callback(job: "Job", translation_source: "TranslationSource") -> tuple[str, str]:
     return "https://example.com/path/to/page/", "<html><body>test</body></html>"
 
 
