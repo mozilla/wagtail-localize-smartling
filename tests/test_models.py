@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 
 from django.contrib.contenttypes.models import ContentType
@@ -21,7 +23,7 @@ from testapp.factories import (
     UserFactory,
 )
 from testapp.settings import job_description_callback
-from tests.factories import JobFactory, OrderFactory
+from tests.factories import JobFactory, OrderFactory, OrderItemFactory
 
 
 pytestmark = pytest.mark.django_db
@@ -291,7 +293,7 @@ def test_get_or_create_adds_locales_to_unsynced_job(smartling_project, root_page
         content_hash=content_hash,
         status=JobStatus.UNSYNCED,
     )
-    wls_models.JobFile.objects.create(job=job, translation_source=translation_source)
+    wls_models.JobFile.objects.create(job=job, translation_source=translation_source, content_hash=content_hash)
     job.translations.set([fr_translation])
 
     # Now try to add de locale
@@ -345,7 +347,7 @@ def test_get_or_create_adds_locales_to_draft_job(smartling_project, root_page, s
         first_synced_at=now,
         last_synced_at=now,
     )
-    wls_models.JobFile.objects.create(job=job, translation_source=translation_source)
+    wls_models.JobFile.objects.create(job=job, translation_source=translation_source, content_hash=content_hash)
     job.translations.set([fr_translation])
 
     # Mock the API call
@@ -401,7 +403,7 @@ def test_get_or_create_creates_new_job_for_in_progress(smartling_project, root_p
         first_synced_at=now,
         last_synced_at=now,
     )
-    wls_models.JobFile.objects.create(job=job, translation_source=translation_source)
+    wls_models.JobFile.objects.create(job=job, translation_source=translation_source, content_hash=content_hash)
     job.translations.set([fr_translation])
 
     # Now try to add de locale
@@ -450,7 +452,7 @@ def test_get_or_create_no_action_when_all_locales_covered(smartling_project, roo
         content_hash=content_hash,
         status=JobStatus.UNSYNCED,
     )
-    wls_models.JobFile.objects.create(job=job, translation_source=translation_source)
+    wls_models.JobFile.objects.create(job=job, translation_source=translation_source, content_hash=content_hash)
     job.translations.set([fr_translation])
 
     # Try to submit the same locale again
@@ -557,7 +559,7 @@ def test_get_or_create_excluded_locale_not_added_to_existing_job(smartling_proje
         content_hash=content_hash,
         status=JobStatus.UNSYNCED,
     )
-    wls_models.JobFile.objects.create(job=job, translation_source=translation_source)
+    wls_models.JobFile.objects.create(job=job, translation_source=translation_source, content_hash=content_hash)
     job.translations.set([fr_translation])
 
     # Submit both fr (already covered) and de (excluded)
@@ -689,3 +691,305 @@ def test_creating_a_job_also_creates_its_file(root_page, locales, superuser, sma
     job_file = job.files.get()
     assert job_file.translation_source_id == source.pk
     assert job_file.content_hash == compute_content_hash(source.export_po())
+
+
+def test_choosing_an_order_adds_an_item_and_creates_no_job(root_page, locales, superuser, smartling_project):
+    order = OrderFactory(submitted_at=None, created_by=superuser)
+    source = TranslationSourceFactory(source_instance=root_page)
+    translations = [Translation.objects.create(source=source, target_locale=locale) for locale in target_locales()]
+
+    wls_models.Job.get_or_create_from_source_and_translation_data(
+        source, translations, user=superuser, due_date=None, order=order
+    )
+
+    assert wls_models.Job.objects.count() == 0
+    item = order.order_items.get()
+    assert item.translation_source_id == source.pk
+    assert set(item.translations.all()) == set(translations)
+    assert superuser in order.contributors.all()
+
+
+def test_an_order_item_records_only_the_locales_that_survived_filtering(
+    root_page, locales, superuser, smartling_project, smartling_settings
+):
+    """Excluded locales are filtered once, on the way in; nothing may re-derive them."""
+    smartling_settings.EXCLUDE_LOCALES = frozenset(["de"])
+    order = OrderFactory(submitted_at=None, created_by=superuser)
+    source = TranslationSourceFactory(source_instance=root_page)
+    french = Translation.objects.create(source=source, target_locale=Locale.objects.get(language_code="fr"))
+    german = Translation.objects.create(source=source, target_locale=Locale.objects.get(language_code="de"))
+
+    wls_models.Job.get_or_create_from_source_and_translation_data(
+        source, [french, german], user=superuser, due_date=None, order=order
+    )
+
+    assert list(order.order_items.get().translations.all()) == [french]
+
+
+def test_adding_the_same_page_to_an_order_twice_unions_its_locales(root_page, locales, superuser, smartling_project):
+    order = OrderFactory(submitted_at=None, created_by=superuser)
+    source = TranslationSourceFactory(source_instance=root_page)
+    french = Translation.objects.create(source=source, target_locale=Locale.objects.get(language_code="fr"))
+    german = Translation.objects.create(source=source, target_locale=Locale.objects.get(language_code="de"))
+
+    wls_models.Job.get_or_create_from_source_and_translation_data(
+        source, [french], user=superuser, due_date=None, order=order
+    )
+    wls_models.Job.get_or_create_from_source_and_translation_data(
+        source, [german], user=superuser, due_date=None, order=order
+    )
+
+    assert order.order_items.count() == 1
+    assert set(order.order_items.get().translations.all()) == {french, german}
+
+
+def test_a_page_added_to_an_order_that_has_closed_is_sent_on_its_own(root_page, locales, superuser, smartling_project):
+    completed_order = OrderFactory(submitted_at=timezone.now(), created_by=superuser)
+    source = TranslationSourceFactory(source_instance=root_page)
+    translations = [Translation.objects.create(source=source, target_locale=locale) for locale in target_locales()]
+
+    wls_models.Job.get_or_create_from_source_and_translation_data(
+        source, translations, user=superuser, due_date=None, order=completed_order
+    )
+
+    # Now there are 2 Orders.
+    assert wls_models.Order.objects.count() == 2
+    # The completed_order does not have any items.
+    assert completed_order.order_items.count() == 0
+    # There is a Job with its own Order.
+    assert wls_models.Job.objects.count() == 1
+    assert wls_models.Job.objects.get().order != completed_order
+
+
+def test_a_send_now_job_gets_an_order_that_knows_its_page(root_page, locales, superuser, smartling_project):
+    source = TranslationSourceFactory(source_instance=root_page)
+    translations = [Translation.objects.create(source=source, target_locale=locale) for locale in target_locales()]
+
+    wls_models.Job.get_or_create_from_source_and_translation_data(source, translations, user=superuser, due_date=None)
+
+    order = wls_models.Job.objects.get().order
+    assert order.is_draft is False
+    assert [item.translation_source_id for item in order.order_items.all()] == [source.pk]
+    assert set(order.order_items.get().translations.all()) == set(translations)
+
+
+def test_send_now_still_reuses_a_pending_job_for_the_same_content(root_page, locales, superuser, smartling_project):
+    source = TranslationSourceFactory(source_instance=root_page)
+    first_locale, second_locale = target_locales()[:2]
+
+    wls_models.Job.get_or_create_from_source_and_translation_data(
+        source,
+        [Translation.objects.create(source=source, target_locale=first_locale)],
+        user=superuser,
+        due_date=None,
+    )
+    wls_models.Job.get_or_create_from_source_and_translation_data(
+        source,
+        [Translation.objects.create(source=source, target_locale=second_locale)],
+        user=superuser,
+        due_date=None,
+    )
+
+    assert wls_models.Order.objects.count() == 1
+    assert wls_models.Job.objects.count() == 1
+    assert wls_models.Job.objects.get().translations.count() == 2
+
+
+def test_submitting_an_order_creates_one_job_holding_every_page(root_page, locales, superuser, smartling_project):
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    source_a = TranslationSourceFactory(source_instance=root_page)
+    source_b = TranslationSourceFactory(source_instance=_second_page(root_page))
+    for source in (source_a, source_b):
+        OrderItemFactory(
+            order=order,
+            translation_source=source,
+            added_by=superuser,
+            translations=[
+                Translation.objects.create(source=source, target_locale=locale) for locale in target_locales()
+            ],
+        )
+
+    job = order.submit(user=superuser)
+    order.refresh_from_db()
+
+    assert order.is_draft is False
+    assert job.order == order
+    # Hashed at submit, not when the page was added: the hash has to describe
+    # what Smartling was actually sent.
+    assert dict(job.files.values_list("translation_source_id", "content_hash")) == {
+        source_a.pk: compute_content_hash(source_a.export_po()),
+        source_b.pk: compute_content_hash(source_b.export_po()),
+    }
+    assert job.name.endswith("WNP 157")
+    assert job.reference_number == order.reference_number
+
+
+def test_submitting_sends_only_the_locales_each_page_was_ordered_in(root_page, locales, superuser, smartling_project):
+    order = OrderFactory(submitted_at=None, created_by=superuser)
+    source_a = TranslationSourceFactory(source_instance=root_page)
+    source_b = TranslationSourceFactory(source_instance=_second_page(root_page))
+    french_a = Translation.objects.create(source=source_a, target_locale=Locale.objects.get(language_code="fr"))
+    # A locale the page has a translation for but was not ordered in.
+    Translation.objects.create(source=source_a, target_locale=Locale.objects.get(language_code="de"))
+    german_b = Translation.objects.create(source=source_b, target_locale=Locale.objects.get(language_code="de"))
+    OrderItemFactory(order=order, translation_source=source_a, added_by=superuser, translations=[french_a])
+    OrderItemFactory(order=order, translation_source=source_b, added_by=superuser, translations=[german_b])
+
+    job = order.submit(user=superuser)
+
+    assert set(job.translations.all()) == {french_a, german_b}
+
+
+def test_submitting_drops_a_page_with_no_locales_left(root_page, locales, superuser, smartling_project):
+    """A file with no authorizable strings makes the whole job unauthorizable."""
+    order = OrderFactory(submitted_at=None, created_by=superuser)
+    source_a = TranslationSourceFactory(source_instance=root_page)
+    source_b = TranslationSourceFactory(source_instance=_second_page(root_page))
+    french = Translation.objects.create(source=source_a, target_locale=Locale.objects.get(language_code="fr"))
+    OrderItemFactory(order=order, translation_source=source_a, added_by=superuser, translations=[french])
+    empty_item = OrderItemFactory(order=order, translation_source=source_b, added_by=superuser, translations=[])
+
+    job = order.submit(user=superuser)
+
+    assert list(job.files.values_list("translation_source_id", flat=True)) == [source_a.pk]
+    assert order.dropped_order_items == [empty_item]
+
+
+def test_submitting_an_order_with_nothing_left_to_send_is_refused(root_page, locales, superuser, smartling_project):
+    """An empty job cannot be authorized, so it is better never created."""
+    order = OrderFactory(submitted_at=None, created_by=superuser)
+    source = TranslationSourceFactory(source_instance=root_page)
+    OrderItemFactory(order=order, translation_source=source, added_by=superuser, translations=[])
+
+    with pytest.raises(ValueError, match="no pages to translate"):
+        order.submit(user=superuser)
+
+    assert wls_models.Job.objects.exists() is False
+    assert order.is_draft is True
+
+
+@pytest.mark.parametrize(
+    "due_offset,due_date_survives",
+    [(timedelta(days=7), True), (timedelta(days=-1), False)],
+    ids=["a due date still ahead is sent", "a due date already past is dropped"],
+)
+def test_a_due_date_that_has_already_passed_is_dropped_rather_than_sent(
+    root_page, locales, superuser, smartling_project, due_offset, due_date_survives
+):
+    """An order sits for days before it is sent, and a resend is later still."""
+    due_date = timezone.now() + due_offset
+    order = OrderFactory(submitted_at=None, created_by=superuser, due_date=due_date)
+    source = TranslationSourceFactory(source_instance=root_page)
+    OrderItemFactory(
+        order=order,
+        translation_source=source,
+        added_by=superuser,
+        translations=[Translation.objects.create(source=source, target_locale=target_locales()[0])],
+    )
+
+    job = order.submit(user=superuser)
+
+    if due_date_survives:
+        assert job.due_date == due_date
+        assert order.dropped_due_date is None
+    else:
+        assert job.due_date is None
+        assert order.dropped_due_date == due_date
+    # The pages are sent regardless of the due date, but if the due date has
+    # already passed, they are sent with no due date.
+    assert order.is_draft is False
+
+
+def test_an_order_that_never_had_a_due_date_drops_nothing(root_page, locales, superuser, smartling_project):
+    order = OrderFactory(submitted_at=None, created_by=superuser, due_date=None)
+    source = TranslationSourceFactory(source_instance=root_page)
+    OrderItemFactory(
+        order=order,
+        translation_source=source,
+        added_by=superuser,
+        translations=[Translation.objects.create(source=source, target_locale=target_locales()[0])],
+    )
+
+    job = order.submit(user=superuser)
+
+    assert job.due_date is None
+    assert order.dropped_due_date is None
+
+
+def test_send_now_does_not_add_a_locale_to_a_job_that_holds_other_pages(
+    root_page, locales, superuser, smartling_project
+):
+    source = TranslationSourceFactory(source_instance=root_page)
+    other_source = TranslationSourceFactory(source_instance=_second_page(root_page))
+    ordered_job = JobFactory(source_instance=root_page, files=[source, other_source], translations=[], unsynced=True)
+    for job_file in wls_models.JobFile.objects.filter(job=ordered_job):
+        job_file.content_hash = compute_content_hash(job_file.translation_source.export_po())
+        job_file.save(update_fields=["content_hash"])
+
+    wls_models.Job.get_or_create_from_source_and_translation_data(
+        source,
+        [Translation.objects.create(source=source, target_locale=target_locales()[0])],
+        user=superuser,
+        due_date=None,
+    )
+
+    assert ordered_job.translations.count() == 0
+    assert wls_models.Job.objects.exclude(pk=ordered_job.pk).get().files.count() == 1
+
+
+def test_a_page_edited_since_a_pending_job_was_made_is_sent_as_a_new_job(
+    root_page, locales, superuser, smartling_project
+):
+    source = TranslationSourceFactory(source_instance=root_page)
+    stale_job = JobFactory(source_instance=root_page, translations=[], unsynced=True)
+    stale_job.files.update(content_hash="the page as it read yesterday")
+
+    assert wls_models.Job.objects.exclude(pk=stale_job.pk).count() == 0
+
+    wls_models.Job.get_or_create_from_source_and_translation_data(
+        source,
+        [Translation.objects.create(source=source, target_locale=target_locales()[0])],
+        user=superuser,
+        due_date=None,
+    )
+
+    assert stale_job.translations.count() == 0
+    assert wls_models.Job.objects.exclude(pk=stale_job.pk).count() == 1
+
+
+def test_a_resend_carries_only_the_pages_it_was_given(root_page, locales, superuser, smartling_project):
+    """A resend covers what the failed send left behind, in the locales those pages were ordered in."""
+    order = OrderFactory(submitted_at=None, created_by=superuser)
+    source_a = TranslationSourceFactory(source_instance=root_page)
+    source_b = TranslationSourceFactory(source_instance=_second_page(root_page))
+    french_a = Translation.objects.create(source=source_a, target_locale=Locale.objects.get(language_code="fr"))
+    german_b = Translation.objects.create(source=source_b, target_locale=Locale.objects.get(language_code="de"))
+    item_a = OrderItemFactory(order=order, translation_source=source_a, added_by=superuser, translations=[french_a])
+    OrderItemFactory(order=order, translation_source=source_b, added_by=superuser, translations=[german_b])
+
+    job = order.submit(user=superuser, job_name="WNP 157-2", items=[item_a])
+
+    assert job.name == "WNP 157-2"
+    assert list(job.files.values_list("translation_source_id", flat=True)) == [source_a.pk]
+    # The page left out takes its locale with it: a job carrying a locale it
+    # has no file for cannot be authorized.
+    assert set(job.translations.all()) == {french_a}
+    assert german_b not in job.translations.all()
+
+
+def test_a_resend_keeps_the_time_the_order_was_first_submitted(root_page, locales, superuser, smartling_project):
+    order = OrderFactory(submitted_at=None, created_by=superuser)
+    source = TranslationSourceFactory(source_instance=root_page)
+    OrderItemFactory(
+        order=order,
+        translation_source=source,
+        added_by=superuser,
+        translations=[Translation.objects.create(source=source, target_locale=target_locales()[0])],
+    )
+
+    order.submit(user=superuser)
+    first_submitted_at = wls_models.Order.objects.get(pk=order.pk).submitted_at
+
+    order.submit(user=superuser)
+
+    assert wls_models.Order.objects.get(pk=order.pk).submitted_at == first_submitted_at
