@@ -50,8 +50,10 @@ def create_landed_translation_task(
         logger.debug("Creation of a landed-translation task is disabled by settings")
         return
 
+    # Read from the translation, not the job: a job may carry ten pages, and
+    # every landed locale would otherwise be filed against the first of them.
     LandedTranslationTask.objects.create_from_source_and_translation(  # pyright: ignore[reportAttributeAccessIssue]
-        source_object=instance.translation_source.get_source_instance(),
+        source_object=translation.source.get_source_instance(),
         translated_locale=translation.target_locale,
     )
 
@@ -203,7 +205,7 @@ def send_email_notification_upon_overall_translation_import(
         template_name="wagtail_localize_smartling/admin/email/notifications/translations_imported__body.txt",
         context={
             "job_name": instance.name,
-            "translation_source_name": str(instance.translation_source.get_source_instance()),
+            "order_name": instance.order.name if instance.order else instance.name,
             "translation_targets": _build_translated_target_links(translations_imported),
         },
     )
@@ -243,8 +245,11 @@ def send_slack_notification_on_job_sync(
         or _DEFAULT_SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE
     )
 
-    po = instance.translation_source.export_po()
-    word_count = sum(len(entry.msgid.split()) for entry in po)
+    word_count = sum(
+        len(entry.msgid.split())
+        for job_file in instance.files.select_related("translation_source")
+        for entry in job_file.translation_source.export_po()
+    )
     locale_codes = list(instance.translations.values_list("target_locale__language_code", flat=True))
     locale_count = len(locale_codes)
     locale_list = ", ".join(locale_codes)

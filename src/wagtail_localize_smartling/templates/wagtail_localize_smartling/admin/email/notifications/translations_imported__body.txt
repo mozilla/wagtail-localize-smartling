@@ -2,7 +2,7 @@ Hi there
 
 ACTION REQUIRED: Translations have been synced back from Smartling and need to be published.
 
-{{translation_targets|pluralize:"It is,They are"}} for Job '{{job_name}}' for '{{translation_source_name}}' into the following locale{{translation_targets|pluralize}}:
+{{translation_targets|pluralize:"It is,They are"}} for Job '{{job_name}}' for '{{order_name}}' into the following locale{{translation_targets|pluralize}}:
 {% for target in translation_targets %}
 * {{target.locale_name}}{% if target.edit_url %} - {{target.edit_url}}{% endif %}
 {% endfor %}
