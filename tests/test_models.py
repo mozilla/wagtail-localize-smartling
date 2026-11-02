@@ -1159,3 +1159,43 @@ def test_closing_an_order_is_not_an_edit(root_page, locales, superuser, smartlin
     order.full_clean()
 
     assert order.submitted_at is not None
+
+
+def test_recording_a_permanent_sync_failure_blocks_the_job(root_page):
+    job = JobFactory(source_instance=root_page)
+
+    job.record_sync_failure(ValueError("duplicate job name"), permanent=True)
+    job.refresh_from_db()
+
+    assert job.sync_blocked is True
+    assert job.consecutive_sync_failures == 1
+    assert "duplicate job name" in job.last_sync_error
+    assert job.last_sync_error_at is not None
+
+
+def test_transient_sync_failures_block_only_at_the_limit(root_page, smartling_settings):
+    smartling_settings.SYNC_FAILURE_LIMIT = 3
+    job = JobFactory(source_instance=root_page)
+
+    for _ in range(2):
+        job.record_sync_failure(TimeoutError("timed out"), permanent=False)
+    job.refresh_from_db()
+    assert job.sync_blocked is False
+
+    job.record_sync_failure(TimeoutError("timed out"), permanent=False)
+    job.refresh_from_db()
+    assert job.sync_blocked is True
+    assert job.consecutive_sync_failures == 3
+
+
+def test_clearing_sync_failure_resets_every_field(root_page):
+    job = JobFactory(source_instance=root_page)
+    job.record_sync_failure(ValueError("nope"), permanent=True)
+
+    job.clear_sync_failure()
+    job.refresh_from_db()
+
+    assert job.sync_blocked is False
+    assert job.consecutive_sync_failures == 0
+    assert job.last_sync_error == ""
+    assert job.last_sync_error_at is None

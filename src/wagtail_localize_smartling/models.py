@@ -476,6 +476,13 @@ class Job(SyncedModel):
     #   https://api-reference.smartling.com/#tag/Jobs/operation/getJobFilesList
     #
     file_uri = models.CharField(max_length=255, blank=True, editable=False)
+    # Error-related fields
+    last_sync_error = models.TextField(blank=True)
+    last_sync_error_at = models.DateTimeField(null=True, editable=False)
+    consecutive_sync_failures = models.PositiveIntegerField(default=0)
+    # Set when a job cannot succeed by being retried, so we can avoid retrying
+    # it.
+    sync_blocked = models.BooleanField(default=False)
 
     files: Manager["JobFile"]
 
@@ -508,6 +515,44 @@ class Job(SyncedModel):
 
     def __str__(self):
         return self.name
+
+    def record_sync_failure(self, exc: Exception, *, permanent: bool) -> None:
+        """
+        Persist a failed sync attempt and stop retrying if it cannot succeed.
+
+        A transient failure keeps retrying until SYNC_FAILURE_LIMIT, so a job
+        whose Smartling project is unreachable does not retry forever either.
+        """
+        self.last_sync_error = str(exc)
+        self.last_sync_error_at = timezone.now()
+        self.consecutive_sync_failures += 1
+        self.sync_blocked = permanent or self.consecutive_sync_failures >= smartling_settings.SYNC_FAILURE_LIMIT
+        self.save(
+            update_fields=[
+                "last_sync_error",
+                "last_sync_error_at",
+                "consecutive_sync_failures",
+                "sync_blocked",
+            ]
+        )
+
+    def clear_sync_failure(self) -> None:
+        """Forget a past failure, so a healthy job does not read as a failing one."""
+        if not (self.last_sync_error or self.last_sync_error_at or self.consecutive_sync_failures or self.sync_blocked):
+            return
+
+        self.last_sync_error = ""
+        self.last_sync_error_at = None
+        self.consecutive_sync_failures = 0
+        self.sync_blocked = False
+        self.save(
+            update_fields=[
+                "last_sync_error",
+                "last_sync_error_at",
+                "consecutive_sync_failures",
+                "sync_blocked",
+            ]
+        )
 
     @staticmethod
     def get_default_name(
