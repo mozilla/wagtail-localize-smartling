@@ -10,6 +10,7 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models.manager import Manager
 from django.urls import reverse
@@ -211,6 +212,11 @@ class Order(models.Model):
         ),
     )
 
+    # The fields whose values reach translators: the job's name, description
+    # and due date are built from these. Not contributors, which also reaches
+    # the description but, as an M2M, changes after the row is saved.
+    FIELDS_SENT_TO_SMARTLING = frozenset({"name", "notes", "due_date"})
+
     jobs: Manager["Job"]
     order_items: Manager["OrderItem"]
     # The items the last submit() left out because nothing in them remained to
@@ -231,7 +237,30 @@ class Order(models.Model):
             # Stable for the life of the order so that every send of it can
             # carry one number to Smartling, whose UI has no view of the FK.
             self.reference_number = uuid.uuid4().hex
+
+        # Clean the data being saved before saving.
+        self.clean()
         super().save(*args, **kwargs)
+
+    def clean(self):
+        """Refuse to rewrite what a sent order told translators."""
+        super().clean()
+        # No further cleaning for Orders that are unsaved or draft.
+        if self.pk is None or self.is_draft:
+            return
+
+        # If the Order has been deleted, no further cleaning is done.
+        stored = Order.objects.filter(pk=self.pk).values(*self.FIELDS_SENT_TO_SMARTLING).first()
+        if stored is None:
+            return
+
+        changed = sorted(field for field, value in stored.items() if getattr(self, field) != value)
+        if changed:
+            raise ValidationError(
+                # A sent order is the record of what went to Smartling, so the
+                # fields translators were given have to keep saying what they said.
+                f"This order was sent to Smartling and can no longer be edited ({', '.join(changed)})."
+            )
 
     @property
     def is_draft(self) -> bool:

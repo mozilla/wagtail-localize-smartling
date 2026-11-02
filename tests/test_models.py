@@ -3,6 +3,7 @@ from datetime import timedelta
 import pytest
 
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.db.utils import DatabaseError, IntegrityError
 from django.urls import reverse
 from django.utils import timezone
@@ -1075,3 +1076,86 @@ def test_the_description_callback_receives_the_job(
     # Read back rather than off the instance, which holds the callback's answer
     # either way: what needs pinning is that it reached the database.
     assert wls_models.Job.objects.get(pk=job.pk).description == "overridden"
+
+
+@pytest.mark.parametrize(
+    "field,new_value",
+    [
+        ("name", "WNP 158"),
+        ("notes", "Please keep the product names in English"),
+        ("due_date", lambda: timezone.now() + timedelta(days=7)),
+    ],
+)
+def test_a_submitted_order_refuses_edits(field, new_value, superuser):
+    order = OrderFactory(created_by=superuser, name="WNP 157", notes="", due_date=None)  # submitted by default
+    edited_value = new_value() if callable(new_value) else new_value
+
+    setattr(order, field, edited_value)
+
+    with pytest.raises(ValidationError) as excinfo:
+        order.full_clean()
+
+    assert field in str(excinfo.value)
+    assert getattr(wls_models.Order.objects.get(pk=order.pk), field) != edited_value
+
+
+@pytest.mark.parametrize(
+    "field,new_value",
+    [
+        ("name", "WNP 158"),
+        ("notes", "Please keep the product names in English"),
+        ("due_date", lambda: timezone.now() + timedelta(days=7)),
+    ],
+)
+def test_a_draft_order_is_editable(field, new_value, superuser):
+    order = OrderFactory(created_by=superuser, submitted_at=None, name="WNP 157")
+    edited_value = new_value() if callable(new_value) else new_value
+
+    setattr(order, field, edited_value)
+    order.full_clean()
+    order.save()
+
+    assert getattr(wls_models.Order.objects.get(pk=order.pk), field) == edited_value
+
+
+def test_a_direct_save_to_a_submitted_order_is_refused(superuser):
+    order = OrderFactory(created_by=superuser, name="WNP 157")
+
+    order.name = "WNP 158"
+
+    # The order has already been submitted.
+    assert order.submitted_at is not None
+
+    with pytest.raises(ValidationError):
+        order.save()
+
+    assert wls_models.Order.objects.get(pk=order.pk).name == "WNP 157"
+
+
+def test_a_queryset_update_allows_updating_a_submitted_order(superuser):
+    order = OrderFactory(created_by=superuser, name="WNP 157")
+    # The order has already been submitted.
+    assert order.submitted_at is not None
+
+    wls_models.Order.objects.filter(pk=order.pk).update(name="WNP 158")
+
+    assert wls_models.Order.objects.get(pk=order.pk).name == "WNP 158"
+
+
+def test_closing_an_order_is_not_an_edit(root_page, locales, superuser, smartling_project):
+    """Submitting sets submitted_at on an order that is about to stop being a draft."""
+    order = OrderFactory(created_by=superuser, submitted_at=None, name="WNP 157")
+    source = TranslationSourceFactory(source_instance=root_page)
+    OrderItemFactory(
+        order=order,
+        translation_source=source,
+        added_by=superuser,
+        translations=[Translation.objects.create(source=source, target_locale=locale) for locale in target_locales()],
+    )
+
+    assert order.submitted_at is None
+
+    order.submit(user=superuser)
+    order.full_clean()
+
+    assert order.submitted_at is not None
