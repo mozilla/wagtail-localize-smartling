@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - Add `PendingTranslationLockMixin`, which locks a page in the Wagtail admin while its content is awaiting translation in Smartling, so that edits made in the meantime aren't overwritten when the translation is imported.
+- Add `Order` model for batching pages sent to Smartling as one job. A `Job` now has a `JobFile` per translatable object and every job belongs to an order.
+- Deprecate `Job.translation_source`, `Job.file_uri` and `Job.content_hash`. Nothing writes to them any more; read the job's `files` instead. They are removed in the following release.
+- **Breaking:** `JOB_DESCRIPTION_CALLBACK` is now called with `(default_description, job)`. It previously received the source instance and the translations, which the setting's own type annotation described incorrectly. The pages a job carries are `job.files`, each with a `translation_source`.
+- **Breaking:** `VISUAL_CONTEXT_CALLBACK` is now called with `(job, translation_source)`, once per file of the job. Raising `IncapableVisualContextCallback` now skips that one file rather than the whole job.
+- **Breaking:** groups holding `wagtail_localize.submit_translation` are granted the new `Order` permissions by migration. Projects that manage their groups in code must grant those permissions themselves.
 
 ## [0.13.0] - 2026-08-03
 
