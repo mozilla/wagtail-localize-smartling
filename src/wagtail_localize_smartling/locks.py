@@ -29,6 +29,8 @@ def get_pending_translation_state(instance):
             translation__enabled=True,
             translation__source__object_id=instance.translation_key,
         )
+        # Exclude jobs that never reached Smartling, and are blocked.
+        .exclude(job__sync_blocked=True, job__translation_job_uid="")
         .select_related("translation__source", "translation__target_locale")
         .order_by("translation__target_locale__language_code")
     )

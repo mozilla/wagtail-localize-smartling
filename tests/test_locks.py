@@ -118,6 +118,34 @@ def test_disabled_translation_is_not_in_flight(smartling_job):
     assert get_in_flight_locales_for_instance(source_page_of(smartling_job)) == []
 
 
+def test_a_blocked_job_does_not_lock_its_pages(smartling_job):
+    """
+    A job that never reached Smartling and can not be pushed is not locked.
+
+    The job is not considered locked, since nobody (in Smartling) is translating its page(s).
+    """
+    set_status(smartling_job, JobStatus.UNSYNCED)
+    Job.objects.filter(pk=smartling_job.pk).update(sync_blocked=True)
+    fr_page = target_page_of(smartling_job.translations.get())
+
+    assert get_in_flight_locales_for_instance(source_page_of(smartling_job)) == []
+    assert is_in_flight_target(fr_page) is False
+
+
+def test_a_blocked_job_that_reached_smartling_still_locks(smartling_job):
+    """
+    A job that reached Smartling but is blocked is considered locked.
+
+    The job is considered locked, since a translator (in Smartling) is translating the page(s).
+    """
+    set_status(smartling_job, JobStatus.IN_PROGRESS)
+    Job.objects.filter(pk=smartling_job.pk).update(sync_blocked=True)
+    fr_page = target_page_of(smartling_job.translations.get())
+
+    assert language_codes(get_in_flight_locales_for_instance(source_page_of(smartling_job))) == ["fr"]
+    assert is_in_flight_target(fr_page) is True
+
+
 def test_german_unlocks_while_french_is_still_pending(smartling_job_multi_locale):
     """A job is not all-or-nothing: it lands one locale at a time."""
     job = smartling_job_multi_locale
