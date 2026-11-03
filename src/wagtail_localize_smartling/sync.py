@@ -14,7 +14,12 @@ from . import utils
 from .api.client import client
 from .api.types import JobStatus
 from .constants import PENDING_STATUSES, TRANSLATED_STATUSES, UNTRANSLATED_STATUSES
-from .signals import individual_translation_imported, job_synced_to_smartling, translation_import_successful
+from .signals import (
+    individual_translation_imported,
+    job_sync_failed,
+    job_synced_to_smartling,
+    translation_import_successful,
+)
 
 
 def _sanitize_po_content(content: str) -> str:
@@ -70,6 +75,27 @@ class FileURIMismatch(SyncJobException):
 SYNC_LEASE_SECONDS = 60 * 30
 
 
+# Statuses where a 4xx says something about the caller, the moment, or the
+# network, rather than about the job, so retrying is the right move.
+RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({401, 403, 408, 409, 429})
+
+
+def is_failure_permanent(exc: Exception) -> bool:
+    """
+    Return True if this failure will recur on every retry.
+
+    A 4xx means Smartling rejected the request itself (for example, for a
+    duplicate job name, a job with no strings, an unknown locale), and will
+    reject it again.
+    """
+    status_code = getattr(exc, "status_code", None)
+    if status_code is None:
+        return False
+    if status_code in RETRYABLE_CLIENT_ERROR_STATUSES:
+        return False
+    return 400 <= status_code < 500
+
+
 def sync_job(job_id: int) -> None:
     """
     Sync the state of a Job instance with the corresponding job in Smartling.
@@ -90,13 +116,43 @@ def sync_job(job_id: int) -> None:
         return
 
     claimed_at = job.sync_started_at
+    was_blocked = job.sync_blocked
     try:
-        if _push_is_incomplete(job):
+        if was_blocked:
+            # If the sync is blocked, we check if the job reached Smartling (if
+            # if has a translation_job_uid). If it reached Smartling, then we
+            # call _sync() for the job.
+            if job.translation_job_uid:
+                _sync(job)
+        elif _push_is_incomplete(job):
             _initial_sync(job)
         else:
             _sync(job)
     except Exception as e:
+        permanent = is_failure_permanent(e)
+        job.record_sync_failure(e, permanent=permanent)
+
+        # Sent a job_sync_failed signal robustly, so that this exception
+        # reaches the caller.
+        for receiver, response in job_sync_failed.send_robust(
+            sender=job.__class__,
+            instance=job,
+            exception=e,
+            permanent=permanent,
+        ):
+            if isinstance(response, Exception):
+                logger.error(
+                    "%s could not handle the failed sync of job %s",
+                    receiver,
+                    job,
+                    exc_info=response,
+                )
         raise SyncJobException(f"Exception syncing job {job}") from e
+    else:
+        if not was_blocked:
+            # If the job was previously marked as blocked, but the code reaches
+            # here, the job is not failing, so clear the sync failure from it.
+            job.clear_sync_failure()
     finally:
         try:
             _release_claim(job, claimed_at=claimed_at)
@@ -251,7 +307,12 @@ def _initial_sync(job: "Job") -> None:
                     job.save(update_fields=["file_uri"])
 
     # Add context to the job (if settings.VISUAL_CONTEXT_CALLBACK is defined)
-    client.add_html_context_to_job(job=job)
+    try:
+        client.add_html_context_to_job(job=job)
+    except Exception:
+        # Every file is already at Smartling and authorized. Log the exception
+        # here, but do not raise an error for it.
+        logger.exception("Could not add visual context to job %s", job)
 
 
 def _sync(job: "Job") -> None:

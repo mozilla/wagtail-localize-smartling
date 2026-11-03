@@ -13,7 +13,7 @@ from django.utils import timezone
 from wagtail.models import Locale
 from wagtail_localize.models import StringTranslation, Translation, TranslationSource
 
-from wagtail_localize_smartling.api.client import client
+from wagtail_localize_smartling.api.client import FailedResponse, client
 from wagtail_localize_smartling.api.types import JobStatus
 from wagtail_localize_smartling.models import Job, JobTranslation
 from wagtail_localize_smartling.sync import (
@@ -29,6 +29,7 @@ from wagtail_localize_smartling.sync import (
     _release_claim,
     _sanitize_po_content,
     _sync,
+    is_failure_permanent,
     sync_job,
 )
 
@@ -902,3 +903,132 @@ class TestDownloadIsPerFile:
 
         assert JobTranslation.objects.get(job=job, translation=french_translation).imported_at is None
         assert get_string_translations_for_page(french_file.translation_source, "fr") == set()
+
+
+def smartling_error_body(key: str, message: str) -> str:
+    return json.dumps({"response": {"code": "VALIDATION_ERROR", "errors": [{"key": key, "message": message}]}})
+
+
+def register_create_job_rejection(responses, settings, *, message: str) -> None:
+    """Have Smartling reject the job, the way a duplicate name is rejected."""
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+    responses.add(
+        method="POST",
+        url=f"https://api.smartling.com/jobs-api/v3/projects/{quote(project_id)}/jobs",
+        body=smartling_error_body("name", message),
+        status=400,
+    )
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected_failure_permanent"),
+    [
+        (FailedResponse(code="VALIDATION_ERROR", errors=[], status_code=400), True),
+        (FailedResponse(code="NOT_FOUND", errors=[], status_code=404), True),
+        (FailedResponse(code="AUTH", errors=[], status_code=401), False),
+        (FailedResponse(code="FORBIDDEN", errors=[], status_code=403), False),
+        (FailedResponse(code="TIMEOUT", errors=[], status_code=408), False),
+        (FailedResponse(code="CONFLICT", errors=[], status_code=409), False),
+        (FailedResponse(code="RATE", errors=[], status_code=429), False),
+        (FailedResponse(code="SERVER", errors=[], status_code=503), False),
+        (FailedResponse(code="UNKNOWN", errors=[], status_code=None), False),
+        (TimeoutError("timed out"), False),
+    ],
+)
+def test_is_failure_permanent(exc, expected_failure_permanent):
+    assert is_failure_permanent(exc) is expected_failure_permanent
+
+
+class TestSyncFailureRecording:
+    def test_a_rejected_submission_is_recorded_and_blocked(self, root_page, smartling_project, responses, settings):
+        register_create_job_rejection(responses, settings, message="duplicate")
+        job = JobFactory(source_instance=root_page, unsynced=True)
+
+        with pytest.raises(SyncJobException):
+            sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.sync_blocked is True
+        assert "duplicate" in job.last_sync_error
+
+    def test_a_timeout_is_recorded_without_blocking(self, root_page, smartling_project):
+        job = JobFactory(source_instance=root_page, unsynced=True)
+
+        with (
+            patch("wagtail_localize_smartling.sync.client.create_job", side_effect=TimeoutError("timed out")),
+            pytest.raises(SyncJobException),
+        ):
+            sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.sync_blocked is False
+        assert job.consecutive_sync_failures == 1
+
+    def test_a_successful_sync_forgets_an_earlier_failure(
+        self,
+        root_page,
+        smartling_project,
+        smartling_create_job,
+        smartling_create_batch_for_job,
+        responses,
+        settings,
+    ):
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+        job = JobFactory(source_instance=root_page, unsynced=True)
+        job.record_sync_failure(TimeoutError("timed out"), permanent=False)
+
+        sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.consecutive_sync_failures == 0
+        assert job.last_sync_error == ""
+        assert job.last_sync_error_at is None
+
+    def test_a_visual_context_failure_does_not_block_a_submitted_job(
+        self,
+        root_page,
+        smartling_project,
+        smartling_create_job,
+        smartling_create_batch_for_job,
+        smartling_settings,
+        responses,
+        settings,
+    ):
+        """Context is best-effort; the files are already at Smartling by the time it is sent."""
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+        smartling_settings.VISUAL_CONTEXT_CALLBACK = lambda job, translation_source: (
+            "https://example.com/page/",
+            "<html></html>",
+        )
+        project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+        responses.add(
+            method="POST",
+            url=f"https://api.smartling.com/context-api/v2/projects/{quote(project_id)}/contexts/upload-and-match-async",
+            body=smartling_error_body("context", "no context for you"),
+            status=400,
+        )
+        job = JobFactory(source_instance=root_page, unsynced=True)
+
+        sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.sync_blocked is False
+        assert job.files.filter(file_uri="").count() == 0
+
+    def test_polling_a_blocked_job_does_not_unblock_it(self, root_page, smartling_project):
+        job = JobFactory(source_instance=root_page, synced=True)
+        job.record_sync_failure(FailedResponse(code="VALIDATION_ERROR", errors=[], status_code=400), permanent=True)
+        job_details = {
+            "jobStatus": JobStatus.AWAITING_AUTHORIZATION,
+            "description": "",
+            "referenceNumber": "",
+            "dueDate": None,
+        }
+
+        # Nothing stubs the push, so retrying it would fail the call outright.
+        with patch("wagtail_localize_smartling.sync.client.get_job_details", return_value=job_details):
+            sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.sync_blocked is True
+        assert job.consecutive_sync_failures == 1
