@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `JOB_DESCRIPTION_CALLBACK` is now called with `(default_description, job)`. It previously received the source instance and the translations, which the setting's own type annotation described incorrectly. The pages a job carries are `job.files`, each with a `translation_source`.
 - **Breaking:** `VISUAL_CONTEXT_CALLBACK` is now called with `(job, translation_source)`, once per file of the job. Raising `IncapableVisualContextCallback` now skips that one file rather than the whole job.
 - **Breaking:** groups holding `wagtail_localize.submit_translation` are granted the new `Order` permissions by migration. Projects that manage their groups in code must grant those permissions themselves.
+- Record why a job failed to sync on the job itself: `last_sync_error`, `last_sync_error_at`, `consecutive_sync_failures` and `sync_blocked`, all cleared the next time it syncs successfully.
+- Add the `job_sync_failed` signal, sent with the job, the exception and whether the failure is permanent each time a sync attempt fails, as the hook for notifying a host project.
+- Add `Job.needs_a_new_job`, true when the content can only be translated by sending it again
 
 ## [0.13.0] - 2026-08-03
 
