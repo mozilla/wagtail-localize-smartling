@@ -25,7 +25,7 @@ from wagtail_localize.tasks import ImmediateBackend, background
 from . import utils as smartling_utils
 from .api.client import client
 from .api.types import JobStatus
-from .constants import EXPANDABLE_JOB_STATUSES, UNSYNCED_OR_PENDING_STATUSES
+from .constants import EXPANDABLE_JOB_STATUSES, UNSYNCED_OR_PENDING_STATUSES, UNTRANSLATED_STATUSES
 from .forms import JobForm
 from .settings import settings as smartling_settings
 from .sync import sync_job
@@ -554,6 +554,16 @@ class Job(SyncedModel):
             ]
         )
 
+    @property
+    def needs_a_new_job(self) -> bool:
+        """
+        Whether these translations can now only arrive via a new job.
+
+        A job blocked after its files reached Smartling is not one of those: its
+        locales can still land, and a second job would duplicate them.
+        """
+        return self.status in UNTRANSLATED_STATUSES or (self.sync_blocked and not self.translation_job_uid)
+
     @staticmethod
     def get_default_name(
         translation_source: TranslationSource,
@@ -714,6 +724,8 @@ class Job(SyncedModel):
                 files__content_hash=content_hash,
                 status__in=UNSYNCED_OR_PENDING_STATUSES,
             )
+            # Exclude Jobs that are blocked and never reached Smartling.
+            .exclude(sync_blocked=True, translation_job_uid="")
             .prefetch_related("translations", "files")
             .distinct()
             # A job that carries other pages belongs to a different order.
