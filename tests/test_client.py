@@ -8,7 +8,7 @@ import pytest
 from wagtail.models import Locale
 from wagtail_localize.models import Translation, TranslationSource
 
-from wagtail_localize_smartling.api.client import InvalidResponse, client
+from wagtail_localize_smartling.api.client import FailedResponse, InvalidResponse, client
 from wagtail_localize_smartling.exceptions import IncapableVisualContextCallback
 from wagtail_localize_smartling.models import Job
 
@@ -17,6 +17,16 @@ from tests.factories import JobFactory
 
 
 pytestmark = pytest.mark.django_db
+
+
+SMARTLING_ERROR_RESPONSE_BODY = json.dumps(
+    {
+        "response": {
+            "code": "VALIDATION_ERROR",
+            "errors": [{"key": "fileUri", "message": "no such file"}],
+        }
+    }
+)
 
 
 def get_authorized_locales_from_request_body(request):
@@ -392,3 +402,55 @@ def test_client__add_locale_to_job(
     result = client.add_locale_to_job(job=smartling_job, locale_id="de")
 
     assert result is None
+
+
+def test_a_failed_response_carries_its_http_status(root_page, smartling_project, responses):
+    responses.add(
+        method="POST",
+        url=re.compile(r".*/job-batches-api/v2/projects/.*/batches$"),
+        body=json.dumps(
+            {
+                "response": {
+                    "code": "VALIDATION_ERROR",
+                    "errors": [{"key": "some batch key", "message": "some batch message"}],
+                }
+            }
+        ),
+        status=400,
+    )
+    job = JobFactory(source_instance=root_page, synced=True)
+
+    with pytest.raises(FailedResponse) as excinfo:
+        client.create_batch_for_job(job=job, job_files=job.files.all())
+
+    assert excinfo.value.status_code == 400
+
+
+def test_a_failed_zip_download_carries_its_http_status(smartling_job: "Job", responses):
+    job_file = smartling_job.files.get()
+    responses.add(
+        method="GET",
+        url=re.compile(r".*/files-api/v2/projects/.*/locales/all/file/zip"),
+        body=SMARTLING_ERROR_RESPONSE_BODY,
+        status=404,
+    )
+
+    with pytest.raises(FailedResponse) as excinfo, client.download_translations(job_file=job_file):
+        pass
+
+    assert excinfo.value.status_code == 404
+
+
+def test_a_failed_locale_download_carries_its_http_status(smartling_job: "Job", responses):
+    job_file = smartling_job.files.get()
+    responses.add(
+        method="GET",
+        url=re.compile(r".*/files-api/v2/projects/.*/locales/fr/file"),
+        body=SMARTLING_ERROR_RESPONSE_BODY,
+        status=404,
+    )
+
+    with pytest.raises(FailedResponse) as excinfo:
+        client.download_translation_for_locale(job_file=job_file, locale_id="fr")
+
+    assert excinfo.value.status_code == 404
