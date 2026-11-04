@@ -66,6 +66,9 @@ integrates with the Smartling translation platform.
         "SEND_TO_SMARTLING_BY_DEFAULT": True,
         "ENVIRONMENT": "production",  # Set this to "staging" to use Smartling's staging API
         "API_TIMEOUT_SECONDS": 5.0,  # Timeout in seconds for requests to the Smartling API
+        # How many times in a row a job's upload to Smartling may fail
+        # before the job is blocked and stops being retried.
+        "SYNC_FAILURE_LIMIT": 10,
     }
     ```
 
