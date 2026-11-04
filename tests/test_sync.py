@@ -25,7 +25,6 @@ from wagtail_localize_smartling.sync import (
     _download_and_apply_translations,
     _import_translation_for_locale,
     _initial_sync,
-    _push_is_incomplete,
     _release_claim,
     _sanitize_po_content,
     _sync,
@@ -355,17 +354,26 @@ msgstr "Kontrolle \u2028über KI"
 
 class TestPushIsIncomplete:
     def test_a_job_that_was_never_pushed_is_incomplete(self, root_page):
-        assert _push_is_incomplete(JobFactory(source_instance=root_page, unsynced=True))
+        assert JobFactory(source_instance=root_page, unsynced=True).push_is_incomplete
 
     def test_a_job_whose_upload_never_landed_is_incomplete(self, root_page):
         job = JobFactory(source_instance=root_page, synced=True)
-        assert _push_is_incomplete(job)
+        assert job.push_is_incomplete
+
+    def test_a_job_with_only_some_of_its_files_uploaded_is_incomplete(self, root_page):
+        """An order stops part-way through its pages, and the rest are still owed to Smartling."""
+        job = two_file_job(root_page, synced=True)
+        pushed_file, unsent_file = mark_files_uploaded(job)
+        unsent_file.file_uri = ""
+        unsent_file.save(update_fields=["file_uri"])
+
+        assert job.push_is_incomplete
 
     def test_a_job_with_every_file_uploaded_is_complete(self, root_page):
         job = JobFactory(source_instance=root_page, synced=True)
         job.files.update(file_uri="job_1_ts_1.po")
 
-        assert not _push_is_incomplete(job)
+        assert not job.push_is_incomplete
 
 
 class TestSyncWriteOrder:
@@ -744,6 +752,32 @@ class TestPollingIsPerFile:
         # fetched was that file's, not the job's first file's.
         assert locales_and_files_requested(responses, path_ends_with="/file") == {("fr", finished_file.file_uri)}
 
+    def test_a_file_that_never_reached_smartling_is_not_checked(
+        self,
+        root_page,
+        smartling_get_file_status,
+        smartling_download_translation_for_locale,
+        responses,
+        disable_signals,
+    ):
+        """Its upload is what failed, so Smartling knows nothing about it and the rest of the job still lands."""
+        job = two_file_job(root_page, synced=True, status=JobStatus.IN_PROGRESS, translations=[])
+        pushed_file, unsent_file = mark_files_uploaded(job)
+        unsent_file.file_uri = ""
+        unsent_file.save(update_fields=["file_uri"])
+        french = Locale.objects.get(language_code="fr")
+        job.translations.add(
+            Translation.objects.create(source=pushed_file.translation_source, target_locale=french),
+            Translation.objects.create(source=unsent_file.translation_source, target_locale=french),
+        )
+        smartling_get_file_status("fr", total_strings=10, completed_strings=10, file_uri=pushed_file.file_uri)
+        smartling_download_translation_for_locale("fr", file_uri=pushed_file.file_uri)
+
+        imported = _check_and_import_completed_locales(job)
+
+        assert [translation.source.pk for translation in imported] == [pushed_file.translation_source_id]
+        assert locales_and_files_requested(responses, path_ends_with="/file/status") == {("fr", pushed_file.file_uri)}
+
     def test_a_translation_belonging_to_no_file_is_skipped(
         self,
         root_page,
@@ -814,6 +848,19 @@ class TestDownloadIsPerFile:
         # Smartling had nothing for either file, so nobody is told a
         # translation landed.
         announce.send.assert_not_called()
+
+    def test_a_file_that_never_reached_smartling_is_not_downloaded(
+        self, root_page, smartling_translations_zip, responses, disable_signals
+    ):
+        job = two_file_job(root_page, synced=True)
+        pushed_file, unsent_file = mark_files_uploaded(job)
+        unsent_file.file_uri = ""
+        unsent_file.save(update_fields=["file_uri"])
+        smartling_translations_zip(file_uri=pushed_file.file_uri, entries={})
+
+        _download_and_apply_translations(job)
+
+        assert locales_and_files_requested(responses, path_ends_with="/file/zip") == {("all", pushed_file.file_uri)}
 
     def test_an_entry_for_a_file_outside_the_job_is_loud(self, root_page, smartling_translations_zip, disable_signals):
         """

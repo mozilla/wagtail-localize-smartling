@@ -560,6 +560,16 @@ class Job(SyncedModel):
         )
 
     @property
+    def push_is_incomplete(self) -> bool:
+        """
+        Whether this job still needs to send something to Smartling.
+
+        A push is incomplete until the job exists in Smartling and every one of
+        its files has been uploaded.
+        """
+        return self.translation_job_uid == "" or self.files.filter(file_uri="").exists()
+
+    @property
     def needs_a_new_job(self) -> bool:
         """
         Whether these translations can now only arrive via a new job.

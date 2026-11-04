@@ -120,7 +120,7 @@ def sync_job(job_id: int) -> None:
     was_blocked = job.sync_blocked
     # A blocked job is never pushed again: its push is what failed, and nothing
     # here can fix it.
-    pushing = not was_blocked and _push_is_incomplete(job)
+    pushing = not was_blocked and job.push_is_incomplete
     try:
         if pushing:
             _initial_sync(job)
@@ -154,7 +154,7 @@ def sync_job(job_id: int) -> None:
     else:
         # A job blocked on its push stays blocked until that push finishes: a
         # clean poll says nothing about the upload that failed.
-        if not was_blocked or not _push_is_incomplete(job):
+        if not was_blocked or not job.push_is_incomplete:
             job.clear_sync_failure()
     finally:
         try:
@@ -199,17 +199,6 @@ def _release_claim(job: "Job", *, claimed_at: datetime) -> None:
     from .models import Job
 
     Job.objects.filter(pk=job.pk, sync_started_at=claimed_at).update(sync_started_at=None)
-
-
-def _push_is_incomplete(job: "Job") -> bool:
-    """
-    Whether this job still has work to do at Smartling's end.
-
-    A push is incomplete until the job exists in Smartling and every one of its
-    files has been uploaded. A push that dies in between leaves a job that has
-    a status and a UID and some of its files unpushed.
-    """
-    return job.translation_job_uid == "" or job.files.filter(file_uri="").exists()
 
 
 def _check_job_can_be_authorized(job: "Job") -> None:
@@ -424,6 +413,14 @@ def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
             )
             continue
 
+        if not job_file.file_uri:
+            logger.warning(
+                "%s never reached Smartling, so translation %s cannot be checked yet",
+                job_file,
+                translation.pk,
+            )
+            continue
+
         smartling_locale_id = utils.format_smartling_locale_id(translation.target_locale.language_code)
 
         try:
@@ -505,7 +502,14 @@ def _download_and_apply_translations(job: "Job") -> None:
     # The endpoint takes one fileUri and answers with every locale of it, so a
     # job of many pages costs one zip per page rather than one per page and
     # locale.
-    job_files_by_uri = {job_file.file_uri: job_file for job_file in job.files.select_related("translation_source")}
+    # A file with no URI never reached Smartling, so there is nothing there to
+    # ask for; its page is translated once the rest of the push goes out.
+    job_files_by_uri = {
+        job_file.file_uri: job_file for job_file in job.files.select_related("translation_source") if job_file.file_uri
+    }
+    unsent_file_count = job.files.filter(file_uri="").count()
+    if unsent_file_count:
+        logger.warning("Job %s has %d file(s) that never reached Smartling", job, unsent_file_count)
     unknown_file_uris = []
 
     for job_file in job_files_by_uri.values():
