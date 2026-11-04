@@ -34,6 +34,10 @@ from .utils import compute_content_hash, get_snippet_admin_url
 
 logger = logging.getLogger(__name__)
 
+# A failing Smartling call can answer with a whole HTML error page, and the
+# message is written to the job on every sweep and shown in the admin.
+SYNC_ERROR_MAX_LENGTH = 2000
+
 
 class SyncedModel(models.Model):
     first_synced_at = models.DateTimeField(null=True, editable=False)
@@ -527,7 +531,10 @@ class Job(SyncedModel):
         A transient failure keeps retrying until SYNC_FAILURE_LIMIT, so a job
         whose Smartling project is unreachable does not retry forever either.
         """
-        self.last_sync_error = str(exc)
+        message = str(exc)
+        if len(message) > SYNC_ERROR_MAX_LENGTH:
+            message = message[: SYNC_ERROR_MAX_LENGTH - 1] + "\u2026"
+        self.last_sync_error = message
         self.last_sync_error_at = timezone.now()
         self.consecutive_sync_failures += 1
         if pushing and (permanent or self.consecutive_sync_failures >= smartling_settings.SYNC_FAILURE_LIMIT):

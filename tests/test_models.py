@@ -14,7 +14,7 @@ from wagtail_localize.operations import translate_object
 
 from wagtail_localize_smartling import models as wls_models
 from wagtail_localize_smartling.api.types import JobStatus
-from wagtail_localize_smartling.models import Job, JobTranslation, LandedTranslationTask
+from wagtail_localize_smartling.models import SYNC_ERROR_MAX_LENGTH, Job, JobTranslation, LandedTranslationTask
 from wagtail_localize_smartling.utils import compute_content_hash, get_snippet_admin_url
 
 from testapp.factories import (
@@ -1247,6 +1247,28 @@ def test_failures_that_are_not_pushes_do_not_block_at_the_limit(root_page, smart
 
     assert job.sync_blocked is False
     assert job.consecutive_sync_failures == 3
+
+
+def test_a_huge_error_message_is_truncated(root_page):
+    """A proxy answering with an HTML error page must not write that page to the row on every sweep."""
+    job = JobFactory(source_instance=root_page)
+
+    job.record_sync_failure(ValueError("upload rejected: " + "x" * 10_000), permanent=False, pushing=True)
+    job.refresh_from_db()
+
+    assert len(job.last_sync_error) == SYNC_ERROR_MAX_LENGTH
+    assert job.last_sync_error.startswith("upload rejected: ")
+    assert job.last_sync_error.endswith("\u2026")
+
+
+def test_an_error_message_that_fits_is_stored_whole(root_page):
+    """If an error message is below the limit, all of it is stored."""
+    job = JobFactory(source_instance=root_page)
+
+    job.record_sync_failure(ValueError("upload rejected"), permanent=False, pushing=True)
+    job.refresh_from_db()
+
+    assert job.last_sync_error == "upload rejected"
 
 
 def test_clearing_sync_failure_resets_every_field(root_page):
