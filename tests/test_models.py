@@ -1199,7 +1199,7 @@ def test_closing_an_order_is_not_an_edit(root_page, locales, superuser, smartlin
 def test_recording_a_permanent_sync_failure_blocks_the_job(root_page):
     job = JobFactory(source_instance=root_page)
 
-    job.record_sync_failure(ValueError("duplicate job name"), permanent=True)
+    job.record_sync_failure(ValueError("duplicate job name"), permanent=True, pushing=True)
     job.refresh_from_db()
 
     assert job.sync_blocked is True
@@ -1213,19 +1213,45 @@ def test_transient_sync_failures_block_only_at_the_limit(root_page, smartling_se
     job = JobFactory(source_instance=root_page)
 
     for _ in range(2):
-        job.record_sync_failure(TimeoutError("timed out"), permanent=False)
+        job.record_sync_failure(TimeoutError("timed out"), permanent=False, pushing=True)
     job.refresh_from_db()
     assert job.sync_blocked is False
 
-    job.record_sync_failure(TimeoutError("timed out"), permanent=False)
+    job.record_sync_failure(TimeoutError("timed out"), permanent=False, pushing=True)
     job.refresh_from_db()
     assert job.sync_blocked is True
     assert job.consecutive_sync_failures == 3
 
 
+def test_a_failure_that_is_not_a_push_never_blocks_the_job(root_page):
+    """
+    Blocking stops a push from being retried; a job whose files have been synced Smartling has no push left to stop.
+    """
+    job = JobFactory(source_instance=root_page)
+
+    job.record_sync_failure(ValueError("job was deleted at Smartling"), permanent=True, pushing=False)
+    job.refresh_from_db()
+
+    assert job.sync_blocked is False
+    assert job.consecutive_sync_failures == 1
+    assert "deleted at Smartling" in job.last_sync_error
+
+
+def test_failures_that_are_not_pushes_do_not_block_at_the_limit(root_page, smartling_settings):
+    smartling_settings.SYNC_FAILURE_LIMIT = 2
+    job = JobFactory(source_instance=root_page)
+
+    for _ in range(3):
+        job.record_sync_failure(TimeoutError("timed out"), permanent=False, pushing=False)
+    job.refresh_from_db()
+
+    assert job.sync_blocked is False
+    assert job.consecutive_sync_failures == 3
+
+
 def test_clearing_sync_failure_resets_every_field(root_page):
     job = JobFactory(source_instance=root_page)
-    job.record_sync_failure(ValueError("nope"), permanent=True)
+    job.record_sync_failure(ValueError("nope"), permanent=True, pushing=True)
 
     job.clear_sync_failure()
     job.refresh_from_db()

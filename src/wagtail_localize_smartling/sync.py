@@ -14,6 +14,7 @@ from . import utils
 from .api.client import client
 from .api.types import JobStatus
 from .constants import PENDING_STATUSES, TRANSLATED_STATUSES, UNTRANSLATED_STATUSES
+from .settings import settings as smartling_settings
 from .signals import (
     individual_translation_imported,
     job_sync_failed,
@@ -117,41 +118,43 @@ def sync_job(job_id: int) -> None:
 
     claimed_at = job.sync_started_at
     was_blocked = job.sync_blocked
+    # A blocked job is never pushed again: its push is what failed, and nothing
+    # here can fix it.
+    pushing = not was_blocked and _push_is_incomplete(job)
     try:
-        if was_blocked:
-            # If the sync is blocked, we check if the job reached Smartling (if
-            # if has a translation_job_uid). If it reached Smartling, then we
-            # call _sync() for the job.
-            if job.translation_job_uid:
-                _sync(job)
-        elif _push_is_incomplete(job):
+        if pushing:
             _initial_sync(job)
-        else:
+        elif job.translation_job_uid:
             _sync(job)
+        # A blocked job with no uid never reached Smartling, so there is
+        # nothing to poll and nothing worth pushing until the block is cleared.
     except Exception as e:
         permanent = is_failure_permanent(e)
-        job.record_sync_failure(e, permanent=permanent)
+        job.record_sync_failure(e, permanent=permanent, pushing=pushing)
 
-        # Sent a job_sync_failed signal robustly, so that this exception
-        # reaches the caller.
-        for receiver, response in job_sync_failed.send_robust(
-            sender=job.__class__,
-            instance=job,
-            exception=e,
-            permanent=permanent,
-        ):
-            if isinstance(response, Exception):
-                logger.error(
-                    "%s could not handle the failed sync of job %s",
-                    receiver,
-                    job,
-                    exc_info=response,
-                )
+        # Past the limit the job keeps being swept but stops being announced:
+        # a job that fails every sweep would otherwise alert every sweep.
+        if job.consecutive_sync_failures <= smartling_settings.SYNC_FAILURE_LIMIT:
+            # Sent a job_sync_failed signal robustly, so that this exception
+            # reaches the caller.
+            for receiver, response in job_sync_failed.send_robust(
+                sender=job.__class__,
+                instance=job,
+                exception=e,
+                permanent=permanent,
+            ):
+                if isinstance(response, Exception):
+                    logger.error(
+                        "%s could not handle the failed sync of job %s",
+                        receiver,
+                        job,
+                        exc_info=response,
+                    )
         raise SyncJobException(f"Exception syncing job {job}") from e
     else:
-        if not was_blocked:
-            # If the job was previously marked as blocked, but the code reaches
-            # here, the job is not failing, so clear the sync failure from it.
+        # A job blocked on its push stays blocked until that push finishes: a
+        # clean poll says nothing about the upload that failed.
+        if not was_blocked or not _push_is_incomplete(job):
             job.clear_sync_failure()
     finally:
         try:

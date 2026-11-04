@@ -975,7 +975,7 @@ class TestSyncFailureRecording:
     ):
         register_file_upload_to_batch(responses, settings, succeeds=True)
         job = JobFactory(source_instance=root_page, unsynced=True)
-        job.record_sync_failure(TimeoutError("timed out"), permanent=False)
+        job.record_sync_failure(TimeoutError("timed out"), permanent=False, pushing=True)
 
         sync_job(job.pk)
 
@@ -1015,9 +1015,53 @@ class TestSyncFailureRecording:
         assert job.sync_blocked is False
         assert job.files.filter(file_uri="").count() == 0
 
-    def test_polling_a_blocked_job_does_not_unblock_it(self, root_page, smartling_project):
+    def test_a_failed_poll_does_not_block_the_job(self, root_page, smartling_project):
+        """A job whose files are at Smartling is polled again regardless, so blocking it stops nothing."""
         job = JobFactory(source_instance=root_page, synced=True)
-        job.record_sync_failure(FailedResponse(code="VALIDATION_ERROR", errors=[], status_code=400), permanent=True)
+        job.files.update(file_uri="job.po")
+
+        with (
+            patch(
+                "wagtail_localize_smartling.sync.client.get_job_details",
+                side_effect=FailedResponse(code="NOT_FOUND", errors=[], status_code=404),
+            ),
+            pytest.raises(SyncJobException),
+        ):
+            sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.sync_blocked is False
+        assert job.consecutive_sync_failures == 1
+        assert "NOT_FOUND" in job.last_sync_error
+
+    def test_repeated_failed_polls_do_not_block_the_job_at_the_limit(
+        self, root_page, smartling_project, smartling_settings
+    ):
+        """An outage lasting longer than the limit must not strand a job that is still translating."""
+        smartling_settings.SYNC_FAILURE_LIMIT = 2
+        job = JobFactory(source_instance=root_page, synced=True)
+        job.files.update(file_uri="job.po")
+
+        for _ in range(2):
+            with (
+                patch(
+                    "wagtail_localize_smartling.sync.client.get_job_details",
+                    side_effect=TimeoutError("smartling unreachable"),
+                ),
+                pytest.raises(SyncJobException),
+            ):
+                sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.consecutive_sync_failures == 2
+        assert job.sync_blocked is False
+
+    def test_a_clean_poll_does_not_unblock_a_job_whose_push_never_finished(self, root_page, smartling_project):
+        job = JobFactory(source_instance=root_page, synced=True)
+        job.record_sync_failure(
+            FailedResponse(code="VALIDATION_ERROR", errors=[], status_code=400), permanent=True, pushing=True
+        )
+        assert job.files.filter(file_uri="").exists(), "the upload that failed is what blocked the job"
         job_details = {
             "jobStatus": JobStatus.AWAITING_AUTHORIZATION,
             "description": "",
@@ -1032,3 +1076,26 @@ class TestSyncFailureRecording:
         job.refresh_from_db()
         assert job.sync_blocked is True
         assert job.consecutive_sync_failures == 1
+
+    def test_a_clean_poll_clears_a_failure_once_the_push_has_finished(self, root_page, smartling_project):
+        """Nothing is left to retry, so the job must stop reading as a failing one."""
+        job = JobFactory(source_instance=root_page, synced=True)
+        job.files.update(file_uri="job.po")
+        job.record_sync_failure(
+            FailedResponse(code="VALIDATION_ERROR", errors=[], status_code=400), permanent=True, pushing=True
+        )
+        job_details = {
+            "jobStatus": JobStatus.AWAITING_AUTHORIZATION,
+            "description": "",
+            "referenceNumber": "",
+            "dueDate": None,
+        }
+
+        with patch("wagtail_localize_smartling.sync.client.get_job_details", return_value=job_details):
+            sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.sync_blocked is False
+        assert job.consecutive_sync_failures == 0
+        assert job.last_sync_error == ""
+        assert job.last_sync_error_at is None

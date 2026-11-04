@@ -725,6 +725,26 @@ def test_job_sync_failed_is_sent_on_failure(root_page, smartling_project, respon
     assert isinstance(recorded_sync_failures[0]["exception"], FailedResponse)
 
 
+def test_job_sync_failed_stops_being_sent_once_the_failures_pass_the_limit(
+    root_page, smartling_project, smartling_settings, recorded_sync_failures
+):
+    smartling_settings.SYNC_FAILURE_LIMIT = 1
+    job = JobFactory(source_instance=root_page, synced=True)
+    job.files.update(file_uri="job.po")
+
+    for _ in range(3):
+        with (
+            patch(
+                "wagtail_localize_smartling.sync.client.get_job_details",
+                side_effect=TimeoutError("smartling unreachable"),
+            ),
+            pytest.raises(SyncJobException),
+        ):
+            sync_job(job.pk)
+
+    assert len(recorded_sync_failures) == 1
+
+
 def test_job_sync_failed_is_not_sent_when_a_sync_succeeds(root_page, smartling_project, recorded_sync_failures):
     job = JobFactory(source_instance=root_page, synced=True)
     job.files.update(file_uri="job_1_ts_1.po")

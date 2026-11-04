@@ -516,9 +516,13 @@ class Job(SyncedModel):
     def __str__(self):
         return self.name
 
-    def record_sync_failure(self, exc: Exception, *, permanent: bool) -> None:
+    def record_sync_failure(self, exc: Exception, *, permanent: bool, pushing: bool) -> None:
         """
         Persist a failed sync attempt and stop retrying if it cannot succeed.
+
+        Only a failed push blocks the job. Once its files are at Smartling the
+        job is polled on every sweep whatever happens, so blocking it would
+        stop nothing while hiding a translation that can still land.
 
         A transient failure keeps retrying until SYNC_FAILURE_LIMIT, so a job
         whose Smartling project is unreachable does not retry forever either.
@@ -526,7 +530,8 @@ class Job(SyncedModel):
         self.last_sync_error = str(exc)
         self.last_sync_error_at = timezone.now()
         self.consecutive_sync_failures += 1
-        self.sync_blocked = permanent or self.consecutive_sync_failures >= smartling_settings.SYNC_FAILURE_LIMIT
+        if pushing and (permanent or self.consecutive_sync_failures >= smartling_settings.SYNC_FAILURE_LIMIT):
+            self.sync_blocked = True
         self.save(
             update_fields=[
                 "last_sync_error",
