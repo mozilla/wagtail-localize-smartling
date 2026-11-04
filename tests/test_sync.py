@@ -14,6 +14,7 @@ from wagtail.models import Locale
 from wagtail_localize.models import StringTranslation, Translation, TranslationSource
 
 from wagtail_localize_smartling.api.client import FailedResponse, client
+from wagtail_localize_smartling.api.client import JobNotFound as SmartlingJobNotFound
 from wagtail_localize_smartling.api.types import JobStatus
 from wagtail_localize_smartling.models import Job, JobTranslation
 from wagtail_localize_smartling.sync import (
@@ -1146,3 +1147,45 @@ class TestSyncFailureRecording:
         assert job.consecutive_sync_failures == 0
         assert job.last_sync_error == ""
         assert job.last_sync_error_at is None
+
+
+class TestAJobDeletedInSmartling:
+    """Smartling answering "no such job" is an answer about the job, not a sync failure."""
+
+    def deleted_in_smartling(self):
+        return patch(
+            "wagtail_localize_smartling.sync.client.get_job_details",
+            side_effect=SmartlingJobNotFound("Job smartling-job-1 not found"),
+        )
+
+    def test_the_job_is_marked_deleted(self, root_page, smartling_project):
+        job = JobFactory(source_instance=root_page, synced=True)
+        job.files.update(file_uri="job.po")
+
+        with self.deleted_in_smartling():
+            sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.status == JobStatus.DELETED
+
+    def test_no_sync_failure_is_recorded(self, root_page, smartling_project):
+        job = JobFactory(source_instance=root_page, synced=True)
+        job.files.update(file_uri="job.po")
+
+        with self.deleted_in_smartling():
+            sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.consecutive_sync_failures == 0
+        assert job.last_sync_error == ""
+        assert job.sync_blocked is False
+
+    def test_the_job_needs_a_new_one(self, root_page, smartling_project):
+        job = JobFactory(source_instance=root_page, synced=True)
+        job.files.update(file_uri="job.po")
+
+        with self.deleted_in_smartling():
+            sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.needs_a_new_job is True

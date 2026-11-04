@@ -11,6 +11,7 @@ from django.utils import timezone
 from wagtail_localize.models import Translation
 
 from . import utils
+from .api.client import JobNotFound as SmartlingJobNotFound
 from .api.client import client
 from .api.types import JobStatus
 from .constants import PENDING_STATUSES, TRANSLATED_STATUSES, UNTRANSLATED_STATUSES
@@ -62,8 +63,8 @@ class SyncJobException(Exception):
     pass
 
 
-class JobNotFound(SyncJobException):
-    pass
+class LocalJobNotFound(SyncJobException):
+    """The Job row is gone from the database; Smartling is not involved."""
 
 
 class FileURIMismatch(SyncJobException):
@@ -174,7 +175,7 @@ def _claim_job_for_sync(job_id: int) -> "Job | None":
     try:
         job = Job.objects.select_for_update().get(pk=job_id)
     except Job.DoesNotExist as e:
-        raise JobNotFound(f"Job with ID {job_id} not found") from e
+        raise LocalJobNotFound(f"Job with ID {job_id} not found") from e
 
     # A Job is already being synced (by another worker), so return None, and let
     # that worker finish.
@@ -322,7 +323,7 @@ def _sync(job: "Job") -> None:
 
     try:
         job_data = client.get_job_details(job=job)
-    except JobNotFound:
+    except SmartlingJobNotFound:
         logger.warning("Job not found in Smartling, marking as deleted")
         updated_status = JobStatus.DELETED
     else:
