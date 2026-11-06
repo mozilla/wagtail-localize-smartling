@@ -17,6 +17,7 @@ PRE_ORDER_MODELS_MIGRATION = ("wagtail_localize_smartling", "0008_jobtranslation
 PRE_ORDERS_MIGRATION = ("wagtail_localize_smartling", "0009_job_sync_started_at_alter_job_translation_source_and_more")
 POPULATE_ORDERS_MIGRATION = ("wagtail_localize_smartling", "0010_populate_orders")
 GRANT_ORDER_PERMISSIONS_MIGRATION = ("wagtail_localize_smartling", "0011_data_grant_order_permissions")
+GRANT_ORDER_VIEW_MIGRATION = ("wagtail_localize_smartling", "0013_data_grant_order_view_to_job_viewers")
 
 
 def _build_pre_orders_job(state, **overrides):
@@ -258,4 +259,42 @@ def test_groups_that_can_submit_translations_can_manage_orders(migrator, django_
     # GRANT_ORDER_PERMISSIONS_MIGRATION.
     assert translator_permissions.filter(codename="submit_translation").exists()
     # Bystanders still have no permissions.
+    assert not Group.objects.get(name="Bystanders").permissions.exists()
+
+
+@pytest.mark.django_db
+def test_groups_that_could_read_the_jobs_can_read_the_orders(migrator, django_db_serialized_rollback):
+    """
+    Users who had "view_job" permission now have "view_order" permission.
+
+    The report at /smartling-jobs/ used to list jobs (and needed the "view_job"
+    permisison), but now lists orders (and now needs to "view_order" permisison).
+    """
+    old_state = migrator.apply_initial_migration(PRE_ORDER_MODELS_MIGRATION)
+    ContentType = old_state.apps.get_model("contenttypes", "ContentType")
+    Group = old_state.apps.get_model("auth", "Group")
+    Permission = old_state.apps.get_model("auth", "Permission")
+    # Django writes this one from a post_migrate signal that rolling back to an
+    # earlier migration does not replay, so the test writes it itself.
+    job_content_type, _ = ContentType.objects.get_or_create(app_label="wagtail_localize_smartling", model="job")
+    view_job, _ = Permission.objects.get_or_create(
+        content_type=job_content_type, codename="view_job", defaults={"name": "Can view job"}
+    )
+    reporters = Group.objects.create(name="Reporters")
+    reporters.permissions.add(view_job)
+    # Bystanders have no permissions.
+    Group.objects.create(name="Bystanders")
+
+    new_state = migrator.apply_tested_migration(GRANT_ORDER_VIEW_MIGRATION)
+
+    Group = new_state.apps.get_model("auth", "Group")
+    reporter_permissions = Group.objects.get(name="Reporters").permissions
+    assert set(
+        reporter_permissions.filter(
+            content_type__app_label="wagtail_localize_smartling",
+            content_type__model="order",
+        ).values_list("codename", "name")
+    ) == {("view_order", "Can view order")}
+    # Reading the report is all they could do before, and all they can do now.
+    assert reporter_permissions.filter(codename="view_job").exists()
     assert not Group.objects.get(name="Bystanders").permissions.exists()
