@@ -1,18 +1,28 @@
+import logging
+
 import django_filters
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, OuterRef, Subquery
 from django.db.models.functions import Coalesce
+from django.shortcuts import redirect
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import ngettext
+from wagtail.admin import messages
 from wagtail.admin.filters import WagtailFilterSet
+from wagtail.admin.panels import FieldPanel, FieldRowPanel
 from wagtail.admin.ui.tables import Column, DateColumn, TitleColumn, UserColumn
 from wagtail.admin.views import generic
 from wagtail.admin.viewsets.model import ModelViewSet
 from wagtail.permission_policies import ModelPermissionPolicy
 
 from .models import Order, OrderItem
+from .panels import OrderPagesPanel
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_users_for_filter(user):
@@ -104,6 +114,98 @@ class OrderIndexView(generic.IndexView):
         )
 
 
+class OrderEditView(generic.EditView):
+    """The draft screen: an order that is still being assembled."""
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["page_count"] = self.object.order_items.count()
+        return context
+
+    def post(self, request, *args, **kwargs):
+        # A value that is not a pk at all is a malformed request, not a removal,
+        # and the ordinary form handling answers it with the screen again.
+        if (item_pk := request.POST.get("action-remove-item", "")).isdigit():
+            return self._remove_page(request, item_pk)
+
+        return super().post(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        if "action-submit-order" not in self.request.POST:
+            return super().form_valid(form)
+
+        # Saved here rather than through super(), which would add its own
+        # "updated" message beside this one and build a redirect that is then
+        # thrown away.
+        self.object = form.save()
+        try:
+            self.object.submit(user=self.request.user)
+        except ValueError:
+            # Every page in the order is already translated into every locale it
+            # was ordered for. Smartling was never reached, so repeating the
+            # click cannot change the outcome.
+            logger.info("Order %s had nothing left to translate", self.object.pk)
+            messages.error(
+                self.request,
+                _(
+                    "'%(name)s' has nothing left to translate, so nothing was sent. Tick a locale "
+                    "on a page's own Translate form, or remove the pages that are already done."
+                )
+                % {"name": self.object.name},
+            )
+            return redirect(self.get_edit_url())
+        except Exception:
+            # Project.get_current() reaches Smartling on a cold cache, so an
+            # outage lands here on an order that is saved but not sent.
+            logger.exception("Could not submit order %s", self.object.pk)
+            messages.error(
+                self.request,
+                _("'%(name)s' could not be sent to Smartling. Your changes were saved; try again.")
+                % {"name": self.object.name},
+            )
+            return redirect(self.get_edit_url())
+
+        messages.success(self.request, _("Order '%(name)s' was sent to Smartling.") % {"name": self.object.name})
+        self._report_dropped_pages(self.object.dropped_order_items)
+
+        return redirect(self.get_inspect_url())
+
+    def _report_dropped_pages(self, dropped_order_items):
+        """Name the pages the send left behind."""
+        if not dropped_order_items:
+            return
+
+        messages.info(
+            self.request,
+            ngettext(
+                "One page had nothing left to send and was not included: %(pages)s.",
+                "%(count)d pages had nothing left to send and were not included: %(pages)s.",
+                len(dropped_order_items),
+            )
+            % {
+                "count": len(dropped_order_items),
+                "pages": ", ".join(item.translation_source.object_repr for item in dropped_order_items),
+            },
+        )
+
+    def _remove_page(self, request, item_pk):
+        self.object = self.get_object()
+
+        removed_count = OrderItem.objects.filter(order=self.object, pk=item_pk).delete()[0]
+        if removed_count:
+            # Only on a real removal: a second tab clicking the same row would
+            # otherwise be told about a page it did not remove.
+            messages.info(
+                request,
+                _(
+                    "Removing a page from this order does not delete the translation that was already "
+                    "created for it in Wagtail. It only stops that page from being sent to Smartling "
+                    "with this order."
+                ),
+            )
+        return redirect(self.get_edit_url())
+
+
 class OrderDeleteView(generic.DeleteView):
     def get_object(self, queryset=None):
         order = super().get_object(queryset)
@@ -117,9 +219,15 @@ class OrderDeleteView(generic.DeleteView):
 class OrderViewSet(ModelViewSet):
     model = Order
     index_view_class = OrderIndexView
+    edit_view_class = OrderEditView
     delete_view_class = OrderDeleteView
     filterset_class = OrderReportFilterSet  # pyright: ignore[reportAssignmentType]
-    form_fields = ["name", "notes", "due_date"]
+    panels = [
+        FieldRowPanel([FieldPanel("name"), FieldPanel("due_date")]),
+        FieldPanel("notes"),
+        OrderPagesPanel(),
+    ]
+    edit_template_name = "wagtail_localize_smartling/admin/order_edit.html"
     icon = "wagtail-localize-language"
     add_to_admin_menu = True
     menu_label = _("Smartling orders")  # pyright: ignore[reportAssignmentType]

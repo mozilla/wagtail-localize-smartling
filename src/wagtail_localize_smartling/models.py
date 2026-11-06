@@ -231,8 +231,14 @@ class Order(models.Model):
     # Shorter than Job.name because the job's name is built from this one plus
     # the configured prefix and a resend suffix, and Smartling rejects a name
     # over its own limit.
-    name = models.CharField(max_length=100)
-    notes = models.TextField(blank=True)
+    name = models.CharField(
+        max_length=100,
+        help_text=_("Becomes the Smartling job name when the order is submitted."),
+    )
+    notes = models.TextField(
+        blank=True,
+        help_text=_("Sent to Smartling as the job description."),
+    )
     due_date = models.DateTimeField(blank=True, null=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
