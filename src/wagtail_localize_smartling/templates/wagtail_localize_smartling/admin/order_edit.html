@@ -1,0 +1,49 @@
+{% extends "wagtailadmin/generic/edit.html" %}
+{% load i18n wagtailadmin_tags %}
+
+{% block extra_css %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% versioned_static 'wagtail_localize_smartling/css/order-screens.css' %}">
+{% endblock %}
+
+{% block before_form %}
+    {# The page already sits in a .nice-padding column; adding another doubles it. #}
+    <div class="order-screen__intro">
+        {% status object.state_label classname="w-status--primary" %}
+        <p class="order-screen__standfirst">
+            {% trans "This order is still being assembled. Saving keeps your changes in Wagtail; nothing reaches translators until you submit it." %}
+        </p>
+    </div>
+    {% comment %}
+        The pages table sits above Save inside the editor form, so a remove
+        button owned by that form would be what Enter in a text field submits.
+        Naming this form instead also means removing a page leaves the typed
+        fields behind, where the unsaved-changes guard can warn about them.
+    {% endcomment %}
+    <form id="w-order-remove-page" method="POST" action="{{ action_url }}">{% csrf_token %}</form>
+{% endblock %}
+
+{% block footer %}
+    <div class="order-screen__consequence">
+        <p>
+            {% if page_count %}
+                {% blocktranslate count page_count=page_count trimmed %}
+                    Submitting creates one Smartling job containing that page. After that the order can no longer be edited.
+                {% plural %}
+                    Submitting creates one Smartling job containing all {{ page_count }} pages. After that the order can no longer be edited.
+                {% endblocktranslate %}
+            {% else %}
+                {% trans "This order holds no pages yet, so there is nothing to submit." %}
+            {% endif %}
+        </p>
+    </div>
+    {{ block.super }}
+{% endblock %}
+
+{% block extra_actions %}
+    {% if page_count %}
+        <button type="submit" name="action-submit-order" value="1" class="button">
+            {% icon name="upload" %}{% trans "Submit to Smartling" %}
+        </button>
+    {% endif %}
+{% endblock %}

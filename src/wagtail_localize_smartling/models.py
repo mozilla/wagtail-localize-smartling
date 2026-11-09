@@ -239,7 +239,11 @@ class Order(models.Model):
         blank=True,
         help_text=_("Sent to Smartling as the job description."),
     )
-    due_date = models.DateTimeField(blank=True, null=True)
+    due_date = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text=_("Sent to Smartling as the job deadline, unless it has already passed."),
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
