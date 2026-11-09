@@ -42,7 +42,7 @@ class CellState(enum.Enum):
     @property
     def icon_name(self) -> str:
         return {
-            CellState.WILL_BE_SENT: "arrow-right",
+            CellState.WILL_BE_SENT: "check",
             CellState.LANDED: "check",
             CellState.WITH_SMARTLING: "time",
             CellState.NOT_TRANSLATED: "warning",

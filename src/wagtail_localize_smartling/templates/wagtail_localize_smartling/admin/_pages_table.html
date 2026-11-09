@@ -1,0 +1,89 @@
+{% load i18n wagtailadmin_tags %}
+
+{% if table.rows %}
+<p class="order-coverage__count">
+    {% blocktranslate count page_count=table.rows|length trimmed %}
+        {{ page_count }} page
+    {% plural %}
+        {{ page_count }} pages
+    {% endblocktranslate %}
+    &middot;
+    {% blocktranslate count pair_count=table.page_locale_pair_count trimmed %}
+        {{ pair_count }} page-locale pair
+    {% plural %}
+        {{ pair_count }} page-locale pairs
+    {% endblocktranslate %}
+</p>
+{% else %}
+<p class="order-coverage__count">{% trans "This order has no pages yet." %}</p>
+{% endif %}
+
+{% if editable %}
+    <p class="order-coverage__note">
+        {% trans "Locales are chosen per page, on that page's own Translate form. Check the gaps before you submit — a gap means this order will not translate that page into that locale." %}
+    </p>
+    <p class="order-coverage__note">
+        {% blocktranslate with order=order.name trimmed %}
+            To add a page, open it and choose Translate this page → Add to an open order → {{ order }}.
+        {% endblocktranslate %}
+    </p>
+{% endif %}
+
+<ul class="order-coverage__legend">
+    {% for state in table.states_present %}
+        <li class="order-coverage__legend-item order-coverage__cell--{{ state.value }}">
+            {% icon name=state.icon_name classname="order-coverage__icon" %}
+            {{ state.label }}
+        </li>
+    {% endfor %}
+</ul>
+
+{% if table.rows %}
+<div class="order-coverage">
+    <table class="listing order-coverage__table">
+        <thead>
+            <tr>
+                <th scope="col" class="order-coverage__page">{% trans "Page" %}</th>
+                <th scope="col">{% trans "Added by" %}</th>
+                {% for locale in table.locales %}
+                    <th scope="col" class="order-coverage__locale">{{ locale.get_display_name }}</th>
+                {% endfor %}
+                {% if editable %}
+                    <th scope="col"><span class="w-sr-only">{% trans "Actions" %}</span></th>
+                {% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in table.rows %}
+                <tr>
+                    <th scope="row" class="order-coverage__page">
+                        {% if row.edit_url %}
+                            <a href="{{ row.edit_url }}">{{ row.title }}</a>
+                        {% else %}
+                            {{ row.title }}
+                        {% endif %}
+                        {% if row.path %}<span class="order-coverage__meta">{{ row.path }}</span>{% endif %}
+                    </th>
+                    <td>
+                        {% firstof row.order_item.added_by _("an account that no longer exists") %}
+                        <span class="order-coverage__meta">{% blocktranslate with added_at=row.order_item.added_at|date:"DATETIME_FORMAT" %}added {{ added_at }}{% endblocktranslate %}</span>
+                    </td>
+                    {% for cell in row.ordered_cells %}
+                        <td class="order-coverage__cell order-coverage__cell--{{ cell.state.value }}">
+                            {% icon name=cell.state.icon_name classname="order-coverage__icon" %}
+                            <span class="w-sr-only">{{ cell.accessible_name }}</span>
+                        </td>
+                    {% endfor %}
+                    {% if editable %}
+                        <td>
+                            <button type="submit" form="w-order-remove-page" name="action-remove-item" value="{{ row.order_item.pk }}" class="button button-small button-secondary no">
+                                {% trans "Remove" %}
+                            </button>
+                        </td>
+                    {% endif %}
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
