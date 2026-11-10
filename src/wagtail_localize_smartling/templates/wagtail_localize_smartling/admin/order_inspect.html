@@ -1,0 +1,128 @@
+{% extends "wagtailadmin/generic/inspect.html" %}
+{% load i18n wagtailadmin_tags %}
+
+{% block extra_css %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% versioned_static 'wagtail_localize_smartling/css/order-screens.css' %}">
+{% endblock %}
+
+{% block main_content %}
+    <div class="order-screen__intro">
+        {% status object.state_label classname="w-status--primary" %}
+        <p class="order-screen__standfirst">
+            {% if object.is_draft %}
+                {% trans "This order has not been sent to Smartling yet, so nothing here has reached translators." %}
+            {% else %}
+                {% trans "This order has been sent and can no longer be edited. Each locale is imported into Wagtail on its own, as soon as Smartling completes it. To translate more pages, start a new order." %}
+            {% endif %}
+        </p>
+        {% if first_send %}
+            <p class="order-screen__meta">
+                {% blocktranslate with sender=first_send.job.user sent_at=object.submitted_at|date:"DATETIME_FORMAT" trimmed %}
+                    Sent by {{ sender }} on {{ sent_at }}
+                {% endblocktranslate %}
+            </p>
+        {% endif %}
+    </div>
+
+    {{ block.super }}
+
+    {% if object.notes %}
+        <div class="order-screen__notes">
+            <h2 class="w-label-1">{% trans "Notes" %}</h2>
+            <p>{{ object.notes|linebreaksbr }}</p>
+        </div>
+    {% endif %}
+
+    <section class="order-screen__section">
+        <h2>{% trans "Pages" %}</h2>
+        {% include "wagtail_localize_smartling/admin/_pages_table.html" with table=table order=object editable=False %}
+    </section>
+
+    <section class="order-screen__section">
+        <h2>{% trans "Send history" %}</h2>
+        {% if send_history %}
+            <table class="listing order-history__table">
+                <thead>
+                    <tr>
+                        <th scope="col">{% trans "Send" %}</th>
+                        <th scope="col">{% trans "Status" %}</th>
+                        <th scope="col">{% trans "Sent" %}</th>
+                        <th scope="col">{% trans "Last checked" %}</th>
+                        <th scope="col"><span class="w-sr-only">{% trans "Actions" %}</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in send_history %}
+                        <tr>
+                            <th scope="row">
+                                {% blocktranslate with number=row.send_number %}Send {{ number }}{% endblocktranslate %}
+                                <span class="order-coverage__meta">
+                                    {% blocktranslate count file_count=row.file_count trimmed %}
+                                        {{ file_count }} file
+                                    {% plural %}
+                                        {{ file_count }} files
+                                    {% endblocktranslate %}
+                                    &middot;
+                                    {% blocktranslate count locale_count=row.locale_count trimmed %}
+                                        {{ locale_count }} locale
+                                    {% plural %}
+                                        {{ locale_count }} locales
+                                    {% endblocktranslate %}
+                                </span>
+                            </th>
+                            <td>
+                                {% if row.job.needs_a_new_job %}
+                                    {% status row.status_label classname="order-history__status--alert" %}
+                                {% else %}
+                                    {% status row.status_label %}
+                                {% endif %}
+                                {% if row.error_message %}
+                                    <span class="order-coverage__meta">{{ row.error_message }}</span>
+                                {% endif %}
+                                {% if row.failed_at %}
+                                    <span class="order-coverage__meta">
+                                        {% blocktranslate with failed_at=row.failed_at|date:"DATETIME_FORMAT" %}gave up {{ failed_at }}{% endblocktranslate %}
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if row.job.first_synced_at %}
+                                    {{ row.job.first_synced_at|date:"DATETIME_FORMAT" }}
+                                {% else %}
+                                    &mdash;
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if row.job.last_synced_at %}
+                                    {{ row.job.last_synced_at|date:"DATETIME_FORMAT" }}
+                                {% else %}
+                                    &mdash;
+                                {% endif %}
+                            </td>
+                            <td>
+                                {# Laid out on a wrapper, because a cell told to lay itself out stops being one. #}
+                                <div class="order-history__actions">
+                                    {% if row.smartling_url %}
+                                        <a href="{{ row.smartling_url }}" target="_blank" rel="noopener noreferrer">
+                                            {% trans "View job in Smartling" %}
+                                        </a>
+                                    {% endif %}
+                                    {% if row.resubmit_url %}
+                                        <a href="{{ row.resubmit_url }}" class="button button-small button-secondary">
+                                            {% trans "Resubmit" %}
+                                        </a>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% elif object.is_draft %}
+            <p>{% trans "This order has not been sent to Smartling, so there is nothing to show here yet." %}</p>
+        {% else %}
+            <p>{% trans "This order was sent, but no record of its Smartling jobs remains." %}</p>
+        {% endif %}
+    </section>
+{% endblock %}
