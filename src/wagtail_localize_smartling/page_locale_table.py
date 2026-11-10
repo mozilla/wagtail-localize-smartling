@@ -10,6 +10,7 @@ import enum
 
 from typing import TYPE_CHECKING, Any
 
+from django.db.models import Q
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from wagtail.models import Locale, Page
@@ -119,11 +120,14 @@ def build_coverage_table(order: "Order") -> CoverageTable:
         items = items.prefetch_related("translations")
 
     items = list(items)
-    locales = _get_column_locales(items)
     source_instances = _get_source_instances(items)
     page_locale_states = (
         _get_ordered_page_locale_states(items) if latest_job is None else _get_sent_page_locale_states(order)
     )
+    # A draft's ticked locales are not among these: submit() drops an excluded
+    # locale, so promising to send one would be a lie the screen tells.
+    sent_locale_ids = {locale_id for _, locale_id in page_locale_states} if latest_job is not None else set()
+    locales = _get_column_locales(items, sent_locale_ids)
 
     rows = []
     for item in items:
@@ -149,19 +153,23 @@ def build_coverage_table(order: "Order") -> CoverageTable:
     )
 
 
-def _get_column_locales(items: "list[OrderItem]") -> list[Locale]:
+def _get_column_locales(items: "list[OrderItem]", sent_locale_ids: set[int]) -> list[Locale]:
     """
     Every locale the project translates into, not only the ordered ones.
 
     A locale nobody ticked has to keep its column: the empty cells under it are
-    the only warning that a page was left out of it.
+    the only warning that a page was left out of it. So does a locale this
+    order has already sent, whether or not the project still translates into
+    it, because what is on its way back has to be somewhere on the screen.
     """
     source_locale_ids = {item.translation_source.locale_id for item in items} or {Locale.get_default().pk}
     # Only a locale every page is written in loses its column. Where the pages
     # disagree, each row needs the others' columns to show its own gaps.
     queryset = Locale.objects.exclude(pk__in=source_locale_ids if len(source_locale_ids) == 1 else [])
     if smartling_settings.EXCLUDE_LOCALES:
-        queryset = queryset.exclude(language_code__in=smartling_settings.EXCLUDE_LOCALES)
+        queryset = queryset.exclude(
+            Q(language_code__in=smartling_settings.EXCLUDE_LOCALES) & ~Q(pk__in=sent_locale_ids)
+        )
     return list(queryset)
 
 
