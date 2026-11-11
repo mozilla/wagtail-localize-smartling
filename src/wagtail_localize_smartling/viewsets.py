@@ -2,6 +2,7 @@ import logging
 
 import django_filters
 
+from django import forms
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, OuterRef, Subquery
@@ -17,9 +18,10 @@ from wagtail.admin.panels import FieldPanel, FieldRowPanel
 from wagtail.admin.ui.tables import Column, DateColumn, TitleColumn, UserColumn
 from wagtail.admin.views import generic
 from wagtail.admin.viewsets.model import ModelViewSet
+from wagtail.admin.widgets import BooleanRadioSelect
 from wagtail.permission_policies import ModelPermissionPolicy
 
-from .models import Order, OrderItem
+from .models import ORDER_STATES_NEEDING_ATTENTION, Order, OrderItem, OrderState
 from .page_locale_table import build_coverage_table
 from .panels import OrderPagesPanel
 from .send_history import build_send_history
@@ -34,6 +36,18 @@ def get_users_for_filter(user):
 
 
 class OrderReportFilterSet(WagtailFilterSet):
+    needs_attention = django_filters.BooleanFilter(
+        label=_("Needs attention"),
+        method="filter_needs_attention",
+        widget=BooleanRadioSelect,
+    )
+    state = django_filters.ChoiceFilter(
+        label=_("Status"),
+        choices=OrderState.choices,
+        method="filter_state",
+        widget=forms.RadioSelect,
+        empty_label=_("All"),
+    )
     created_by = django_filters.ModelChoiceFilter(
         label=_("Opened by"),
         field_name="created_by",
@@ -42,7 +56,16 @@ class OrderReportFilterSet(WagtailFilterSet):
 
     class Meta:
         model = Order
-        fields = ["created_by"]
+        fields = ["needs_attention", "state", "created_by"]
+
+    def filter_needs_attention(self, queryset, name, value):
+        if value:
+            return queryset.filter(annotated_state__in=ORDER_STATES_NEEDING_ATTENTION)
+
+        return queryset.exclude(annotated_state__in=ORDER_STATES_NEEDING_ATTENTION)
+
+    def filter_state(self, queryset, name, value):
+        return queryset.filter(annotated_state=value)
 
 
 class OrderPermissionPolicy(ModelPermissionPolicy):
