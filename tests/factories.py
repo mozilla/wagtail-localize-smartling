@@ -182,3 +182,18 @@ def cancel_at_smartling(job: wls_models.Job) -> None:
     job.first_synced_at = job.first_synced_at or now
     job.last_synced_at = now
     job.save(update_fields=["status", "translation_job_uid", "first_synced_at", "last_synced_at"])
+
+
+def send_to_smartling(job: wls_models.Job, status: JobStatus = JobStatus.IN_PROGRESS) -> None:
+    """
+    Leave a job in the state a successful push leaves it in.
+
+    The sync dates are what separates a job Smartling has from one that never
+    got there, and the status constraint refuses a status without them.
+    """
+    now = timezone.now()
+    job.status = status
+    job.translation_job_uid = job.translation_job_uid or f"smartling-job-{job.pk}"
+    job.first_synced_at = job.first_synced_at or now
+    job.last_synced_at = now
+    job.save(update_fields=["status", "translation_job_uid", "first_synced_at", "last_synced_at"])
