@@ -11,7 +11,7 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
-from django.utils.translation import ngettext
+from django.utils.translation import ngettext, pgettext_lazy
 from wagtail.admin import messages
 from wagtail.admin.filters import WagtailFilterSet
 from wagtail.admin.panels import FieldPanel, FieldRowPanel
@@ -99,7 +99,10 @@ class OrderIndexView(generic.IndexView):
     @cached_property
     def columns(self):
         return [
-            TitleColumn("name", label=_("Order"), get_url=self.get_row_url),
+            # We define a context here, to avoid "Order" using Django's
+            # default translation for "Order" (which refers to 'sort position').
+            # "Order" here refers to a different concept.
+            TitleColumn("name", label=pgettext_lazy("Smartling order", "Order"), get_url=self.get_row_url),
             Column("page_count", label=_("Pages")),
             Column("state", label=_("Status"), accessor="state_label"),
             UserColumn("created_by", label=_("Opened by")),
