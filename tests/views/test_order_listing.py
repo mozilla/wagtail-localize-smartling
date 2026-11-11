@@ -4,11 +4,13 @@ from bs4 import BeautifulSoup
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
-from django.utils import timezone
+from django.utils import timezone, translation
+from django.utils.translation import gettext
 from wagtail_localize.models import TranslationSource
 
 from wagtail_localize_smartling import models as wls_models
 from wagtail_localize_smartling.api.types import JobStatus
+from wagtail_localize_smartling.viewsets import OrderIndexView
 
 from testapp.factories import InfoPageFactory
 from tests.factories import JobFactory, OrderFactory
@@ -217,3 +219,22 @@ def test_filtering_by_status_shows_only_the_orders_in_that_state(client, superus
 
     # Each Order state should have an Order on the listing page.
     assert orders_names_on_listing_page_by_state == {state: [str(state.label)] for state in wls_models.OrderState}
+
+
+def test_the_order_column_does_not_borrow_a_sort_order_translation():
+    """
+    The "Order" model name is (so far) untranslated in this repository.
+
+    This test proves that "order" does not accidentally get translated into the
+    wrong meaning. Django's translation for "order" refers to an object's sort
+    position. This app has an Order model which means something different, so it
+    must not translate as 'sort position' in other languages.
+    The proper thing to do would be to support locale translations in this
+    repository, but that is its own task, so for now, we merely assert that
+    "order" doesn't use Django's translation.
+    """
+    with translation.override("ru"):
+        label = str(OrderIndexView().columns[0].label)
+
+        assert label == "Order"
+        assert gettext("Order") != label
