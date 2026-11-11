@@ -1,9 +1,12 @@
+import html
+
 import pytest
 
 from bs4 import BeautifulSoup
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 from wagtail.models import Locale
 from wagtail_localize.models import Translation, TranslationSource
 
@@ -32,7 +35,13 @@ def text_of(content: str, selector: str) -> str:
 
 
 def reported_messages(response) -> str:
-    return " ".join(str(message) for message in response.context["messages"])
+    """
+    The messages as the screen reads them.
+
+    Wagtail renders each one through a template, so what is stored is escaped
+    HTML padded with newlines: an apostrophe in the copy arrives as &#x27;.
+    """
+    return " ".join(" ".join(html.unescape(str(message)).split()) for message in response.context["messages"])
 
 
 def ordered_translations(source):
@@ -47,6 +56,13 @@ def draft_order_with_one_page(page, user) -> wls_models.Order:
     order = OrderFactory(submitted_at=None, created_by=user)
     order_item = wls_models.OrderItem.objects.create(order=order, translation_source=source, added_by=user)
     order_item.translations.set(ordered_translations(source))
+    return order
+
+
+def submitted_order_with_one_page(page, user) -> wls_models.Order:
+    order = draft_order_with_one_page(page, user)
+    order.submitted_at = timezone.now()
+    order.save(update_fields=["submitted_at"])
     return order
 
 
@@ -286,3 +302,76 @@ def test_removing_a_page_keeps_the_translation_it_already_created(client, superu
 
     assert order.order_items.count() == 0
     assert Translation.objects.filter(source=item.translation_source).count() == translation_count
+
+
+def test_opening_a_sent_order_in_the_edit_view_redirects_to_inspect(client, superuser, root_page):
+    page = InfoPageFactory(parent=root_page, title="Firefox release notes")
+    order = submitted_order_with_one_page(page, superuser)
+    client.force_login(superuser)
+
+    response = client.get(edit_url(order))
+
+    assert response.status_code == 302
+    assert response.url == inspect_url(order)
+    assert f"'{order}' was sent to Smartling and can no longer be edited" in reported_messages(
+        client.get(inspect_url(order))
+    )
+
+
+def test_a_post_to_a_sent_order_is_redirected_rather_than_re_rendered(client, superuser, root_page):
+    page = InfoPageFactory(parent=root_page, title="Firefox release notes")
+    order = submitted_order_with_one_page(page, superuser)
+    original_name = order.name
+    client.force_login(superuser)
+
+    response = client.post(edit_url(order), {"name": "Renamed after sending", "notes": "", "due_date": ""})
+    order.refresh_from_db()
+
+    assert response.status_code == 302
+    assert response.url == inspect_url(order)
+    assert order.name == original_name
+
+
+def test_a_stale_tab_cannot_remove_a_page_from_a_sent_order(client, superuser, root_page):
+    page = InfoPageFactory(parent=root_page, title="Firefox release notes")
+    order = submitted_order_with_one_page(page, superuser)
+    order_item = order.order_items.get()
+    client.force_login(superuser)
+
+    response = client.post(edit_url(order), {"action-remove-item": str(order_item.pk)})
+
+    assert response.status_code == 302
+    assert response.url == inspect_url(order)
+    assert wls_models.OrderItem.objects.filter(pk=order_item.pk).exists()
+
+
+def test_a_user_without_change_permission_cannot_open_the_draft_screen(client, regular_user, root_page):
+    page = InfoPageFactory(parent=root_page, title="Firefox release notes")
+    order = draft_order_with_one_page(page, regular_user)
+    client.force_login(regular_user)
+
+    response = client.get(edit_url(order))
+
+    assert response.status_code == 302
+    assert response.url == reverse("wagtailadmin_home")
+
+
+def test_an_ordinary_editor_can_open_submit_and_read_an_order(client, editor_user, root_page, smartling_project):
+    """Someone who is not a superuser can reach the listing, the draft and the record."""
+    page = InfoPageFactory(parent=root_page, title="Firefox release notes")
+    order = draft_order_with_one_page(page, editor_user)
+    client.force_login(editor_user)
+
+    assert client.get(reverse("wagtail_localize_smartling_jobs:index")).status_code == 200
+    assert client.get(edit_url(order)).status_code == 200
+
+    response = client.post(
+        edit_url(order),
+        {"name": order.name, "notes": "", "due_date": "", "action-submit-order": "1"},
+    )
+    order.refresh_from_db()
+
+    assert not order.is_draft
+    assert order.notes == ""
+    assert response.url == inspect_url(order)
+    assert client.get(inspect_url(order)).status_code == 200

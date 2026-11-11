@@ -117,8 +117,33 @@ class OrderIndexView(generic.IndexView):
         )
 
 
+class OrderAlreadySubmitted(Exception):
+    """Raised when the edit screen is asked for an order that has been sent."""
+
+    def __init__(self, order: Order):
+        super().__init__(f"Order {order.pk} has been submitted")
+        self.order = order
+
+
 class OrderEditView(generic.EditView):
     """The draft screen: an order that is still being assembled."""
+
+    def dispatch(self, request, *args, **kwargs):
+        try:
+            return super().dispatch(request, *args, **kwargs)
+        except OrderAlreadySubmitted as exc:
+            messages.info(
+                request,
+                _("'%(name)s' was sent to Smartling and can no longer be edited.") % {"name": exc.order.name},
+            )
+            return redirect(reverse(self.inspect_url_name, args=(exc.order.pk,)))
+
+    def get_object(self, queryset=None):
+        order = super().get_object(queryset)
+        if not order.is_draft:
+            raise OrderAlreadySubmitted(order)
+
+        return order
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
