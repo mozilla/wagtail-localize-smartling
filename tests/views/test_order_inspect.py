@@ -156,7 +156,8 @@ def test_a_send_blocked_before_smartling_saw_it_is_not_reported_as_unsynced(clie
     assert "Submission failed" in content
     assert "duplicate job name" in content
     assert "View job in Smartling" not in content
-    assert resubmit_url(job) not in content
+    # Nothing reached Smartling, so there is a link to resubmit the job.
+    assert resubmit_url(job) in content
 
 
 def test_the_landed_count_is_shown(client, superuser, root_page):
@@ -253,3 +254,16 @@ def test_a_draft_does_not_report_a_landed_count(client, superuser, root_page):
     content = client.get(inspect_url(order)).content.decode()
 
     assert "landed" not in text_of(content, ".order-coverage__count")
+
+
+def test_a_send_whose_locales_all_landed_does_not_offer_resubmit(client, superuser, root_page):
+    page = InfoPageFactory(parent=root_page, title="Firefox release notes")
+    order, cancelled = submitted_order_with_one_page(page, superuser, status=JobStatus.CANCELLED)
+    # The cancelled job is imported, but it remains in a cancelled state.
+    cancelled.job_translations.update(imported_at=timezone.now())
+    client.force_login(superuser)
+
+    content = client.get(inspect_url(order)).content.decode()
+
+    assert "Cancelled" in text_of(content, ".order-history__table tbody td")
+    assert resubmit_url(cancelled) not in content

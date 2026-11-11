@@ -2,11 +2,12 @@ import logging
 
 from typing import Any
 
+from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import ngettext
 from django.views.generic import TemplateView
 from laces.components import MediaContainer
 from wagtail.admin.auth import permission_denied
@@ -19,7 +20,7 @@ from wagtail.models import Locale
 from wagtail.permission_policies import ModelPermissionPolicy
 
 from .components import LandedTranslationsPanel
-from .constants import UNTRANSLATED_STATUSES
+from .forms import ResubmitOrderForm
 from .models import Job, Project
 from .templatetags.wagtail_localize_smartling_admin_tags import smartling_job_url
 from .utils import (
@@ -110,36 +111,67 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
 
     def dispatch(self, request, *args, **kwargs):
         self.object = self.get_object()
-        if self.object.status not in UNTRANSLATED_STATUSES:
+        if not self.object.needs_a_new_job:
             return permission_denied(request)
 
-        # Check that the given Job is the latest. We can use any of its translations
-        translation = self.object.translations.first()
-        if translation is None:
-            # should cover the case where the translation was converted back to an alias
-            return permission_denied(request)
-
-        # Jobs are ordered by `first_synced_at`, with null values coming at the top
-        # then pk descending.
-        latest_job = translation.smartling_jobs.values_list("pk", flat=True)[0]  # pyright: ignore[reportAttributeAccessIssue]
-        if latest_job != self.object.pk:
+        # A job carries a whole order of pages, so the order is what gets
+        # resent, and only its newest job may ask for that. An order sent again
+        # after a cancellation leaves the dead job resubmittable for ever
+        # otherwise, and pressing it would pay Smartling a second time for the
+        # pages its replacement is translating right now.
+        order = self.object.order
+        if order is None or order.get_latest_job() != self.object:
             return permission_denied(request)
 
         self.orders_report_url = reverse("wagtail_localize_smartling_jobs:index")
+        if not self.object.pending_translations().exists():
+            # Every locale this send was carrying has arrived since, so a new
+            # job would have nothing to put in its files.
+            return self.nothing_left_to_send(request)
+
         return super().dispatch(request, *args, **kwargs)
 
+    def get_form(self, data=None) -> ResubmitOrderForm:
+        return ResubmitOrderForm(data, order=self.object.order)
+
     def get(self, request, *args, **kwargs):
-        context = self.get_context_data(object=self.object)
-        return self.render_to_response(context)
+        return self.render_to_response(self.get_context_data(form=self.get_form()))
 
     def post(self, request, *args, **kwargs):
-        if self.object:
-            due_date = self.object.due_date
-            Job.get_or_create_from_source_and_translation_data(
-                self.object.translation_source,
-                self.object.translations.all(),
+        form = self.get_form(request.POST)
+        if not form.is_valid():
+            return self.render_to_response(self.get_context_data(form=form))
+
+        order = self.object.order
+        try:
+            order.submit(
                 user=request.user,
-                due_date=due_date if due_date and due_date >= timezone.now() else None,
+                job_name=form.cleaned_data["job_name"],
+                translations=self.object.pending_translations(),
+            )
+        except ValueError:
+            # A locale stopped, or landed, between opening this screen and
+            # confirming it.
+            return self.nothing_left_to_send(request)
+        except Exception:
+            logger.exception("Could not resubmit order %s", order.pk)
+            messages.error(
+                request,
+                _("'%(name)s' could not be sent to Smartling. Nothing was sent; try again.") % {"name": order.name},
+            )
+            return redirect(self.get_success_url())
+
+        messages.success(request, _("'%(name)s' was resent to Smartling.") % {"name": order.name})
+
+        if order.dropped_order_items:
+            messages.info(
+                request,
+                ngettext(
+                    "%(count)d page had already been translated and was not sent again: %(pages)s.",
+                    "%(count)d pages had already been translated and were not sent again: %(pages)s.",
+                    len(order.dropped_order_items),
+                )
+                % {"count": len(order.dropped_order_items), "pages": order.dropped_page_names},
             )
 
         return redirect(self.get_success_url())
@@ -147,13 +179,23 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
     def get_success_url(self):
         return get_valid_next_url_from_request(self.request) or self.orders_report_url
 
-    @property
-    def confirmation_message(self):
-        return _("Are you sure you want to resubmit this job?")
+    def nothing_left_to_send(self, request):
+        messages.info(
+            request,
+            _("'%(name)s' has nothing left to send: every page in it has already been translated.")
+            % {"name": self.object.order.name},
+        )
+        return redirect(self.get_success_url())
 
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
+        context = super().get_context_data(object=self.object, **kwargs)
         context["view"] = self
+        pending = self.object.pending_translations()
+        context["order"] = self.object.order
+        context["page_count"] = pending.values("source").distinct().count()
+        context["locale_names"] = ", ".join(
+            str(locale) for locale in Locale.objects.filter(pk__in=pending.values("target_locale"))
+        )
         if smartling_url := smartling_job_url(self.object):
             context["view_url"] = format_html(
                 '<a href="{}" title="Reference {}" target="_blank">{}</a>',
