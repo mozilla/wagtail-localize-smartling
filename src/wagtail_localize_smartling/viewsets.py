@@ -289,7 +289,7 @@ class OrderInspectView(generic.InspectView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["table"] = build_coverage_table(self.object)
-        send_history = build_send_history(self.object)
+        send_history = build_send_history(self.object, self.request.user)
         context["send_history"] = send_history
         # The send that made the order a record, which is the one whose author
         # the screen names.

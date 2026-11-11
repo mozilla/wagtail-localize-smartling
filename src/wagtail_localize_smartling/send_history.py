@@ -12,13 +12,15 @@ from typing import TYPE_CHECKING
 from django.db.models import Count, Q
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
+from wagtail.permission_policies import ModelPermissionPolicy
 
 from .api.types import JobStatus
+from .models import Job
 from .utils import format_smartling_job_url
 
 
 if TYPE_CHECKING:
-    from .models import Job, Order
+    from .models import Order
 
 
 @dataclasses.dataclass
@@ -28,6 +30,7 @@ class SendRow:
     file_count: int
     locale_count: int
     can_be_resubmitted: bool
+    viewer_may_resubmit: bool
 
     @property
     def blocked_before_sending(self) -> bool:
@@ -59,13 +62,14 @@ class SendRow:
 
     @property
     def resubmit_url(self) -> str:
-        if not self.can_be_resubmitted:
+        if not (self.can_be_resubmitted and self.viewer_may_resubmit):
             return ""
         return reverse("wagtail_localize_smartling_retry_job", args=(self.job.pk,))
 
 
-def build_send_history(order: "Order") -> list[SendRow]:
-    """Every send of this order, newest first."""
+def build_send_history(order: "Order", user) -> list[SendRow]:
+    """Every send of this order, newest first, as `user` is allowed to see it."""
+    viewer_may_resubmit = ModelPermissionPolicy(Job).user_has_permission(user, "view")
     jobs = list(
         order.jobs.select_related("project", "user")
         .annotate(
@@ -95,6 +99,7 @@ def build_send_history(order: "Order") -> list[SendRow]:
             can_be_resubmitted=(
                 send_number == len(jobs) and job.needs_a_new_job and job.pending_count > 0  # pyright: ignore[reportAttributeAccessIssue]
             ),
+            viewer_may_resubmit=viewer_may_resubmit,
         )
         for send_number, job in enumerate(jobs, start=1)
     ]
