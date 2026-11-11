@@ -8,7 +8,7 @@ from wagtail_localize_smartling.templatetags.wagtail_localize_smartling_admin_ta
     smartling_edit_translation_message,
 )
 
-from tests.factories import cancel_at_smartling, submit_order_of_pages
+from tests.factories import cancel_at_smartling, send_to_smartling, submit_order_of_pages
 
 
 pytestmark = pytest.mark.django_db
@@ -68,3 +68,22 @@ def test_the_banner_hides_resubmit_once_every_locale_has_arrived(superuser, root
 
     assert "cancelled" in banner
     assert "resubmit" not in banner.lower()
+
+
+def test_the_banner_describes_the_send_that_replaced_a_blocked_one(superuser, root_page, smartling_project):
+    order = submit_order_of_pages(root_page, superuser)
+    blocked = order.jobs.get()
+    blocked.record_sync_failure(ValueError("duplicate job name"), permanent=True, pushing=True)
+    order.submit(
+        user=superuser,
+        job_name="Second attempt",
+        translations=Translation.objects.filter(pk__in=blocked.job_translations.values("translation")),
+    )
+    live = order.get_latest_job()
+    assert live is not None
+    send_to_smartling(live)
+
+    banner = banner_for(live.translations.first())
+
+    assert "managed by Smartling" in banner
+    assert "never reached Smartling" not in banner

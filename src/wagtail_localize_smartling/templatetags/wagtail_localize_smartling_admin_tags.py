@@ -24,18 +24,15 @@ def smartling_edit_translation_message(context):
     }
 
     translation = context["translation"]
-    jobs = translation.smartling_jobs.all()
+    # By pk, not Job.Meta.ordering, which could put a send that never reached
+    # Smartling ahead of the one that replaced it.
+    latest_job = translation.smartling_jobs.order_by("-pk").first()
 
-    jobs_exists = bool(jobs)
-    inclusion_context["show_message"] = jobs_exists
+    inclusion_context["show_message"] = latest_job is not None
 
-    if not jobs_exists:
+    if latest_job is None:
         return inclusion_context
 
-    # Jobs are ordered by `first_synced_at`, with null values coming at the top
-    # then pk descending. So we choose the first in the list. This may mean the job
-    # status will show as unsynced in the message below
-    latest_job = list(jobs)[0]
     buttons = []
 
     if latest_job.needs_a_new_job:
