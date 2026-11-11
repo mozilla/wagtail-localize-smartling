@@ -206,14 +206,11 @@ class OrderEditView(generic.EditView):
         messages.info(
             self.request,
             ngettext(
-                "One page had nothing left to send and was not included: %(pages)s.",
+                "%(count)d page had nothing left to send and was not included: %(pages)s.",
                 "%(count)d pages had nothing left to send and were not included: %(pages)s.",
                 len(dropped_order_items),
             )
-            % {
-                "count": len(dropped_order_items),
-                "pages": ", ".join(item.translation_source.object_repr for item in dropped_order_items),
-            },
+            % {"count": len(dropped_order_items), "pages": self.object.dropped_page_names},
         )
 
     def _remove_page(self, request, item_pk):

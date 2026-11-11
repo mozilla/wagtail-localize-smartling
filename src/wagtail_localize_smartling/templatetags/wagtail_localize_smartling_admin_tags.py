@@ -14,7 +14,6 @@ from wagtail_localize_smartling.utils import format_smartling_job_url
 register = template.Library()
 
 
-# TODO test
 @register.inclusion_tag(
     "wagtail_localize_smartling/admin/edit_translation_message.html",
     takes_context=True,
@@ -39,28 +38,36 @@ def smartling_edit_translation_message(context):
     latest_job = list(jobs)[0]
     buttons = []
 
-    if latest_job.status in UNTRANSLATED_STATUSES:
-        message = _(
-            "The latest Smartling job for this translation "
-            f"was {latest_job.get_status_display().lower()}."
-        )
-        resubmit_url = set_query_params(
-            reverse("wagtail_localize_smartling_retry_job", args=(latest_job.pk,)),
-            {"next": context["request"].path},
-        )
-        buttons.append(
-            admin_messages.button(
-                resubmit_url,
-                _("Resubmit to Smartling"),
-                new_window=True,
-            ),
-        )
+    if latest_job.needs_a_new_job:
+        if latest_job.status in UNTRANSLATED_STATUSES:
+            message = _("The latest Smartling job for this translation was %(status)s.") % {
+                "status": latest_job.get_status_display().lower()
+            }
+        else:
+            # Blocked on its way out, so no status of Smartling's describes it.
+            message = _("The latest Smartling job for this translation never reached Smartling.")
+
+        # The same gate the resubmit view applies: it resends the whole order,
+        # so a job the order has already replaced, or one whose locales have all
+        # arrived since, has nothing left to offer.
+        order = latest_job.order
+        if order is not None and order.get_latest_job() == latest_job and latest_job.pending_translations().exists():
+            resubmit_url = set_query_params(
+                reverse("wagtail_localize_smartling_retry_job", args=(latest_job.pk,)),
+                {"next": context["request"].path},
+            )
+            buttons.append(
+                admin_messages.button(
+                    resubmit_url,
+                    _("Resubmit “%(order)s” to Smartling") % {"order": order.name},
+                    new_window=True,
+                ),
+            )
     else:
         message = _(
             "This translation is managed by Smartling. Changes made here will be lost "
-            "the next time translations are imported from Smartling. "
-            f"Job status: {latest_job.get_status_display()}"
-        )
+            "the next time translations are imported from Smartling. Job status: %(status)s"
+        ) % {"status": latest_job.get_status_display()}
         if smartling_url := format_smartling_job_url(latest_job):
             buttons.append(
                 admin_messages.button(

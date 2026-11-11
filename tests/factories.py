@@ -5,13 +5,13 @@ import factory.django
 
 from django.utils import timezone
 from wagtail.models import Locale
-from wagtail_localize.models import Translation
+from wagtail_localize.models import Translation, TranslationSource
 
 from wagtail_localize_smartling import models as wls_models
 from wagtail_localize_smartling.api.types import JobStatus
 from wagtail_localize_smartling.settings import settings as smartling_settings
 
-from testapp.factories import TranslationSourceFactory, UserFactory
+from testapp.factories import InfoPageFactory, TranslationSourceFactory, UserFactory
 
 
 class ProjectFactory(factory.django.DjangoModelFactory):
@@ -150,3 +150,35 @@ class WagtailUserFactory(factory.django.DjangoModelFactory):
     is_superuser = False
     is_staff = True
     is_active = True
+
+
+def submit_order_of_pages(root_page, user, *, page_count: int = 1) -> wls_models.Order:
+    """An order of freshly built pages, sent to Smartling the way an editor sends it."""
+    order = OrderFactory(submitted_at=None, created_by=user)
+    for index in range(page_count):
+        page = InfoPageFactory(parent=root_page, title=f"{order.name} page {index + 1}")
+        translation_source, _ = TranslationSource.get_or_create_from_instance(page)
+        order_item = wls_models.OrderItem.objects.create(
+            order=order, translation_source=translation_source, added_by=user
+        )
+        order_item.translations.set(
+            Translation.objects.get_or_create(source=translation_source, target_locale=locale)[0]
+            for locale in Locale.objects.exclude(pk=translation_source.locale_id)
+        )
+    order.submit(user=user)
+    return order
+
+
+def cancel_at_smartling(job: wls_models.Job) -> None:
+    """
+    Leave a job in the state a cancellation in Smartling leaves it in.
+
+    A cancelled job has necessarily been pushed, and the sync-date constraint
+    refuses a status without the dates and the uid that go with it.
+    """
+    now = timezone.now()
+    job.status = JobStatus.CANCELLED
+    job.translation_job_uid = job.translation_job_uid or f"cancelled-job-{job.pk}"
+    job.first_synced_at = job.first_synced_at or now
+    job.last_synced_at = now
+    job.save(update_fields=["status", "translation_job_uid", "first_synced_at", "last_synced_at"])

@@ -9,12 +9,11 @@ import dataclasses
 
 from typing import TYPE_CHECKING
 
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
 from .api.types import JobStatus
-from .constants import UNTRANSLATED_STATUSES
 from .utils import format_smartling_job_url
 
 
@@ -74,6 +73,11 @@ def build_send_history(order: "Order") -> list[SendRow]:
             # locales are counted across the whole send.
             file_count=Count("files", distinct=True),
             locale_count=Count("job_translations__translation__target_locale", distinct=True),
+            pending_count=Count(
+                "job_translations",
+                filter=Q(job_translations__imported_at__isnull=True, job_translations__translation__enabled=True),
+                distinct=True,
+            ),
         )
         # By pk, not Job.Meta.ordering, which puts a job that never reached
         # Smartling ahead of the one that replaced it.
@@ -87,7 +91,10 @@ def build_send_history(order: "Order") -> list[SendRow]:
             locale_count=job.locale_count,  # pyright: ignore[reportAttributeAccessIssue]
             # Only the newest send, because an earlier one's locales are either
             # already landed or with Smartling under the send that replaced it,
-            can_be_resubmitted=send_number == len(jobs) and job.status in UNTRANSLATED_STATUSES,
+            # and only while something is still missing.
+            can_be_resubmitted=(
+                send_number == len(jobs) and job.needs_a_new_job and job.pending_count > 0  # pyright: ignore[reportAttributeAccessIssue]
+            ),
         )
         for send_number, job in enumerate(jobs, start=1)
     ]

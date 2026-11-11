@@ -318,6 +318,11 @@ class Order(models.Model):
     def is_draft(self) -> bool:
         return self.submitted_at is None
 
+    @property
+    def dropped_page_names(self) -> str:
+        """The pages the last submit() left out."""
+        return ", ".join(item.translation_source.object_repr for item in self.dropped_order_items)
+
     def get_latest_job(self) -> "Job | None":
         """Return the most recent Job created for this order."""
         # Note: this is not self.jobs.first() because Job orders by
@@ -593,6 +598,7 @@ class Job(SyncedModel):
     sync_blocked = models.BooleanField(default=False)
 
     files: Manager["JobFile"]
+    job_translations: Manager["JobTranslation"]
 
     base_form_class = JobForm
     panels = [FieldPanel("due_date")]
@@ -679,6 +685,13 @@ class Job(SyncedModel):
         its files has been uploaded.
         """
         return self.translation_job_uid == "" or self.files.filter(file_uri="").exists()
+
+    def pending_translations(self) -> "QuerySet[Translation]":
+        """The translations this job was given that are still wanted and still missing."""
+        return Translation.objects.filter(
+            pk__in=self.job_translations.filter(imported_at__isnull=True).values("translation"),
+            enabled=True,
+        )
 
     @property
     def needs_a_new_job(self) -> bool:
