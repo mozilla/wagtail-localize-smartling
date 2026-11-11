@@ -192,6 +192,11 @@ class OrderState(models.TextChoices):
     CANCELLED = "cancelled", _("Cancelled")
 
 
+# The states that say an order's last send produced nothing: the
+# job was cancelled or deleted at Smartling, or gave up before it got there.
+ORDER_STATES_NEEDING_ATTENTION = (OrderState.FAILED, OrderState.CANCELLED)
+
+
 def get_order_state_case() -> Case:
     """Return the Case() object to determine the Order's state."""
     return Case(
