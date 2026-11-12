@@ -305,6 +305,52 @@ def smartling_create_batch_for_job__error_response(responses, settings, smartlin
 
 
 @pytest.fixture()
+def smartling_get_batch_status(responses, settings, smartling_auth):
+    # Mock API request for reading a batch's status and its per-file items
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+
+    def register_batch_status(*, batch_uid, status, files=None):
+        data = {"status": status}
+        if files is not None:
+            data["files"] = files
+        responses.add(
+            method="GET",
+            url=f"https://api.smartling.com/job-batches-api/v2/projects/{quote(project_id)}/batches/{batch_uid}",
+            body=json.dumps({"response": {"code": "SUCCESS", "data": data}}),
+        )
+
+    return register_batch_status
+
+
+@pytest.fixture()
+def smartling_get_batch_status__not_found(responses, settings, smartling_auth):
+    # Mock API request for a batch Smartling no longer has
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+
+    def register_missing_batch(*, batch_uid):
+        responses.add(
+            method="GET",
+            url=f"https://api.smartling.com/job-batches-api/v2/projects/{quote(project_id)}/batches/{batch_uid}",
+            body=json.dumps(
+                {
+                    "response": {
+                        "code": "VALIDATION_ERROR",
+                        "errors": [
+                            {
+                                "key": "batch.not.found",
+                                "message": f"Batch with uid={batch_uid} and projectId={project_id} not found.",
+                            }
+                        ],
+                    },
+                }
+            ),
+            status=404,
+        )
+
+    return register_missing_batch
+
+
+@pytest.fixture()
 def smartling_upload_files_to_job_batch(responses, settings, smartling_auth):
     # Mock API request for uploading a file to a batch
     project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]

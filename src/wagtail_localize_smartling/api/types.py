@@ -118,6 +118,21 @@ class UploadFileToBatchResponseData(TypedDict):
     pass
 
 
+class BatchItemData(TypedDict):
+    fileUri: str
+    # "status" is one of UPLOADING, UPLOADED, PROCESSING, COMPLETED, FAILED or
+    # CANCELED.
+    status: str
+    # "errors" is documented as a JSON string, empty for a file Smartling accepted.
+    errors: Any
+
+
+class GetBatchStatusResponseData(TypedDict):
+    # "status" is one of DRAFT, ADDING_FILES, EXECUTING or COMPLETED.
+    status: str
+    files: list[BatchItemData]
+
+
 class FileStatusResponseData(TypedDict):
     """Response data from GET /files-api/v2/projects/{projectId}/locales/{localeId}/file/status"""
 

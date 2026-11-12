@@ -9,7 +9,12 @@ import pytest
 from wagtail.models import Locale
 from wagtail_localize.models import Translation, TranslationSource
 
-from wagtail_localize_smartling.api.client import FailedResponse, InvalidResponse, client
+from wagtail_localize_smartling.api.client import (
+    BatchNotFound,
+    FailedResponse,
+    InvalidResponse,
+    client,
+)
 from wagtail_localize_smartling.exceptions import IncapableVisualContextCallback
 from wagtail_localize_smartling.models import Job
 
@@ -331,6 +336,106 @@ def test_client__upload_file_to_job_batch__error_path(
     assert exc.value.args == (
         "Response did not match expected format: {'response': {'code': 'VALIDATION_ERROR', 'data': [{'key': 'some upload key', 'message': 'some upload message', 'details': 'some upload details'}]}}",  # noqa: E501
     )
+
+
+def test_client__get_batch_status__happy_path(
+    smartling_job: "Job",
+    smartling_get_batch_status,
+    responses,
+    settings,
+):
+    smartling_get_batch_status(
+        batch_uid="test-batch-uid",
+        status="ADDING_FILES",
+        files=[
+            {"fileUri": "job_1_ts_1.po", "status": "COMPLETED", "errors": ""},
+            {"fileUri": "job_1_ts_2.po", "status": "UPLOADING", "errors": ""},
+        ],
+    )
+
+    batch = client.get_batch_status(job=smartling_job, batch_uid="test-batch-uid")
+
+    assert batch["status"] == "ADDING_FILES"
+    assert [(file["fileUri"], file["status"]) for file in batch["files"]] == [
+        ("job_1_ts_1.po", "COMPLETED"),
+        ("job_1_ts_2.po", "UPLOADING"),
+    ]
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+    assert responses.calls[-1].request.url == (
+        f"https://api.smartling.com/job-batches-api/v2/projects/{project_id}/batches/test-batch-uid"
+    )
+
+
+def test_client__get_batch_status__batch_that_smartling_does_not_have(
+    smartling_job: "Job",
+    smartling_get_batch_status__not_found,
+):
+    smartling_get_batch_status__not_found(batch_uid="test-batch-uid")
+
+    with pytest.raises(BatchNotFound) as excinfo:
+        client.get_batch_status(job=smartling_job, batch_uid="test-batch-uid")
+
+    assert str(excinfo.value) == "Batch test-batch-uid not found"
+
+
+def test_a_batch_status_failure_other_than_a_missing_batch_is_not_reported_as_missing(
+    smartling_job: "Job",
+    responses,
+):
+    responses.add(
+        method="GET",
+        url=re.compile(r".*/job-batches-api/v2/projects/.*/batches/test-batch-uid$"),
+        body=json.dumps(
+            {
+                "response": {
+                    "code": "VALIDATION_ERROR",
+                    "errors": [{"key": "project.not.found", "message": "some other message"}],
+                }
+            }
+        ),
+        status=404,
+    )
+
+    with pytest.raises(FailedResponse) as excinfo:
+        client.get_batch_status(job=smartling_job, batch_uid="test-batch-uid")
+
+    assert excinfo.value.status_code == 404
+    assert excinfo.value.code == "VALIDATION_ERROR"
+    assert excinfo.value.errors == [{"key": "project.not.found", "message": "some other message"}]
+
+
+def test_a_batch_that_has_no_files_yet_reads_as_a_batch_with_no_files(
+    smartling_job: "Job",
+    smartling_get_batch_status,
+):
+    # Smartling omits the key entirely until the batch has an item to report.
+    smartling_get_batch_status(batch_uid="test-batch-uid", status="DRAFT")
+
+    batch = client.get_batch_status(job=smartling_job, batch_uid="test-batch-uid")
+
+    assert batch["files"] == []
+
+
+def test_a_batch_item_whose_errors_are_not_a_string_is_still_readable(
+    smartling_job: "Job",
+    smartling_get_batch_status,
+):
+    smartling_get_batch_status(
+        batch_uid="test-batch-uid",
+        status="ADDING_FILES",
+        files=[
+            {
+                "fileUri": "job_1_ts_1.po",
+                "status": "FAILED",
+                "errors": [{"key": "file.parse.error", "message": "could not parse"}],
+            }
+        ],
+    )
+
+    batch = client.get_batch_status(job=smartling_job, batch_uid="test-batch-uid")
+
+    assert batch["files"][0]["status"] == "FAILED"
+    assert batch["files"][0]["errors"] == [{"key": "file.parse.error", "message": "could not parse"}]
 
 
 def test_file_uri_is_per_file_not_per_job(root_page):

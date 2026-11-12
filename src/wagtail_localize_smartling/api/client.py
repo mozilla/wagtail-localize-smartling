@@ -36,6 +36,7 @@ from .serializers import (
     CreateBatchResponseSerializer,
     CreateJobResponseSerializer,
     ErrorResponseSerializer,
+    GetBatchStatusResponseSerializer,
     GetFileStatusResponseSerializer,
     GetJobDetailsResponseSerializer,
     GetProjectDetailsResponseSerializer,
@@ -93,6 +94,10 @@ class FailedResponse(SmartlingAPIError):
 
 
 class JobNotFound(SmartlingAPIError):
+    pass
+
+
+class BatchNotFound(SmartlingAPIError):
     pass
 
 
@@ -400,6 +405,24 @@ class SmartlingAPIClient:
         )
 
         return result["batchUid"]
+
+    def get_batch_status(self, *, job: "Job", batch_uid: str) -> types.GetBatchStatusResponseData:
+        try:
+            return cast(
+                types.GetBatchStatusResponseData,
+                self._request(
+                    method="GET",
+                    path=f"/job-batches-api/v2/projects/{quote(job.project.project_id)}/batches/{quote(batch_uid)}",
+                    response_serializer_class=GetBatchStatusResponseSerializer,
+                ),
+            )
+        except FailedResponse as e:
+            # This endpoint reports a missing batch as a validation error, not
+            # with the NOT_FOUND_ERROR code the jobs endpoints use.
+            if any(error["key"] == "batch.not.found" for error in e.errors):
+                raise BatchNotFound(f"Batch {batch_uid} not found") from e
+            else:
+                raise
 
     def upload_file_to_job_batch(self, *, job_file: "JobFile", batch_uid: str) -> str:
         file_uri = self.get_file_uri_for_job_file(job_file=job_file)
