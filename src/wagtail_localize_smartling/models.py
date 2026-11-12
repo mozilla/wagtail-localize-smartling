@@ -573,6 +573,8 @@ class Job(SyncedModel):
     # Smartling API-derived fields
 
     translation_job_uid = models.CharField(max_length=64, editable=False)
+    # Sometimes, we need to resume a (Smartling) batch, so we record the batch uid here.
+    batch_uid = models.CharField(max_length=64, blank=True, editable=False)
     status = models.CharField(
         max_length=32,
         choices=JobStatus.choices,
