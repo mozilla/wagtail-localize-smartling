@@ -372,6 +372,92 @@ def test_get_or_create_adds_locales_to_draft_job(smartling_project, root_page, s
     assert job.translations.count() == 2
 
 
+def test_a_locale_added_to_an_existing_job_is_recorded_on_its_order(smartling_project, root_page):
+    """
+    Sending a page in one locale and then in another reuses the job, and the
+    order behind it has to learn about the second locale as well: a resend
+    reads what to send from the order's items.
+    """
+    user = UserFactory()
+    page = InfoPageFactory(parent=root_page, title="Test page")
+    translation_source, _ = TranslationSource.get_or_create_from_instance(page)
+    fr_translation = Translation.objects.create(
+        source=translation_source,
+        target_locale=Locale.objects.get(language_code="fr"),
+    )
+    de_translation = Translation.objects.create(
+        source=translation_source,
+        target_locale=Locale.objects.get(language_code="de"),
+    )
+
+    for translation in (fr_translation, de_translation):
+        Job.get_or_create_from_source_and_translation_data(
+            translation_source=translation_source,
+            translations=[translation],
+            user=user,
+            due_date=None,
+        )
+
+    job = Job.objects.get()
+    assert set(job.translations.all()) == {fr_translation, de_translation}
+
+    order_item = job.order.order_items.get()
+    assert set(order_item.translations.all()) == {fr_translation, de_translation}
+
+
+def test_a_locale_added_to_a_synced_job_is_recorded_on_its_order(
+    smartling_project, root_page, smartling_add_locale_to_job
+):
+    """A job Smartling already has takes its new locale through the API, and the order still learns it."""
+    user = UserFactory()
+    page = InfoPageFactory(parent=root_page, title="Test page")
+    translation_source, _ = TranslationSource.get_or_create_from_instance(page)
+    content_hash = compute_content_hash(translation_source.export_po())
+    fr_translation = Translation.objects.create(
+        source=translation_source,
+        target_locale=Locale.objects.get(language_code="fr"),
+    )
+    de_translation = Translation.objects.create(
+        source=translation_source,
+        target_locale=Locale.objects.get(language_code="de"),
+    )
+
+    order = OrderFactory(created_by=user)
+    order_item = OrderItemFactory(order=order, translation_source=translation_source, added_by=user)
+    order_item.translations.set([fr_translation])
+
+    now = timezone.now()
+    job = Job.objects.create(
+        project=smartling_project,
+        order=order,
+        translation_source=translation_source,
+        user=user,
+        name="Test job",
+        description="Test",
+        reference_number="test",
+        content_hash=content_hash,
+        status=JobStatus.DRAFT,
+        translation_job_uid="test_job_uid",
+        first_synced_at=now,
+        last_synced_at=now,
+    )
+    wls_models.JobFile.objects.create(job=job, translation_source=translation_source, content_hash=content_hash)
+    job.translations.set([fr_translation])
+    smartling_add_locale_to_job("test_job_uid", "de")
+    assert set(job.translations.all()) == {fr_translation}
+
+    Job.get_or_create_from_source_and_translation_data(
+        translation_source=translation_source,
+        translations=[de_translation],
+        user=user,
+        due_date=None,
+    )
+
+    assert Job.objects.count() == 1
+    assert set(job.translations.all()) == {fr_translation, de_translation}
+    assert set(order_item.translations.all()) == {fr_translation, de_translation}
+
+
 def test_get_or_create_creates_new_job_for_in_progress(smartling_project, root_page):
     """Test that a new job is created when existing job is IN_PROGRESS."""
     user = UserFactory()
