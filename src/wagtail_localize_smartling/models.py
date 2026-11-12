@@ -12,6 +12,8 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.db.models import Case, Count, ExpressionWrapper, F, OuterRef, Q, QuerySet, Subquery, Value, When
+from django.db.models.functions import Coalesce
 from django.db.models.manager import Manager
 from django.urls import reverse
 from django.utils import timezone
@@ -25,7 +27,12 @@ from wagtail_localize.tasks import ImmediateBackend, background
 from . import utils as smartling_utils
 from .api.client import client
 from .api.types import JobStatus
-from .constants import EXPANDABLE_JOB_STATUSES, UNSYNCED_OR_PENDING_STATUSES, UNTRANSLATED_STATUSES
+from .constants import (
+    AWAITING_AUTHORIZATION_STATUSES,
+    EXPANDABLE_JOB_STATUSES,
+    UNSYNCED_OR_PENDING_STATUSES,
+    UNTRANSLATED_STATUSES,
+)
 from .forms import JobForm
 from .settings import settings as smartling_settings
 from .sync import sync_job
@@ -175,6 +182,37 @@ class ProjectTargetLocale(models.Model):
         return f"{self.description}"
 
 
+class OrderState(models.TextChoices):
+    NOT_SENT = "not_sent", _("Not sent to Smartling")
+    FAILED = "failed", _("Submission failed")
+    AWAITING_AUTHORIZATION = "awaiting", _("Awaiting authorization")
+    IN_TRANSLATION = "in_translation", _("In translation")
+    PARTIALLY_LANDED = "partially_landed", _("Partially landed")
+    COMPLETE = "complete", _("Complete")
+    CANCELLED = "cancelled", _("Cancelled")
+
+
+def get_order_state_case() -> Case:
+    """Return the Case() object to determine the Order's state."""
+    return Case(
+        When(submitted_at__isnull=True, then=Value(OrderState.NOT_SENT)),
+        When(latest_job_status__isnull=True, then=Value(OrderState.NOT_SENT)),
+        When(
+            Q(total_page_locale_pairs__gt=0) & Q(landed_page_locale_pairs=F("total_page_locale_pairs")),
+            then=Value(OrderState.COMPLETE),
+        ),
+        When(latest_job_blocked_before_sending=True, then=Value(OrderState.FAILED)),
+        When(latest_job_status__in=UNTRANSLATED_STATUSES, then=Value(OrderState.CANCELLED)),
+        When(landed_page_locale_pairs__gt=0, then=Value(OrderState.PARTIALLY_LANDED)),
+        When(
+            latest_job_status__in=AWAITING_AUTHORIZATION_STATUSES,
+            then=Value(OrderState.AWAITING_AUTHORIZATION),
+        ),
+        default=Value(OrderState.IN_TRANSLATION),
+        output_field=models.CharField(),
+    )
+
+
 class Order(models.Model):
     """
     A batch of pages submitted to Smartling together, with the metadata that
@@ -275,6 +313,62 @@ class Order(models.Model):
         # Note: this is not self.jobs.first() because Job orders by
         # first_synced_at with nulls first.
         return self.jobs.order_by("-pk").first()
+
+    @classmethod
+    def annotate_state(cls, queryset: "QuerySet[Order]") -> "QuerySet[Order]":
+        """Annotate an "annotated_state" field for the Orders in the queryset."""
+        # Ordered by pk, not by Job.Meta.ordering, which puts a job that never
+        # reached Smartling ahead of the one that replaced it.
+        latest_job = Job.objects.filter(order=OuterRef("pk")).order_by("-pk")
+        # A pair is one page in one target locale
+        page_locale_pairs = JobTranslation.objects.filter(job__order=OuterRef("pk"))
+        landed_page_locale_pairs = page_locale_pairs.filter(imported_at__isnull=False)
+        return queryset.annotate(
+            latest_job_status=Subquery(latest_job.values("status")[:1]),
+            latest_job_blocked_before_sending=Subquery(
+                latest_job.annotate(
+                    blocked_before_sending=ExpressionWrapper(
+                        Q(sync_blocked=True, translation_job_uid=""),
+                        output_field=models.BooleanField(),
+                    )
+                ).values("blocked_before_sending")[:1]
+            ),
+            total_page_locale_pairs=Coalesce(Subquery(cls._get_distinct_page_locale_pair_count(page_locale_pairs)), 0),
+            landed_page_locale_pairs=Coalesce(
+                Subquery(cls._get_distinct_page_locale_pair_count(landed_page_locale_pairs)), 0
+            ),
+        ).annotate(annotated_state=get_order_state_case())
+
+    @staticmethod
+    def _get_distinct_page_locale_pair_count(job_translations: "QuerySet[JobTranslation]") -> "QuerySet":
+        return (
+            job_translations.order_by()
+            .values("job__order")
+            .annotate(page_locale_pair_count=Count("translation", distinct=True))
+            .values("page_locale_pair_count")[:1]
+        )
+
+    @property
+    def state(self) -> OrderState:
+        """The state that this Order is in."""
+        if self.pk is None:
+            # The Order has not been saved, which means that it has not been
+            # sent. Having this check here avoids an error in the
+            # self.annotate_state() line below.
+            return OrderState.NOT_SENT
+
+        # If the Order already has an "annotated_state", then use it; otherwise,
+        # determine the annotated_state.
+        if (annotated_state := getattr(self, "annotated_state", None)) is None:
+            annotated_state = (
+                self.annotate_state(Order.objects.filter(pk=self.pk)).values_list("annotated_state", flat=True).get()
+            )
+
+        return OrderState(annotated_state)
+
+    @property
+    def state_label(self) -> str:
+        return self.state.label
 
     def suggested_job_name(self) -> str:
         """

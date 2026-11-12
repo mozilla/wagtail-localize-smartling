@@ -1,9 +1,10 @@
 import django_filters
 
 from django.contrib.auth import get_user_model
-from django.urls import reverse
+from django.core.exceptions import PermissionDenied
+from django.db.models import Count, OuterRef, Subquery
+from django.db.models.functions import Coalesce
 from django.utils.functional import cached_property
-from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.filters import WagtailFilterSet
 from wagtail.admin.ui.tables import Column, DateColumn, TitleColumn, UserColumn
@@ -11,60 +12,47 @@ from wagtail.admin.views import generic
 from wagtail.admin.viewsets.model import ModelViewSet
 from wagtail.permission_policies import ModelPermissionPolicy
 
-from .api.types import JobStatus
-from .models import Job
-from .templatetags.wagtail_localize_smartling_admin_tags import smartling_job_url
+from .models import Order, OrderItem
 
 
 def get_users_for_filter(user):
     User = get_user_model()
-    return User.objects.filter(pk__in=Job.objects.values_list("user", flat=True)).order_by(User.USERNAME_FIELD)  # pyright: ignore[reportAttributeAccessIssue]
+    return User.objects.filter(pk__in=Order.objects.values_list("created_by", flat=True)).order_by(User.USERNAME_FIELD)  # pyright: ignore[reportAttributeAccessIssue]
 
 
-class JobReportFilterSet(WagtailFilterSet):
-    status = django_filters.ChoiceFilter(choices=JobStatus.choices)
-    user = django_filters.ModelChoiceFilter(
-        label=_("User"),
-        field_name="user",
+class OrderReportFilterSet(WagtailFilterSet):
+    created_by = django_filters.ModelChoiceFilter(
+        label=_("Opened by"),
+        field_name="created_by",
         queryset=lambda request: get_users_for_filter(request.user),
     )
 
     class Meta:
-        model = Job
-        fields = ["status"]
+        model = Order
+        fields = ["created_by"]
 
 
-class JobPermissionPolicy(ModelPermissionPolicy):
+class OrderPermissionPolicy(ModelPermissionPolicy):
     def user_has_permission(self, user, action):
-        if action in ["add", "change"]:
+        # An order is opened by adding a page to it from that page's own submit
+        # form. The UI here does not offer a way to add an Order, since the user
+        # is not given the ability to add pages to it.
+        if action == "add":
             return False
 
         return super().user_has_permission(user, action)
 
+    def user_has_permission_for_instance(self, user, action, instance):
+        # A sent order is the record of what went to Smartling, so there is
+        # nothing left to edit and nothing to remove.
+        if action in {"change", "delete"} and not instance.is_draft:
+            return False
 
-class SourceInstanceColumn(TitleColumn):
-    def get_value(self, instance):
-        # A job carries one page per file, and an order's job carries several.
-        return ", ".join(
-            str(job_file.translation_source.get_source_instance())
-            for job_file in instance.files.select_related("translation_source")
-        )
-
-    def get_link_attrs(self, instance, parent_context):
-        return {"title": _(f"Job {instance.name}")}
+        return super().user_has_permission_for_instance(user, action, instance)
 
 
-class TargetLocalesColumn(Column):
-    """Outputs a list of job target locales"""
-
-    cell_template_name = "wagtail_localize_smartling/admin/tables/target_locales_cell.html"
-
-    def get_value(self, instance):
-        return getattr(instance, self.accessor).all()
-
-
-class JobIndexView(generic.IndexView):
-    page_title = _("Smartling jobs")
+class OrderIndexView(generic.IndexView):
+    page_title = _("Smartling orders")
     breadcrumbs = []
 
     def get_breadcrumbs_items(self):  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -74,145 +62,79 @@ class JobIndexView(generic.IndexView):
 
     @cached_property
     def columns(self):
-        columns = [
-            SourceInstanceColumn(
-                "source_instance",
-                label=_("Source"),
-                get_url=self.get_inspect_url,
-            ),
-            TargetLocalesColumn(
-                "translations",
-                label=_("Target locales"),
-            ),
-            DateColumn(
-                "due_date",
-                label=_("Due date"),
-                width="12%",
-            ),
-            Column("status", label=_("Status"), accessor="get_status_display"),
-            DateColumn(
-                "first_synced_at",
-                label=_("First synced at"),
-                width="12%",
-            ),
-            DateColumn(
-                "last_synced_at",
-                label=_("Last synced at"),
-                width="12%",
-            ),
-            UserColumn("user"),
-        ]
-        return columns
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        return queryset.prefetch_related("files__translation_source", "translations__target_locale")
-
-
-class JobInspectView(generic.InspectView):
-    def get_fields(self):
         return [
-            "files",
-            "translations",
-            "user",
-            "reference_number",
-            "status",
-            "due_date",
-            "first_synced_at",
-            "last_synced_at",
-            "description",
-            "translations_imported_at",
-            "content_hash",
+            TitleColumn("name", label=_("Order"), get_url=self.get_row_url),
+            Column("page_count", label=_("Pages")),
+            Column("state", label=_("Status"), accessor="state_label"),
+            UserColumn("created_by", label=_("Opened by")),
+            DateColumn("created_at", label=_("Opened"), width="12%"),
+            DateColumn("due_date", label=_("Due date"), width="12%"),
         ]
 
-    def get_breadcrumbs_items(self):
-        items = []
-        if self.index_url_name:
-            items.append(
-                {
-                    "url": reverse(self.index_url_name),
-                    "label": _("Smartling jobs"),
-                }
-            )
-        items.append(
-            {
-                "url": "",
-                "label": _("Inspect"),
-                "sublabel": self.object.reference_number,
-            }
-        )
-        return self.breadcrumbs_items + items
+    def get_row_url(self, instance):
+        # A draft is still being assembled, so it opens where it can be worked
+        # on. Everything else, a reader included, opens the read-only record.
+        if instance.is_draft and (edit_url := self.get_edit_url(instance)):
+            return edit_url
 
-    def get_field_display_value(self, field_name, field):
-        # allow customising field display in the inspect class
-        value_func = getattr(self, f"get_{field_name}_display_value", None)
-        if value_func is not None:
-            return value_func()
+        return self.get_inspect_url(instance)
 
-        return super().get_field_display_value(field_name, field)
-
-    def get_reference_number_display_value(self):
-        if smartling_url := smartling_job_url(self.object):
-            return format_html(
-                '<a href="{}" title="Reference {}" target="_blank">{}</a>',
-                smartling_url,
-                self.object.reference_number,
-                _("View job in Smartling"),
-            )
-        return self.object.reference_number
-
-    def get_files_display_value(self):
-        return format_html(
-            "<ul>{}</ul>",
-            format_html_join(
-                "\n",
-                '<li><a href="{}">{}</a></li>',
-                (
-                    (
-                        job_file.translation_source.get_source_instance_edit_url(),
-                        str(job_file.translation_source.get_source_instance()),
-                    )
-                    for job_file in self.object.files.select_related("translation_source")
-                ),
-            ),
+    def get_base_queryset(self):
+        # The filters run after this, so anything a filter matches on has to be
+        # annotated here.
+        return Order.annotate_state(
+            super()
+            .get_base_queryset()
+            .annotate(page_count=Coalesce(Subquery(self._get_page_count()), 0))
+            # The user column renders an avatar, which the profile holds; without
+            # it the listing costs one more query for every row it shows.
+            .select_related("created_by__wagtail_userprofile")
         )
 
-    def get_translations_display_value(self):
-        content_html = format_html_join(
-            "\n",
-            '<li><a href="{}">{}</a> - {}</li>',
-            (
-                (
-                    translation.get_target_instance_edit_url(),
-                    str(translation.get_target_instance()),
-                    translation.target_locale.get_display_name(),
-                )
-                for translation in self.object.translations.all()
-            ),
+    @staticmethod
+    def _get_page_count():
+        # Counted in a subquery rather than with a join, which would group every
+        # column of every row and evaluate the state expression twice per order.
+        return (
+            OrderItem.objects.filter(order=OuterRef("pk"))
+            .order_by()
+            .values("order")
+            .annotate(page_count=Count("pk"))
+            .values("page_count")[:1]
         )
 
-        return format_html("<ul>{}</ul>", content_html)
+
+class OrderDeleteView(generic.DeleteView):
+    def get_object(self, queryset=None):
+        order = super().get_object(queryset)
+        # DeleteView checks the model-level permission only.
+        if not self.user_has_permission_for_instance("delete", order):
+            raise PermissionDenied
+
+        return order
 
 
-class JobViewSet(ModelViewSet):
-    model = Job
-    index_view_class = JobIndexView
-    inspect_view_class = JobInspectView
-    filterset_class = JobReportFilterSet  # pyright: ignore[reportAssignmentType]
-    form_fields = ["status"]
+class OrderViewSet(ModelViewSet):
+    model = Order
+    index_view_class = OrderIndexView
+    delete_view_class = OrderDeleteView
+    filterset_class = OrderReportFilterSet  # pyright: ignore[reportAssignmentType]
+    form_fields = ["name", "notes", "due_date"]
     icon = "wagtail-localize-language"
     add_to_admin_menu = True
-    menu_label = _("Smartling jobs")  # pyright: ignore[reportAssignmentType]
+    menu_label = _("Smartling orders")  # pyright: ignore[reportAssignmentType]
     copy_view_enabled = False
     inspect_view_enabled = True
 
     @property
     def permission_policy(self):
-        return JobPermissionPolicy(self.model)
+        return OrderPermissionPolicy(self.model)
 
     @cached_property
-    def url_namespace(self):  # # pyright: ignore[reportIncompatibleVariableOverride]
+    def url_namespace(self):  # pyright: ignore[reportIncompatibleVariableOverride]
+        # Unchanged from when this listed jobs: downstream reverse() calls and
+        # bookmarked URLs use this name.
         return "wagtail_localize_smartling_jobs"
 
 
-smartling_job_viewset = JobViewSet("smartling-jobs")
+smartling_order_viewset = OrderViewSet("smartling-jobs")

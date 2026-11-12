@@ -9,7 +9,7 @@ from . import admin_urls
 from .components import LandedTranslationsPanel
 from .settings import settings as smartling_settings
 from .views import SmartlingResubmitJobView
-from .viewsets import smartling_job_viewset
+from .viewsets import smartling_order_viewset
 
 
 @hooks.register("register_admin_urls")  # pyright: ignore[reportOptionalCall]
@@ -35,18 +35,14 @@ def register_smartling_settings_menu_item():
 
 @hooks.register("register_admin_viewset")  # pyright: ignore[reportOptionalCall]
 def register_viewset():
-    return smartling_job_viewset
+    return smartling_order_viewset
 
 
 @hooks.register("construct_homepage_panels")  # pyright: ignore[reportOptionalCall]
 def add_landed_translations_panel(request, panels):
     _group_name = smartling_settings.TRANSLATION_APPROVER_GROUP_NAME
     if _group_name in request.user.groups.all().values_list("name", flat=True):
-        panels.append(
-            LandedTranslationsPanel(
-                max_to_show=smartling_settings.MAX_APPROVAL_TASKS_ON_DASHBOARD
-            )
-        )
+        panels.append(LandedTranslationsPanel(max_to_show=smartling_settings.MAX_APPROVAL_TASKS_ON_DASHBOARD))
 
 
 @hooks.register("insert_global_admin_js")  # pyright: ignore[reportOptionalCall]
@@ -69,7 +65,5 @@ def default_send_to_smartling_js():
 
     return format_html(
         '<script src="{src}"></script>',
-        src=versioned_static(
-            "wagtail_localize_smartling/js/default-send-to-smartling.js"
-        ),
+        src=versioned_static("wagtail_localize_smartling/js/default-send-to-smartling.js"),
     )
