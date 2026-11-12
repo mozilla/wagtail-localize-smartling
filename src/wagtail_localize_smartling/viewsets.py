@@ -18,9 +18,7 @@ from .templatetags.wagtail_localize_smartling_admin_tags import smartling_job_ur
 
 def get_users_for_filter(user):
     User = get_user_model()
-    return User.objects.filter(
-        pk__in=Job.objects.values_list("user", flat=True)
-    ).order_by(User.USERNAME_FIELD)  # pyright: ignore[reportAttributeAccessIssue]
+    return User.objects.filter(pk__in=Job.objects.values_list("user", flat=True)).order_by(User.USERNAME_FIELD)  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class JobReportFilterSet(WagtailFilterSet):
@@ -46,7 +44,11 @@ class JobPermissionPolicy(ModelPermissionPolicy):
 
 class SourceInstanceColumn(TitleColumn):
     def get_value(self, instance):
-        return instance.translation_source.get_source_instance()
+        # A job carries one page per file, and an order's job carries several.
+        return ", ".join(
+            str(job_file.translation_source.get_source_instance())
+            for job_file in instance.files.select_related("translation_source")
+        )
 
     def get_link_attrs(self, instance, parent_context):
         return {"title": _(f"Job {instance.name}")}
@@ -55,9 +57,7 @@ class SourceInstanceColumn(TitleColumn):
 class TargetLocalesColumn(Column):
     """Outputs a list of job target locales"""
 
-    cell_template_name = (
-        "wagtail_localize_smartling/admin/tables/target_locales_cell.html"
-    )
+    cell_template_name = "wagtail_localize_smartling/admin/tables/target_locales_cell.html"
 
     def get_value(self, instance):
         return getattr(instance, self.accessor).all()
@@ -106,15 +106,13 @@ class JobIndexView(generic.IndexView):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        return queryset.select_related("translation_source").prefetch_related(
-            "translations__target_locale"
-        )
+        return queryset.prefetch_related("files__translation_source", "translations__target_locale")
 
 
 class JobInspectView(generic.InspectView):
     def get_fields(self):
         return [
-            "translation_source",
+            "files",
             "translations",
             "user",
             "reference_number",
@@ -163,11 +161,20 @@ class JobInspectView(generic.InspectView):
             )
         return self.object.reference_number
 
-    def get_translation_source_display_value(self):
+    def get_files_display_value(self):
         return format_html(
-            '<a href="{}">{}</a>',
-            self.object.translation_source.get_source_instance_edit_url(),
-            self.object.translation_source.get_source_instance(),
+            "<ul>{}</ul>",
+            format_html_join(
+                "\n",
+                '<li><a href="{}">{}</a></li>',
+                (
+                    (
+                        job_file.translation_source.get_source_instance_edit_url(),
+                        str(job_file.translation_source.get_source_instance()),
+                    )
+                    for job_file in self.object.files.select_related("translation_source")
+                ),
+            ),
         )
 
     def get_translations_display_value(self):

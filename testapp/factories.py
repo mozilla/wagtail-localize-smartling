@@ -72,11 +72,7 @@ class InfoPageFactory(wagtail_factories.PageFactory):
         default Site.  Any kwargs passed in will be passed to the SiteFactory
         used to create the Site.
         """
-        if (
-            not create
-            or obj.depth != 2
-            or Site.objects.filter(is_default_site=True).exists()
-        ):
+        if not create or obj.depth != 2 or Site.objects.filter(is_default_site=True).exists():
             return
 
         if extracted is not None:
@@ -104,6 +100,7 @@ class InfoSnippetFactory(factory.django.DjangoModelFactory):
 class TranslatablebObjectFactory(factory.django.DjangoModelFactory):
     class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
         model = TranslatableObject
+        django_get_or_create = ("content_type", "translation_key")
 
 
 class LocaleFactory(factory.django.DjangoModelFactory):
@@ -129,6 +126,7 @@ class TranslationSourceFactory(factory.django.DjangoModelFactory):
 
     class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
         model = TranslationSource
+        django_get_or_create = ("object", "locale")
         exclude = (
             "source_instance",
             "translatableobject_content_type",
@@ -139,9 +137,7 @@ class TranslationSourceFactory(factory.django.DjangoModelFactory):
         translation_key=factory.SelfAttribute("..source_instance.translation_key"),
         content_type=factory.SelfAttribute("..translatableobject_content_type"),
     )
-    specific_content_type = factory.LazyAttribute(
-        lambda obj: ContentType.objects.get_for_model(obj.source_instance)
-    )
+    specific_content_type = factory.LazyAttribute(lambda obj: ContentType.objects.get_for_model(obj.source_instance))
     translatableobject_content_type = factory.LazyAttribute(
         lambda obj: get_translatableobject_content_type(obj.source_instance)
     )

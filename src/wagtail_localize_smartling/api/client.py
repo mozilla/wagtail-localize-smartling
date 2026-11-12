@@ -2,7 +2,7 @@ import logging
 import pprint
 import textwrap
 
-from collections.abc import Generator
+from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from functools import cached_property
@@ -47,7 +47,9 @@ from .serializers import (
 
 
 if TYPE_CHECKING:
-    from ..models import Job
+    from wagtail_localize.models import TranslationSource
+
+    from ..models import Job, JobFile
 
 
 logger = logging.getLogger(__name__)
@@ -327,10 +329,9 @@ class SmartlingAPIClient:
             else:
                 raise
 
-    def get_file_uri_for_job(self, *, job: "Job") -> str:
-        # One Wagtail content object (Page or Snippet, usually) mapes to one
-        # Smartling Job containing one .po file, and we use Job to get a URI
-        # for that PO file.
+    def get_file_uri_for_job_file(self, *, job_file: "JobFile") -> str:
+        # One Wagtail content object (Page or Snippet, usually) maps to one
+        # .po file within a Smartling Job, and a Job can carry several of them.
 
         # Why are we using the Job PK as part of the file URI, rather than just
         # "file.po" or something fixed?
@@ -344,20 +345,20 @@ class SmartlingAPIClient:
         # (This is something we may need to watch out for in the future, too.)
 
         # NB: This HAS to be deterministic and stable, so that it can be
-        # called at any point for the given Job to get the same value back.
+        # called at any point for the given file to get the same value back.
 
-        # Here, we're combining the Job ID and its TranslationSource to try to
+        # Here, we're combining the Job ID and the file's TranslationSource to try to
         # make this more unique and traceable. If we need greater uniqueness,
         # we can add in (part of) the UUID-sourced string from
-        # job.translation_source.object.translation_key.hex or pass in a
+        # job_file.translation_source.object.translation_key.hex or pass in a
         # salt of some kind that's still deterministic based on the state
         # of the Wagtail object - such as a hash of JSON content
 
-        file_uri = f"job_{job.pk}_ts_{job.translation_source.pk}.po"
+        file_uri = f"job_{job_file.job_id}_ts_{job_file.translation_source_id}.po"
         logger.info(f"Generated file_uri {file_uri}")
         return file_uri
 
-    def create_batch_for_job(self, *, job: "Job") -> str:
+    def create_batch_for_job(self, *, job: "Job", job_files: Iterable["JobFile"]) -> str:
         # Create a Batch for uploading files to the given Job,
         # specifying the file(s) upfront.
         #
@@ -366,10 +367,10 @@ class SmartlingAPIClient:
         body: dict[str, Any] = {
             "authorize": False,
             "translationJobUid": job.translation_job_uid,
-            "fileUris": [
-                # NB we just send one file per Job
-                self.get_file_uri_for_job(job=job),
-            ],
+            # Only the files the caller is about to upload. Smartling needs
+            # these distinct within the batch, which they are because a job
+            # cannot hold the same source twice.
+            "fileUris": [self.get_file_uri_for_job_file(job_file=job_file) for job_file in job_files],
             # Not sending "localeWorkflows" key/value pair - doesn't look like
             # we really need them. If we do, that would need us to maintain
             # a map of language codes to workflow IDs in configuration,
@@ -392,36 +393,44 @@ class SmartlingAPIClient:
 
         return result["batchUid"]
 
-    def upload_files_to_job_batch(self, *, job: "Job", batch_uid: str) -> str:
-        file_uri = self.get_file_uri_for_job(job=job)
+    def upload_file_to_job_batch(self, *, job_file: "JobFile", batch_uid: str) -> str:
+        file_uri = self.get_file_uri_for_job_file(job_file=job_file)
 
+        # Only the locales this file was ordered in. Taking them from the whole
+        # job would order every page of a multi-page job in every locale that
+        # any one of its pages wanted.
         locales_to_authorize = [
-            utils.format_smartling_locale_id(t.target_locale.language_code) for t in job.translations.all()
+            utils.format_smartling_locale_id(job_translation.translation.target_locale.language_code)
+            for job_translation in job_file.job.job_translations.filter(
+                translation__source=job_file.translation_source
+            ).select_related("translation__target_locale")
         ]
 
+        if not locales_to_authorize:
+            # A file uploaded with no locales means that translators have
+            # nothing to do, so we raise an error here.
+            raise ValueError(f"No locales to authorize for {file_uri}")
+
         data_payload = {
-            # NB: If we switch to multiple files per Batch (e.g. different
-            # locales per upload to the batch, for some reason), the fileUri must
-            # be unique _per Batch_. With a single file, it's not a concern.
             "fileUri": file_uri,
             "fileType": "gettext",
             "localeIdsToAuthorize[]": locales_to_authorize,
         }
 
         file_payload = {
-            "file": (file_uri, str(job.translation_source.export_po())),
+            "file": (file_uri, str(job_file.translation_source.export_po())),
         }
 
         self._request(
             method="POST",
-            path=f"/job-batches-api/v2/projects/{quote(job.project.project_id)}/batches/{batch_uid}/file",
+            path=f"/job-batches-api/v2/projects/{quote(job_file.job.project.project_id)}/batches/{batch_uid}/file",
             response_serializer_class=UploadFileToBatchResponseSerializer,
             files=file_payload,
             data=data_payload,
         )
         return file_uri
 
-    def add_html_context_to_job(self, *, job: "Job"):
+    def add_html_context_to_job(self, *, job: "Job") -> None:
         """
         To help with translation, Smartling supports the idea of a
         "visual context" for translators, which effectively gives them
@@ -439,30 +448,32 @@ class SmartlingAPIClient:
         If the callback is defined, it will be used to generate the the visual
         context to send to Smartling.
 
-        The callback must take the Job instance and return two values:
+        A job may carry several pages, so the callback is called once per file
+        of the job, and takes the job and that file's translation source. It
+        must return two values:
 
-        1. A full, absolute URL for the page that shows the content used
-           to generate that Job
+        1. A full, absolute URL for the page that shows the content of that file
         2. The HTML of that same page
 
         e.g.
 
             from wagtail.models import Page
-            from wagtail_localize.models import Job
+            from wagtail_localize.models import Job, TranslationSource
             from wagtail_localize_smartling.exceptions import IncapableVisualContextCallback
 
-            def get_visual_context(job: Job) -> tuple[str, str]:
+            def get_visual_context(job: Job, translation_source: TranslationSource) -> tuple[str, str]:
 
                 # This assumes the page is live and visible. If the page is a
                 # draft, you will need a some custom work to expose the draft
                 # version of the page
 
-                content_obj = job.translation_source.get_source_instance()
+                content_obj = translation_source.get_source_instance()
 
                 # IMPORTANT: if your translatable objects include some where a visual
                 # context is not available or appropriate (eg a Snippet, rather than
                 # a Page), then your settings.VISUAL_CONTEXT_CALLBACK function should
-                # raise IncapableVisualContextCallback with an explaination
+                # raise IncapableVisualContextCallback with an explaination. Only that
+                # file goes without a context; the rest of the job still gets one.
                 #
                 # Below, we simply check if the object is a Page, but depending
                 # on how your objects are previewable, you could instead use
@@ -485,18 +496,54 @@ class SmartlingAPIClient:
             logger.info("No visual context callback configured")
             return
 
-        try:
-            url, html = visual_context_callback_fn(job)
-        except IncapableVisualContextCallback as ex:
-            logger.info(
-                f"Visual context callback refused to provide values. Reason: {str(ex)}. Not sending visual context."
-            )
-            return
+        # One file's failure must not cost the rest of the job its context, so
+        # the first one to fail is raised only when every file has had its turn.
+        first_failure: Exception | None = None
+
+        # Smartling matches each context to the strings it recognises, so a job
+        # of several pages takes several contexts.
+        for job_file in job.files.select_related("translation_source"):
+            try:
+                self._send_visual_context_for_file(
+                    job=job,
+                    job_file=job_file,
+                    get_visual_context=visual_context_callback_fn,
+                )
+            except IncapableVisualContextCallback as ex:
+                logger.info(
+                    "Visual context callback refused to provide values for source %s. "
+                    "Reason: %s. Not sending visual context for it.",
+                    job_file.translation_source_id,
+                    ex,
+                )
+            except Exception as ex:
+                logger.exception("Could not send the visual context for source %s", job_file.translation_source_id)
+                if first_failure is None:
+                    first_failure = ex
+
+        if first_failure is not None:
+            raise first_failure
+
+    def _send_visual_context_for_file(
+        self,
+        *,
+        job: "Job",
+        job_file: "JobFile",
+        get_visual_context: Callable[["Job", "TranslationSource"], tuple[str, str]],
+    ) -> None:
+        """
+        Render one file's page through the host's callback and send it to
+        Smartling as the context for that file's strings.
+
+        Raises IncapableVisualContextCallback if the callback says this object
+        has no page to show.
+        """
+        url, html = get_visual_context(job, job_file.translation_source)
 
         # data:
-        # `name` - url of the page the Job is for
+        # `name` - url of the page this file was generated from
         # `matchparams` - config params for Smartling's string matching
-        # `content` - the HTML of the relevant Page for this Job, as bytes
+        # `content` - the HTML of that page, as bytes
 
         data_payload: dict[str, Any] = {
             "name": url,
@@ -536,22 +583,20 @@ class SmartlingAPIClient:
 
         logger.info("Visual context sent. processUid returned: %s", result.get("processUid"))
 
-        return result
-
     @contextmanager
-    def download_translations(self, *, job: "Job") -> Generator[ZipFile]:
+    def download_translations(self, *, job_file: "JobFile") -> Generator[ZipFile]:
         # This is an unusual case where a successful response is a ZIP file,
         # rather than JSON. JSON responses will be returned for errors.
 
         url = urljoin(
             self._base_url,
-            f"/files-api/v2/projects/{quote(job.project.project_id)}/locales/all/file/zip",
+            f"/files-api/v2/projects/{quote(job_file.job.project.project_id)}/locales/all/file/zip",
         )
         with requests.get(
             url,
             headers=self._headers,
             params={
-                "fileUri": job.file_uri,
+                "fileUri": job_file.file_uri,
                 "retrievalType": "published",
                 "includeOriginalStrings": False,
             },
@@ -599,34 +644,35 @@ class SmartlingAPIClient:
             with ZipFile(buffer) as zf:
                 yield zf
 
-    def get_file_status_for_locale(self, *, job: "Job", locale_id: str) -> types.FileStatusResponseData:
+    def get_file_status_for_locale(self, *, job_file: "JobFile", locale_id: str) -> types.FileStatusResponseData:
         """
-        Get translation status for a specific locale.
+        Get translation status for one file of a job in a specific locale.
 
         Returns completion information including completedStringCount and totalStringCount
         which can be used to determine if all strings are translated for that locale.
 
         API docs: https://api-reference.smartling.com/#tag/Files/operation/getFileStatus
         """
+        project_id = job_file.job.project.project_id
         return cast(
             types.FileStatusResponseData,
             self._request(
                 method="GET",
-                path=f"/files-api/v2/projects/{quote(job.project.project_id)}/locales/{quote(locale_id)}/file/status",
+                path=f"/files-api/v2/projects/{quote(project_id)}/locales/{quote(locale_id)}/file/status",
                 response_serializer_class=GetFileStatusResponseSerializer,
-                params={"fileUri": job.file_uri},
+                params={"fileUri": job_file.file_uri},
             ),
         )
 
-    def download_translation_for_locale(self, *, job: "Job", locale_id: str) -> bytes:
+    def download_translation_for_locale(self, *, job_file: "JobFile", locale_id: str) -> bytes:
         """
-        Download the translated PO file for a specific locale.
+        Download the translated PO file for one file of a job in a specific locale.
 
         API docs: https://api-reference.smartling.com/#tag/Files/operation/downloadTranslatedFileSingleLocale
         """
         url = urljoin(
             self._base_url,
-            f"/files-api/v2/projects/{quote(job.project.project_id)}/locales/{quote(locale_id)}/file",
+            f"/files-api/v2/projects/{quote(job_file.job.project.project_id)}/locales/{quote(locale_id)}/file",
         )
 
         logger.info("Smartling API request: GET %s", url)
@@ -634,7 +680,7 @@ class SmartlingAPIClient:
             url,
             headers=self._headers,
             params={
-                "fileUri": job.file_uri,
+                "fileUri": job_file.file_uri,
                 "retrievalType": "published",
                 "includeOriginalStrings": False,
             },
