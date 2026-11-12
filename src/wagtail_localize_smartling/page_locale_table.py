@@ -10,10 +10,12 @@ import enum
 
 from typing import TYPE_CHECKING, Any
 
+from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
-from wagtail.models import Locale
+from wagtail.models import Locale, Page
 
 from .settings import settings as smartling_settings
+from .utils import get_snippet_admin_url
 
 
 if TYPE_CHECKING:
@@ -40,7 +42,7 @@ class CellState(enum.Enum):
     @property
     def icon_name(self) -> str:
         return {
-            CellState.WILL_BE_SENT: "arrow-right",
+            CellState.WILL_BE_SENT: "check",
             CellState.LANDED: "check",
             CellState.WITH_SMARTLING: "time",
             CellState.NOT_TRANSLATED: "warning",
@@ -67,6 +69,27 @@ class PageRow:
     cells: dict[int, CellState]
     ordered_cells: list[Cell]
 
+    @property
+    def title(self) -> str:
+        if self.source_instance is None:
+            # The recorded title stands in for a page that has since been
+            # deleted, so the row still says which page was ordered.
+            return self.order_item.translation_source.object_repr
+        return str(self.source_instance)
+
+    @property
+    def edit_url(self) -> str:
+        if self.source_instance is None:
+            return ""
+        if isinstance(self.source_instance, Page):
+            return reverse("wagtailadmin_pages:edit", args=[self.source_instance.pk])
+        return get_snippet_admin_url(self.source_instance)
+
+    @property
+    def path(self) -> str:
+        """Where the page sits in the tree. A snippet has no such address."""
+        return getattr(self.source_instance, "url_path", "")
+
 
 @dataclasses.dataclass
 class CoverageTable:
@@ -75,10 +98,17 @@ class CoverageTable:
     landed_count: int
     page_locale_pair_count: int
 
+    @property
+    def states_present(self) -> list[CellState]:
+        """The states this table actually uses, so nothing names a symbol it never shows."""
+        present = {state for row in self.rows for state in row.cells.values()}
+        return [state for state in CellState if state in present]
+
 
 def build_coverage_table(order: "Order") -> CoverageTable:
     latest_job = order.get_latest_job()
     items = order.order_items.select_related(
+        "added_by",
         "translation_source",
         "translation_source__specific_content_type",
         "translation_source__locale",

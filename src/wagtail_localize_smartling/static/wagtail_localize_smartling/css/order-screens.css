@@ -1,0 +1,99 @@
+/* Fields side by side carry help text of differing heights, and an input that
+   floats up with a short one no longer reads as a pair with the input beside
+   it. Stretch each field down the full height of the row... */
+.w-field-row > .w-panel__wrapper,
+.w-field-row > .w-panel__wrapper > .w-field__wrapper,
+.w-field-row > .w-panel__wrapper > .w-field__wrapper > .w-field {
+    display: flex;
+    flex-direction: column;
+}
+
+.w-field-row > .w-panel__wrapper > .w-field__wrapper,
+.w-field-row > .w-panel__wrapper > .w-field__wrapper > .w-field {
+    flex: 1;
+}
+
+.w-field-row > .w-panel__wrapper > .w-field__wrapper > .w-field > .w-field__help {
+    flex: 1;
+}
+
+.order-screen__intro {
+    margin-bottom: 1.5rem;
+}
+
+.order-screen__standfirst {
+    margin-top: 0.5rem;
+    max-width: 50rem;
+}
+
+.order-screen__consequence {
+    margin-bottom: 1rem;
+    max-width: 50rem;
+}
+
+.order-coverage {
+    overflow-x: auto;
+}
+
+.order-coverage__table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.order-coverage__page {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background-color: var(--w-color-surface-page);
+    text-align: start;
+}
+
+.order-coverage__locale {
+    white-space: nowrap;
+}
+
+.order-coverage__meta {
+    display: block;
+    color: var(--w-color-text-meta);
+    font-size: 0.8em;
+    font-weight: 400;
+}
+
+.order-coverage__cell {
+    text-align: center;
+}
+
+.order-coverage__icon {
+    width: 1.25em;
+    height: 1.25em;
+}
+
+.order-coverage__cell--will-be-sent .order-coverage__icon {
+    color: var(--w-color-text-label);
+}
+
+.order-coverage__cell--landed .order-coverage__icon {
+    color: var(--w-color-positive-100);
+}
+
+.order-coverage__cell--not-translated .order-coverage__icon {
+    color: var(--w-color-critical-100);
+}
+
+.order-coverage__cell--not-requested .order-coverage__icon {
+    color: var(--w-color-text-placeholder);
+}
+
+.order-coverage__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0;
+    list-style: none;
+}
+
+.order-coverage__legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}

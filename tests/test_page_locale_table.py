@@ -79,8 +79,13 @@ def _read_as_a_template_would(table: CoverageTable) -> None:
     values.
     """
     assert table.rows
+    assert table.states_present
     for row in table.rows:
-        str(row.source_instance)
+        assert row.title
+        assert row.edit_url
+        str(row.path)
+        str(row.order_item.added_by)
+        str(row.order_item.added_at)
         for cell in row.ordered_cells:
             assert cell.accessible_name
 
@@ -276,7 +281,6 @@ def test_table_db_count_the_same_whatever_its_size(smartling_project, root_page,
     assert len(small_queries) == len(large_queries)
 
 
-@pytest.mark.django_db
 @pytest.mark.django_db
 def test_an_order_that_was_never_saved_has_not_been_sent(superuser):
     assert wls_models.Order(name="Unsaved", created_by=superuser).state == OrderState.NOT_SENT
