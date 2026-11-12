@@ -11,9 +11,10 @@ from django.utils import timezone
 from wagtail_localize.models import Translation
 
 from . import utils
+from .api.client import BatchNotFound as SmartlingBatchNotFound
 from .api.client import JobNotFound as SmartlingJobNotFound
 from .api.client import client
-from .api.types import JobStatus
+from .api.types import GetBatchStatusResponseData, JobStatus
 from .constants import PENDING_STATUSES, TRANSLATED_STATUSES, UNTRANSLATED_STATUSES
 from .settings import settings as smartling_settings
 from .signals import (
@@ -71,6 +72,14 @@ class FileURIMismatch(SyncJobException):
     """Smartling answered with a file URI that belongs to no file of the job."""
 
 
+class BatchStalled(SyncJobException):
+    """A job's batch has gone quiet without finishing, so the files in it are stuck."""
+
+
+class BatchFileUnusable(SyncJobException):
+    """The batch a job has opened can no longer carry a file the job still owes Smartling."""
+
+
 # How long a claim on a Job is honoured before another worker may take it over.
 # Long enough for a large order's uploads, short enough that a worker killed
 # mid-push does not strand the job until someone notices.
@@ -82,6 +91,27 @@ SYNC_LEASE_SECONDS = 60 * 30
 RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({401, 403, 408, 409, 429})
 
 
+# How long a batch may go unchanged before the files waiting in it are treated
+# as stuck. Smartling executes a batch as soon as its last file is uploaded or
+# cancelled, so one that has not moved in hours is not merely busy; it's stuck.
+BATCH_STALL_LIMIT_SECONDS = 60 * 60 * 6
+
+
+# Batch states, from the Job Batches V2 API.
+# https://api-reference.smartling.com/#tag/Job-Batches-V2/operation/getJobBatchStatusV2
+# DRAFT and ADDING_FILES both accept files, so neither needs a branch of its own.
+BATCH_EXECUTING = "EXECUTING"
+BATCH_COMPLETED = "COMPLETED"
+
+# Per-file states within a batch. A file in one of these reached Smartling,
+# whether or not our record of its upload survived.
+BATCH_ITEM_STATUSES_THAT_LANDED = frozenset({"UPLOADED", "PROCESSING", "COMPLETED"})
+BATCH_ITEM_FAILED = "FAILED"
+# Cancelling all non-completed files allows a batch to complete, so we have
+# logic for the batch item cancelled state.
+BATCH_ITEM_CANCELED = "CANCELED"
+
+
 def is_failure_permanent(exc: Exception) -> bool:
     """
     Return True if this failure will recur on every retry.
@@ -90,6 +120,11 @@ def is_failure_permanent(exc: Exception) -> bool:
     duplicate job name, a job with no strings, an unknown locale), and will
     reject it again.
     """
+    # Smartling could not read the file, and will not read it any better next
+    # time.
+    if isinstance(exc, BatchFileUnusable):
+        return True
+
     status_code = getattr(exc, "status_code", None)
     if status_code is None:
         return False
@@ -131,7 +166,11 @@ def sync_job(job_id: int) -> None:
         # nothing to poll and nothing worth pushing until the block is cleared.
     except Exception as e:
         permanent = is_failure_permanent(e)
-        job.record_sync_failure(e, permanent=permanent, pushing=pushing)
+        # A batch that has gone quiet can still finish on its own. Blocking the
+        # job would mean that the files can not be retried, so we record the
+        # failure without blocking the job.
+        blocks_the_job = pushing and not isinstance(e, BatchStalled)
+        job.record_sync_failure(e, permanent=permanent, pushing=blocks_the_job)
 
         # Past the limit the job keeps being swept but stops being announced:
         # a job that fails every sweep would otherwise alert every sweep.
@@ -272,31 +311,15 @@ def _initial_sync(job: "Job") -> None:
                 instance=job,
             )
 
-    # Create a Job Batch so we can upload Files without race conditions
-    # in associating them with a Job (even a single PO file can go in a batch)
-    # It covers only what is left to send: the files that already landed belong
-    # to the job whether or not a later batch names them.
     # Uploading a file reads its source, its job and that job's project, which
     # is three queries per file of an order without the select_related.
     pending_files = list(job.files.filter(file_uri="").select_related("translation_source", "job__project"))
     if pending_files:
-        batch_uid = client.create_batch_for_job(job=job, job_files=pending_files)
-
-        for job_file in pending_files:
-            file_uri = client.upload_file_to_job_batch(
-                job_file=job_file,
-                batch_uid=batch_uid,
-            )
-
-            # The file's copy is what marks it uploaded. The job's copy is
-            # the deprecated single-file field, which takes the URI of the
-            # first file to land and goes when the field does.
-            with transaction.atomic():
-                job_file.file_uri = file_uri
-                job_file.save(update_fields=["file_uri"])
-                if not job.file_uri:
-                    job.file_uri = file_uri
-                    job.save(update_fields=["file_uri"])
+        _upload_pending_files(job, pending_files)
+        if job.files.filter(file_uri="").exists():
+            # Context is uploaded a file at a time and describes the whole job,
+            # so it waits for the sweep that finishes sending the files.
+            return
 
     # Add context to the job (if settings.VISUAL_CONTEXT_CALLBACK is defined)
     try:
@@ -305,6 +328,131 @@ def _initial_sync(job: "Job") -> None:
         # Every file is already at Smartling and authorized. Log the exception
         # here, but do not raise an error for it.
         logger.exception("Could not add visual context to job %s", job)
+
+
+def _upload_pending_files(job: "Job", pending_files: list["JobFile"]) -> None:
+    """
+    Send the files the job still owes Smartling, in a batch.
+
+    Files go in a batch so that associating them with their job cannot race;
+    even a single PO file goes in one. Smartling does not promise to process
+    two batches of the same job in parallel and refuses a file URI a batch
+    already holds, so a push that stopped part-way resumes the batch it opened,
+    instead of opening another. Only the files that are still missing are sent.
+    """
+    if job.batch_uid:
+        try:
+            batch = client.get_batch_status(job=job, batch_uid=job.batch_uid)
+        except SmartlingBatchNotFound:
+            logger.info("Batch %s of job %s is gone from Smartling", job.batch_uid, job)
+            _record_batch_uid(job, "")
+        else:
+            # Reconciled whatever the batch is doing: a file it already has is
+            # one we must record rather than wait for, even while it executes.
+            pending_files = _reconcile_pending_files_with_batch(job, batch, pending_files)
+
+            # An executing batch takes no more files, and a parallel batch
+            # would not be processed reliably, so anything left waits for it.
+            if batch["status"] == BATCH_EXECUTING or not pending_files:
+                if job.files.filter(file_uri="").exists():
+                    logger.info("Batch %s of job %s still holds files of this job", job.batch_uid, job)
+                    _check_the_batch_is_still_moving(job, batch)
+                return
+            if batch["status"] != BATCH_COMPLETED:
+                _upload_files_to_batch(job, pending_files, batch_uid=job.batch_uid)
+                return
+            # If we have reached this point, the batch is completed, so it
+            # takes no more files. We reset the batch uid, so another batch
+            # can send the files that are left.
+            _record_batch_uid(job, "")
+
+    batch_uid = client.create_batch_for_job(job=job, job_files=pending_files)
+    # Recorded before the first upload. If we do not store a batch uid, the
+    # batch can not be finished, and it holds file URIs that no other batch
+    # of this job can take.
+    _record_batch_uid(job, batch_uid)
+    _upload_files_to_batch(job, pending_files, batch_uid=batch_uid)
+
+
+def _reconcile_pending_files_with_batch(
+    job: "Job", batch: GetBatchStatusResponseData, pending_files: list["JobFile"]
+) -> list["JobFile"]:
+    """
+    Record the files the batch already has, and return those still to be sent.
+
+    A file the batch is still reading is left out of both: the next sweep picks
+    it up. Raise BatchFileUnusable for one the batch has and cannot deliver.
+    """
+    status_by_file_uri = {item["fileUri"]: item["status"] for item in batch["files"]}
+    files_to_send = []
+
+    for job_file in pending_files:
+        file_uri = client.get_file_uri_for_job_file(job_file=job_file)
+        status = status_by_file_uri.get(file_uri)
+
+        if status in BATCH_ITEM_STATUSES_THAT_LANDED:
+            # It reached Smartling and our record of that was lost.
+            _record_file_uri(job, job_file, file_uri)
+        elif batch["status"] == BATCH_COMPLETED:
+            # Nothing a finished batch holds will progress any further, so
+            # whatever it did not deliver needs a batch of its own.
+            files_to_send.append(job_file)
+        elif status is None:
+            # Declared when the batch was created, but never sent.
+            files_to_send.append(job_file)
+        elif status == BATCH_ITEM_FAILED:
+            # Smartling has the bytes, cannot read them, and will not take them
+            # again. Sending the same file to a new batch would only hide that.
+            raise BatchFileUnusable(f"Smartling could not accept {file_uri} in batch {job.batch_uid}")
+        elif status == BATCH_ITEM_CANCELED:
+            # The batch can now finish, and the file goes into the batch once
+            # it has.
+            logger.info("Batch %s of job %s was told not to expect %s", job.batch_uid, job, file_uri)
+        else:
+            # Still in flight, under a name this version may not know: either
+            # way the batch has the bytes and would refuse them a second time.
+            logger.info("Batch %s of job %s is still handling %s (%s)", job.batch_uid, job, file_uri, status)
+
+    return files_to_send
+
+
+def _check_the_batch_is_still_moving(job: "Job", batch: GetBatchStatusResponseData) -> None:
+    """Raise unless the batch has changed recently enough to be worth waiting for."""
+    updated_date = batch["updatedDate"]
+    if updated_date is None:
+        # Nothing to measure the wait against, so it is unbounded after all.
+        logger.warning("Batch %s of job %s did not say when it last changed", job.batch_uid, job)
+        return
+
+    if timezone.now() - updated_date > timedelta(seconds=BATCH_STALL_LIMIT_SECONDS):
+        raise BatchStalled(f"Batch {job.batch_uid} last changed at {updated_date.isoformat()} and still holds files")
+
+
+def _upload_files_to_batch(job: "Job", job_files: list["JobFile"], *, batch_uid: str) -> None:
+    for job_file in job_files:
+        file_uri = client.upload_file_to_job_batch(job_file=job_file, batch_uid=batch_uid)
+        _record_file_uri(job, job_file, file_uri)
+
+
+def _record_batch_uid(job: "Job", batch_uid: str) -> None:
+    job.batch_uid = batch_uid
+    job.save(update_fields=["batch_uid"])
+
+
+def _record_file_uri(job: "Job", job_file: "JobFile", file_uri: str) -> None:
+    """
+    Mark the file as Smartling's, on the file and on the job together.
+
+    The file's copy is what marks it uploaded. The job's copy is the deprecated
+    single-file field, which takes the URI of the first file to land and goes
+    when the field does.
+    """
+    with transaction.atomic():
+        job_file.file_uri = file_uri
+        job_file.save(update_fields=["file_uri"])
+        if not job.file_uri:
+            job.file_uri = file_uri
+            job.save(update_fields=["file_uri"])
 
 
 def _sync(job: "Job") -> None:
