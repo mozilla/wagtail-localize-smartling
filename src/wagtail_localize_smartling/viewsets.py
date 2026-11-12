@@ -7,6 +7,7 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Count, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 from django.shortcuts import redirect
+from django.urls import reverse
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
@@ -19,7 +20,9 @@ from wagtail.admin.viewsets.model import ModelViewSet
 from wagtail.permission_policies import ModelPermissionPolicy
 
 from .models import Order, OrderItem
+from .page_locale_table import build_coverage_table
 from .panels import OrderPagesPanel
+from .send_history import build_send_history
 
 
 logger = logging.getLogger(__name__)
@@ -114,8 +117,33 @@ class OrderIndexView(generic.IndexView):
         )
 
 
+class OrderAlreadySubmitted(Exception):
+    """Raised when the edit screen is asked for an order that has been sent."""
+
+    def __init__(self, order: Order):
+        super().__init__(f"Order {order.pk} has been submitted")
+        self.order = order
+
+
 class OrderEditView(generic.EditView):
     """The draft screen: an order that is still being assembled."""
+
+    def dispatch(self, request, *args, **kwargs):
+        try:
+            return super().dispatch(request, *args, **kwargs)
+        except OrderAlreadySubmitted as exc:
+            messages.info(
+                request,
+                _("'%(name)s' was sent to Smartling and can no longer be edited.") % {"name": exc.order.name},
+            )
+            return redirect(reverse(self.inspect_url_name, args=(exc.order.pk,)))
+
+    def get_object(self, queryset=None):
+        order = super().get_object(queryset)
+        if not order.is_draft:
+            raise OrderAlreadySubmitted(order)
+
+        return order
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -206,6 +234,49 @@ class OrderEditView(generic.EditView):
         return redirect(self.get_edit_url())
 
 
+class OrderInspectView(generic.InspectView):
+    """The submitted screen: the record of what an order sent to Smartling."""
+
+    def get_breadcrumbs_items(self):
+        items = super().get_breadcrumbs_items()
+        index_url = reverse(self.index_url_name) if self.index_url_name else None
+        for item in items:
+            # super() labels this one after the model, where the screen it
+            # links to calls itself something else.
+            if index_url is not None and item["url"] == index_url:
+                item["label"] = OrderIndexView.page_title
+        return items
+
+    def get_edit_url(self):
+        # The check behind super() is model-level, and says nothing about this
+        # order, which may be one that has been sent.
+        if not self.user_has_permission_for_instance("change", self.object):
+            return None
+
+        return super().get_edit_url()
+
+    def get_delete_url(self):
+        if not self.user_has_permission_for_instance("delete", self.object):
+            return None
+
+        return super().get_delete_url()
+
+    def get_field_display_value(self, field_name, field):
+        value = super().get_field_display_value(field_name, field)
+        # An empty field otherwise reads as the string "None".
+        return "\u2014" if value is None else value
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["table"] = build_coverage_table(self.object)
+        send_history = build_send_history(self.object)
+        context["send_history"] = send_history
+        # The send that made the order a record, which is the one whose author
+        # the screen names.
+        context["first_send"] = send_history[-1] if send_history else None
+        return context
+
+
 class OrderDeleteView(generic.DeleteView):
     def get_object(self, queryset=None):
         order = super().get_object(queryset)
@@ -220,6 +291,7 @@ class OrderViewSet(ModelViewSet):
     model = Order
     index_view_class = OrderIndexView
     edit_view_class = OrderEditView
+    inspect_view_class = OrderInspectView
     delete_view_class = OrderDeleteView
     filterset_class = OrderReportFilterSet  # pyright: ignore[reportAssignmentType]
     panels = [
@@ -228,6 +300,9 @@ class OrderViewSet(ModelViewSet):
         OrderPagesPanel(),
     ]
     edit_template_name = "wagtail_localize_smartling/admin/order_edit.html"
+    inspect_template_name = "wagtail_localize_smartling/admin/order_inspect.html"
+    # Notes render on their own below these, because translator notes run long.
+    inspect_view_fields = ["name", "due_date"]
     icon = "wagtail-localize-language"
     add_to_admin_menu = True
     menu_label = _("Smartling orders")  # pyright: ignore[reportAssignmentType]
