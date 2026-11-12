@@ -2,6 +2,7 @@ import logging
 
 import django_filters
 
+from django import forms
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, OuterRef, Subquery
@@ -10,16 +11,17 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
-from django.utils.translation import ngettext
+from django.utils.translation import ngettext, pgettext_lazy
 from wagtail.admin import messages
 from wagtail.admin.filters import WagtailFilterSet
 from wagtail.admin.panels import FieldPanel, FieldRowPanel
 from wagtail.admin.ui.tables import Column, DateColumn, TitleColumn, UserColumn
 from wagtail.admin.views import generic
 from wagtail.admin.viewsets.model import ModelViewSet
+from wagtail.admin.widgets import BooleanRadioSelect
 from wagtail.permission_policies import ModelPermissionPolicy
 
-from .models import Order, OrderItem
+from .models import ORDER_STATES_NEEDING_ATTENTION, Order, OrderItem, OrderState
 from .page_locale_table import build_coverage_table
 from .panels import OrderPagesPanel
 from .send_history import build_send_history
@@ -34,6 +36,18 @@ def get_users_for_filter(user):
 
 
 class OrderReportFilterSet(WagtailFilterSet):
+    needs_attention = django_filters.BooleanFilter(
+        label=_("Needs attention"),
+        method="filter_needs_attention",
+        widget=BooleanRadioSelect,
+    )
+    state = django_filters.ChoiceFilter(
+        label=_("Status"),
+        choices=OrderState.choices,
+        method="filter_state",
+        widget=forms.RadioSelect,
+        empty_label=_("All"),
+    )
     created_by = django_filters.ModelChoiceFilter(
         label=_("Opened by"),
         field_name="created_by",
@@ -42,7 +56,16 @@ class OrderReportFilterSet(WagtailFilterSet):
 
     class Meta:
         model = Order
-        fields = ["created_by"]
+        fields = ["needs_attention", "state", "created_by"]
+
+    def filter_needs_attention(self, queryset, name, value):
+        if value:
+            return queryset.filter(annotated_state__in=ORDER_STATES_NEEDING_ATTENTION)
+
+        return queryset.exclude(annotated_state__in=ORDER_STATES_NEEDING_ATTENTION)
+
+    def filter_state(self, queryset, name, value):
+        return queryset.filter(annotated_state=value)
 
 
 class OrderPermissionPolicy(ModelPermissionPolicy):
@@ -76,7 +99,10 @@ class OrderIndexView(generic.IndexView):
     @cached_property
     def columns(self):
         return [
-            TitleColumn("name", label=_("Order"), get_url=self.get_row_url),
+            # We define a context here, to avoid "Order" using Django's
+            # default translation for "Order" (which refers to 'sort position').
+            # "Order" here refers to a different concept.
+            TitleColumn("name", label=pgettext_lazy("Smartling order", "Order"), get_url=self.get_row_url),
             Column("page_count", label=_("Pages")),
             Column("state", label=_("Status"), accessor="state_label"),
             UserColumn("created_by", label=_("Opened by")),
@@ -206,14 +232,11 @@ class OrderEditView(generic.EditView):
         messages.info(
             self.request,
             ngettext(
-                "One page had nothing left to send and was not included: %(pages)s.",
+                "%(count)d page had nothing left to send and was not included: %(pages)s.",
                 "%(count)d pages had nothing left to send and were not included: %(pages)s.",
                 len(dropped_order_items),
             )
-            % {
-                "count": len(dropped_order_items),
-                "pages": ", ".join(item.translation_source.object_repr for item in dropped_order_items),
-            },
+            % {"count": len(dropped_order_items), "pages": self.object.dropped_page_names},
         )
 
     def _remove_page(self, request, item_pk):
@@ -269,7 +292,7 @@ class OrderInspectView(generic.InspectView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["table"] = build_coverage_table(self.object)
-        send_history = build_send_history(self.object)
+        send_history = build_send_history(self.object, self.request.user)
         context["send_history"] = send_history
         # The send that made the order a record, which is the one whose author
         # the screen names.
