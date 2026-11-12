@@ -43,9 +43,12 @@ pytestmark = pytest.mark.django_db
 # What the smartling_create_batch_for_job fixture hands back, which is not the
 # batch the smartling_upload_files_to_job_batch fixture stubs.
 BATCH_UID = "dummy_batch_uid"
+# A batch a job opened on an earlier sweep, distinct from BATCH_UID so that a
+# test can tell a reused batch from a newly created one.
+EARLIER_BATCH_UID = "an_earlier_batch_uid"
 
 
-def register_file_upload_to_batch(responses, settings, *, succeeds: bool) -> None:
+def register_file_upload_to_batch(responses, settings, *, succeeds: bool, batch_uid: str = BATCH_UID) -> None:
     """Register one batch-file upload response; `responses` serves registrations in order."""
     project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
     if succeeds:
@@ -62,15 +65,15 @@ def register_file_upload_to_batch(responses, settings, *, succeeds: bool) -> Non
 
     responses.add(
         method="POST",
-        url=f"https://api.smartling.com/job-batches-api/v2/projects/{quote(project_id)}/batches/{BATCH_UID}/file",
+        url=f"https://api.smartling.com/job-batches-api/v2/projects/{quote(project_id)}/batches/{batch_uid}/file",
         body=json.dumps(body),
         status=status,
     )
 
 
 def get_batch_uploads_from_responses(responses) -> list:
-    """The per-file uploads, as opposed to the call that creates the batch they go into."""
-    return [call for call in responses.calls if "/batches/" in call.request.url]
+    """The per-file uploads, as opposed to the calls that create a batch or read its status."""
+    return [call for call in responses.calls if call.request.url.endswith("/file")]
 
 
 def request_body_of(responses, *, path_ends_with: str) -> dict:
@@ -591,7 +594,7 @@ class TestInitialSyncIsResumable:
 
         assert sorted(request_body_of(responses, path_ends_with="/jobs")["targetLocaleIds"]) == ["de", "fr"]
 
-    def test_a_resumed_push_uploads_only_what_is_left(
+    def test_a_resumed_push_with_no_batch_of_its_own_opens_one_for_what_is_left(
         self, root_page, smartling_create_batch_for_job, responses, settings
     ):
         """No create-job response is registered, so a resume that asked for a second job would find none."""
@@ -699,6 +702,267 @@ class TestInitialSyncIsResumable:
             sync_job(job.pk)
 
         announce.assert_called_once()
+
+
+class TestAPushResumesTheBatchItOpened:
+    """
+    A push that stopped part-way asks its open batch about each file, instead of
+    opening a second batch.
+
+    Smartling processes one batch per job at a time and refuses a file URI a
+    batch already holds, so we determine what happened with the batch's files,
+    and resume for any files that need to be resumed.
+    """
+
+    def test_the_batch_is_recorded_before_the_first_file_is_uploaded(
+        self, root_page, smartling_create_job, smartling_create_batch_for_job, responses, settings
+    ):
+        job = JobFactory(source_instance=root_page, unsynced=True)
+        batch_uid_while_uploading = None
+        project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+
+        def accept_the_file(request):
+            nonlocal batch_uid_while_uploading
+            batch_uid_while_uploading = Job.objects.get(pk=job.pk).batch_uid
+            return 202, {}, json.dumps({"response": {"code": "ACCEPTED", "data": {}}})
+
+        responses.add_callback(
+            method="POST",
+            url=f"https://api.smartling.com/job-batches-api/v2/projects/{quote(project_id)}/batches/{BATCH_UID}/file",
+            callback=accept_the_file,
+        )
+
+        _initial_sync(job)
+
+        assert batch_uid_while_uploading == BATCH_UID
+
+    def test_a_push_that_resumes_uploads_into_the_batch_it_already_opened(
+        self, root_page, smartling_get_batch_status, responses, settings
+    ):
+        job = two_file_job(root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        landed, pending = job.files.all()
+        landed.file_uri = client.get_file_uri_for_job_file(job_file=landed)
+        landed.save(update_fields=["file_uri"])
+        smartling_get_batch_status(
+            batch_uid=EARLIER_BATCH_UID,
+            status="ADDING_FILES",
+            files=[{"fileUri": landed.file_uri, "status": "COMPLETED", "errors": ""}],
+        )
+        register_file_upload_to_batch(responses, settings, succeeds=True, batch_uid=EARLIER_BATCH_UID)
+
+        _initial_sync(job)
+
+        assert len(get_batch_uploads_from_responses(responses)) == 1
+        pending.refresh_from_db()
+        assert pending.file_uri == client.get_file_uri_for_job_file(job_file=pending)
+
+    def test_a_file_smartling_already_has_is_recorded_rather_than_uploaded_again(
+        self, root_page, smartling_get_batch_status, responses
+    ):
+        job = JobFactory(source_instance=root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        pending = job.files.get()
+        file_uri = client.get_file_uri_for_job_file(job_file=pending)
+        smartling_get_batch_status(
+            batch_uid=EARLIER_BATCH_UID,
+            status="ADDING_FILES",
+            files=[{"fileUri": file_uri, "status": "COMPLETED", "errors": ""}],
+        )
+
+        _initial_sync(job)
+
+        pending.refresh_from_db()
+        job.refresh_from_db()
+        assert pending.file_uri == file_uri
+        assert job.file_uri == file_uri
+        assert get_batch_uploads_from_responses(responses) == []
+
+    def test_a_file_the_batch_is_still_reading_is_left_for_the_next_sweep(
+        self, root_page, smartling_get_batch_status, responses
+    ):
+        job = JobFactory(source_instance=root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        pending = job.files.get()
+        smartling_get_batch_status(
+            batch_uid=EARLIER_BATCH_UID,
+            status="ADDING_FILES",
+            files=[
+                {
+                    "fileUri": client.get_file_uri_for_job_file(job_file=pending),
+                    "status": "UPLOADING",
+                    "errors": "",
+                }
+            ],
+        )
+
+        _initial_sync(job)
+
+        pending.refresh_from_db()
+        assert pending.file_uri == ""
+        assert get_batch_uploads_from_responses(responses) == []
+
+    def test_a_file_in_a_state_we_do_not_recognise_is_left_for_the_next_sweep(
+        self, root_page, smartling_get_batch_status, responses
+    ):
+        job = JobFactory(source_instance=root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        pending = job.files.get()
+        smartling_get_batch_status(
+            batch_uid=EARLIER_BATCH_UID,
+            status="ADDING_FILES",
+            files=[
+                {
+                    "fileUri": client.get_file_uri_for_job_file(job_file=pending),
+                    "status": "ATTACHING",
+                    "errors": "",
+                }
+            ],
+        )
+
+        _initial_sync(job)
+
+        pending.refresh_from_db()
+        assert pending.file_uri == ""
+        assert get_batch_uploads_from_responses(responses) == []
+
+    def test_a_file_a_completed_batch_never_received_goes_into_a_new_batch(
+        self, root_page, smartling_get_batch_status, smartling_create_batch_for_job, responses, settings
+    ):
+        job = JobFactory(source_instance=root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        pending = job.files.get()
+        smartling_get_batch_status(batch_uid=EARLIER_BATCH_UID, status="COMPLETED", files=[])
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+        assert job.batch_uid != BATCH_UID
+
+        _initial_sync(job)
+
+        job.refresh_from_db()
+        pending.refresh_from_db()
+        assert job.batch_uid == BATCH_UID
+        assert pending.file_uri == client.get_file_uri_for_job_file(job_file=pending)
+        assert request_body_of(responses, path_ends_with="/batches")["fileUris"] == [pending.file_uri]
+
+    def test_a_file_a_completed_batch_did_receive_is_not_sent_a_second_time(
+        self, root_page, smartling_get_batch_status, responses
+    ):
+        job = JobFactory(source_instance=root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        pending = job.files.get()
+        file_uri = client.get_file_uri_for_job_file(job_file=pending)
+        smartling_get_batch_status(
+            batch_uid=EARLIER_BATCH_UID,
+            status="COMPLETED",
+            files=[{"fileUri": file_uri, "status": "COMPLETED", "errors": ""}],
+        )
+
+        _initial_sync(job)
+
+        pending.refresh_from_db()
+        assert pending.file_uri == file_uri
+        assert get_batch_uploads_from_responses(responses) == []
+
+    def test_a_batch_smartling_no_longer_has_is_replaced(
+        self,
+        root_page,
+        smartling_get_batch_status__not_found,
+        smartling_create_batch_for_job,
+        responses,
+        settings,
+    ):
+        job = JobFactory(source_instance=root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        pending = job.files.get()
+        smartling_get_batch_status__not_found(batch_uid=EARLIER_BATCH_UID)
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+
+        _initial_sync(job)
+
+        job.refresh_from_db()
+        pending.refresh_from_db()
+        assert job.batch_uid == BATCH_UID
+        assert pending.file_uri == client.get_file_uri_for_job_file(job_file=pending)
+
+    def test_an_executing_batch_is_left_alone_until_it_finishes(self, root_page, smartling_get_batch_status, responses):
+        job = JobFactory(source_instance=root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        pending = job.files.get()
+        smartling_get_batch_status(batch_uid=EARLIER_BATCH_UID, status="EXECUTING", files=[])
+
+        sync_job(job.pk)
+
+        job.refresh_from_db()
+        pending.refresh_from_db()
+        assert pending.file_uri == ""
+        assert get_batch_uploads_from_responses(responses) == []
+        assert job.consecutive_sync_failures == 0
+        assert not job.sync_blocked
+
+    def test_a_file_cancelled_inside_a_live_batch_in_smarling_waits_for_the_batch_to_finish(
+        self, root_page, smartling_get_batch_status, responses
+    ):
+        """
+        Cancelling a file (in Smartling) is what lets a batch run without it, so
+        the batch will finish and it can be re-sent.
+        """
+        job = JobFactory(source_instance=root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        pending = job.files.get()
+        smartling_get_batch_status(
+            batch_uid=EARLIER_BATCH_UID,
+            status="ADDING_FILES",
+            files=[
+                {
+                    "fileUri": client.get_file_uri_for_job_file(job_file=pending),
+                    "status": "CANCELED",
+                    "errors": "",
+                }
+            ],
+        )
+
+        sync_job(job.pk)
+
+        job.refresh_from_db()
+        pending.refresh_from_db()
+        assert not job.sync_blocked
+        assert job.consecutive_sync_failures == 0
+        assert pending.file_uri == ""
+        assert get_batch_uploads_from_responses(responses) == []
+
+    def test_visual_context_waits_until_every_file_has_been_sent(
+        self, root_page, smartling_get_batch_status, responses
+    ):
+        job = two_file_job(root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        landed, pending = job.files.all()
+        landed.file_uri = client.get_file_uri_for_job_file(job_file=landed)
+        landed.save(update_fields=["file_uri"])
+        smartling_get_batch_status(
+            batch_uid=EARLIER_BATCH_UID,
+            status="EXECUTING",
+            files=[{"fileUri": landed.file_uri, "status": "COMPLETED", "errors": ""}],
+        )
+
+        with patch("wagtail_localize_smartling.sync.client.add_html_context_to_job") as add_context:
+            _initial_sync(job)
+
+        add_context.assert_not_called()
+
+    def test_a_file_that_failed_inside_a_live_batch_blocks_the_job(
+        self, root_page, smartling_get_batch_status, responses
+    ):
+        job = JobFactory(source_instance=root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        pending = job.files.get()
+        smartling_get_batch_status(
+            batch_uid=EARLIER_BATCH_UID,
+            status="ADDING_FILES",
+            files=[
+                {
+                    "fileUri": client.get_file_uri_for_job_file(job_file=pending),
+                    "status": "FAILED",
+                    "errors": "could not parse",
+                }
+            ],
+        )
+
+        with pytest.raises(SyncJobException):
+            sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.sync_blocked
+        assert job.consecutive_sync_failures == 1
+        assert get_batch_uploads_from_responses(responses) == []
 
 
 class TestPollingIsPerFile:

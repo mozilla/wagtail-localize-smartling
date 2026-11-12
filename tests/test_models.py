@@ -313,6 +313,9 @@ def test_get_or_create_adds_locales_to_unsynced_job(smartling_project, root_page
     assert Job.objects.count() == 1
     job.refresh_from_db()
     assert job.translations.count() == 2
+    # A job's files are fixed when it is created. A push that resumes relies on
+    # that: it asks Smartling only about the files its batch already declared.
+    assert job.files.count() == 1
     assert set(job.translations.all()) == {fr_translation, de_translation}
 
 
