@@ -288,6 +288,9 @@ class GetBatchStatusResponseSerializer(ResponseSerializer):
     status = serializers.CharField()
     # Smartling omits the key until the batch has a file to report on.
     files = BatchItemSerializer(many=True, default=list)
+    # Optional, so that a batch Smartling describes without one is still read
+    # rather than failing the sync it was fetched for.
+    updatedDate = serializers.DateTimeField(default_timezone=UTC, allow_null=True, required=False, default=None)
 
 
 class UploadFileToBatchResponseSerializer(NullDataResponseSerializer):

@@ -1,6 +1,7 @@
 import json
 import re
 
+from datetime import UTC, datetime
 from unittest.mock import Mock
 from urllib.parse import quote
 
@@ -402,6 +403,30 @@ def test_a_batch_status_failure_other_than_a_missing_batch_is_not_reported_as_mi
     assert excinfo.value.status_code == 404
     assert excinfo.value.code == "VALIDATION_ERROR"
     assert excinfo.value.errors == [{"key": "project.not.found", "message": "some other message"}]
+
+
+def test_a_batch_status_says_when_the_batch_last_changed(
+    smartling_job: "Job",
+    smartling_get_batch_status,
+):
+    """A batch that stops changing is how a stuck push is told from a slow one."""
+    last_changed = datetime(2026, 1, 15, 10, 0, tzinfo=UTC)
+    smartling_get_batch_status(batch_uid="test-batch-uid", status="EXECUTING", updated_date=last_changed)
+
+    batch = client.get_batch_status(job=smartling_job, batch_uid="test-batch-uid")
+
+    assert batch["updatedDate"] == last_changed
+
+
+def test_a_batch_that_does_not_say_when_it_changed_is_still_readable(
+    smartling_job: "Job",
+    smartling_get_batch_status,
+):
+    smartling_get_batch_status(batch_uid="test-batch-uid", status="ADDING_FILES", updated_date=None)
+
+    batch = client.get_batch_status(job=smartling_job, batch_uid="test-batch-uid")
+
+    assert batch["updatedDate"] is None
 
 
 def test_a_batch_that_has_no_files_yet_reads_as_a_batch_with_no_files(

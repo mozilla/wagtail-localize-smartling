@@ -18,6 +18,7 @@ from wagtail_localize_smartling.api.client import JobNotFound as SmartlingJobNot
 from wagtail_localize_smartling.api.types import JobStatus
 from wagtail_localize_smartling.models import Job, JobTranslation
 from wagtail_localize_smartling.sync import (
+    BATCH_STALL_LIMIT_SECONDS,
     SYNC_LEASE_SECONDS,
     FileURIMismatch,
     SyncJobException,
@@ -938,6 +939,162 @@ class TestAPushResumesTheBatchItOpened:
             _initial_sync(job)
 
         add_context.assert_not_called()
+
+    def test_a_file_an_executing_batch_already_has_is_recorded_while_it_runs(
+        self, root_page, smartling_get_batch_status, responses
+    ):
+        job = two_file_job(root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        landed, still_coming = job.files.all()
+        landed_uri = client.get_file_uri_for_job_file(job_file=landed)
+        smartling_get_batch_status(
+            batch_uid=EARLIER_BATCH_UID,
+            status="EXECUTING",
+            files=[
+                {"fileUri": landed_uri, "status": "COMPLETED", "errors": ""},
+                {
+                    "fileUri": client.get_file_uri_for_job_file(job_file=still_coming),
+                    "status": "UPLOADING",
+                    "errors": "",
+                },
+            ],
+        )
+
+        _initial_sync(job)
+
+        landed.refresh_from_db()
+        still_coming.refresh_from_db()
+        assert landed.file_uri == landed_uri
+        assert still_coming.file_uri == ""
+        assert get_batch_uploads_from_responses(responses) == []
+
+    def test_a_batch_that_is_still_changing_is_waited_for_rather_than_failed(
+        self, root_page, smartling_get_batch_status, responses
+    ):
+        job = JobFactory(source_instance=root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        smartling_get_batch_status(
+            batch_uid=EARLIER_BATCH_UID,
+            status="EXECUTING",
+            files=[],
+            updated_date=timezone.now() - timedelta(seconds=BATCH_STALL_LIMIT_SECONDS - 60),
+        )
+
+        sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.consecutive_sync_failures == 0
+        assert job.last_sync_error == ""
+
+    def test_a_batch_that_stops_changing_is_recorded_as_a_failed_sync(
+        self, root_page, smartling_get_batch_status, responses
+    ):
+        job = JobFactory(source_instance=root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        smartling_get_batch_status(
+            batch_uid=EARLIER_BATCH_UID,
+            status="EXECUTING",
+            files=[],
+            updated_date=timezone.now() - timedelta(seconds=BATCH_STALL_LIMIT_SECONDS + 1),
+        )
+
+        with pytest.raises(SyncJobException):
+            sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.consecutive_sync_failures == 1
+        assert job.last_sync_error != ""
+        # A batch can start moving again, so one quiet spell must not strand the job.
+        assert not job.sync_blocked
+
+    def test_a_file_the_batch_never_finishes_reading_is_recorded_as_a_failed_sync(
+        self, root_page, smartling_get_batch_status, responses
+    ):
+        job = JobFactory(source_instance=root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        pending = job.files.get()
+        smartling_get_batch_status(
+            batch_uid=EARLIER_BATCH_UID,
+            status="ADDING_FILES",
+            files=[
+                {
+                    "fileUri": client.get_file_uri_for_job_file(job_file=pending),
+                    "status": "UPLOADING",
+                    "errors": "",
+                }
+            ],
+            updated_date=timezone.now() - timedelta(seconds=BATCH_STALL_LIMIT_SECONDS + 1),
+        )
+
+        with pytest.raises(SyncJobException):
+            sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.consecutive_sync_failures == 1
+
+    def test_a_batch_that_has_delivered_every_file_is_not_mistaken_for_a_quiet_one(
+        self, root_page, smartling_get_batch_status, responses
+    ):
+        """A finished batch stops changing because it is done, not because it is stuck."""
+        job = JobFactory(source_instance=root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        pending = job.files.get()
+        file_uri = client.get_file_uri_for_job_file(job_file=pending)
+        smartling_get_batch_status(
+            batch_uid=EARLIER_BATCH_UID,
+            status="COMPLETED",
+            files=[{"fileUri": file_uri, "status": "COMPLETED", "errors": ""}],
+            updated_date=timezone.now() - timedelta(seconds=BATCH_STALL_LIMIT_SECONDS + 1),
+        )
+
+        sync_job(job.pk)
+
+        job.refresh_from_db()
+        pending.refresh_from_db()
+        assert pending.file_uri == file_uri
+        assert job.consecutive_sync_failures == 0
+
+    def test_a_batch_that_stays_quiet_never_blocks_the_job(
+        self, root_page, smartling_get_batch_status, smartling_settings, responses
+    ):
+        """A blocked job is never pushed again, so it should not get blocked from a quiet batch."""
+        smartling_settings.SYNC_FAILURE_LIMIT = 2
+        job = JobFactory(source_instance=root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        stalled_at = timezone.now() - timedelta(seconds=BATCH_STALL_LIMIT_SECONDS + 1)
+        for _ in range(3):
+            smartling_get_batch_status(
+                batch_uid=EARLIER_BATCH_UID, status="EXECUTING", files=[], updated_date=stalled_at
+            )
+            with pytest.raises(SyncJobException):
+                sync_job(job.pk)
+
+        job.refresh_from_db()
+        assert job.consecutive_sync_failures == 3
+        assert not job.sync_blocked
+
+    def test_a_batch_that_starts_moving_again_finishes_the_push_it_held_up(
+        self, root_page, smartling_get_batch_status, smartling_settings, responses, settings
+    ):
+        smartling_settings.SYNC_FAILURE_LIMIT = 1
+        job = JobFactory(source_instance=root_page, synced=True, batch_uid=EARLIER_BATCH_UID)
+        pending = job.files.get()
+        file_uri = client.get_file_uri_for_job_file(job_file=pending)
+        smartling_get_batch_status(
+            batch_uid=EARLIER_BATCH_UID,
+            status="EXECUTING",
+            files=[],
+            updated_date=timezone.now() - timedelta(seconds=BATCH_STALL_LIMIT_SECONDS + 1),
+        )
+        with pytest.raises(SyncJobException):
+            sync_job(job.pk)
+
+        smartling_get_batch_status(
+            batch_uid=EARLIER_BATCH_UID,
+            status="COMPLETED",
+            files=[{"fileUri": file_uri, "status": "COMPLETED", "errors": ""}],
+        )
+        sync_job(job.pk)
+
+        job.refresh_from_db()
+        pending.refresh_from_db()
+        assert pending.file_uri == file_uri
+        assert not job.push_is_incomplete
+        assert job.consecutive_sync_failures == 0
 
     def test_a_file_that_failed_inside_a_live_batch_blocks_the_job(
         self, root_page, smartling_get_batch_status, responses

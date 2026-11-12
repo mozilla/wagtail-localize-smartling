@@ -131,6 +131,8 @@ class GetBatchStatusResponseData(TypedDict):
     # "status" is one of DRAFT, ADDING_FILES, EXECUTING or COMPLETED.
     status: str
     files: list[BatchItemData]
+    # When the batch last changed, if Smartling said.
+    updatedDate: datetime | None
 
 
 class FileStatusResponseData(TypedDict):

@@ -10,6 +10,7 @@ from zipfile import ZipFile
 import pytest
 
 from django.contrib.auth.models import Group, Permission
+from django.utils import timezone
 from responses import matchers
 from wagtail.coreutils import get_supported_content_language_variant
 from wagtail.models import Locale, Page
@@ -106,6 +107,10 @@ def smartling_reporter():
         Permission.objects.get(content_type__app_label="wagtail_localize_smartling", codename="view_job")
     )
     return user
+
+
+# Tells a specific Smartling error apart from "the test did not care".
+UNSPECIFIED = object()
 
 
 @pytest.fixture()
@@ -309,10 +314,15 @@ def smartling_get_batch_status(responses, settings, smartling_auth):
     # Mock API request for reading a batch's status and its per-file items
     project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
 
-    def register_batch_status(*, batch_uid, status, files=None):
+    def register_batch_status(*, batch_uid, status, files=None, updated_date=UNSPECIFIED):
+        # A batch that changed just now is the ordinary case.
+        if updated_date is UNSPECIFIED:
+            updated_date = timezone.now()
         data = {"status": status}
         if files is not None:
             data["files"] = files
+        if updated_date is not None:
+            data["updatedDate"] = updated_date.isoformat()
         responses.add(
             method="GET",
             url=f"https://api.smartling.com/job-batches-api/v2/projects/{quote(project_id)}/batches/{batch_uid}",

@@ -72,6 +72,10 @@ class FileURIMismatch(SyncJobException):
     """Smartling answered with a file URI that belongs to no file of the job."""
 
 
+class BatchStalled(SyncJobException):
+    """A job's batch has gone quiet without finishing, so the files in it are stuck."""
+
+
 class BatchFileUnusable(SyncJobException):
     """The batch a job has opened can no longer carry a file the job still owes Smartling."""
 
@@ -85,6 +89,12 @@ SYNC_LEASE_SECONDS = 60 * 30
 # Statuses where a 4xx says something about the caller, the moment, or the
 # network, rather than about the job, so retrying is the right move.
 RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({401, 403, 408, 409, 429})
+
+
+# How long a batch may go unchanged before the files waiting in it are treated
+# as stuck. Smartling executes a batch as soon as its last file is uploaded or
+# cancelled, so one that has not moved in hours is not merely busy; it's stuck.
+BATCH_STALL_LIMIT_SECONDS = 60 * 60 * 6
 
 
 # Batch states, from the Job Batches V2 API.
@@ -156,7 +166,11 @@ def sync_job(job_id: int) -> None:
         # nothing to poll and nothing worth pushing until the block is cleared.
     except Exception as e:
         permanent = is_failure_permanent(e)
-        job.record_sync_failure(e, permanent=permanent, pushing=pushing)
+        # A batch that has gone quiet can still finish on its own. Blocking the
+        # job would mean that the files can not be retried, so we record the
+        # failure without blocking the job.
+        blocks_the_job = pushing and not isinstance(e, BatchStalled)
+        job.record_sync_failure(e, permanent=permanent, pushing=blocks_the_job)
 
         # Past the limit the job keeps being swept but stops being announced:
         # a job that fails every sweep would otherwise alert every sweep.
@@ -333,14 +347,16 @@ def _upload_pending_files(job: "Job", pending_files: list["JobFile"]) -> None:
             logger.info("Batch %s of job %s is gone from Smartling", job.batch_uid, job)
             _record_batch_uid(job, "")
         else:
-            if batch["status"] == BATCH_EXECUTING:
-                # An executing batch takes no more files; a parallel batch would
-                # not be processed reliably.
-                logger.info("Batch %s of job %s is executing, so its files wait", job.batch_uid, job)
-                return
-
+            # Reconciled whatever the batch is doing: a file it already has is
+            # one we must record rather than wait for, even while it executes.
             pending_files = _reconcile_pending_files_with_batch(job, batch, pending_files)
-            if not pending_files:
+
+            # An executing batch takes no more files, and a parallel batch
+            # would not be processed reliably, so anything left waits for it.
+            if batch["status"] == BATCH_EXECUTING or not pending_files:
+                if job.files.filter(file_uri="").exists():
+                    logger.info("Batch %s of job %s still holds files of this job", job.batch_uid, job)
+                    _check_the_batch_is_still_moving(job, batch)
                 return
             if batch["status"] != BATCH_COMPLETED:
                 _upload_files_to_batch(job, pending_files, batch_uid=job.batch_uid)
@@ -398,6 +414,18 @@ def _reconcile_pending_files_with_batch(
             logger.info("Batch %s of job %s is still handling %s (%s)", job.batch_uid, job, file_uri, status)
 
     return files_to_send
+
+
+def _check_the_batch_is_still_moving(job: "Job", batch: GetBatchStatusResponseData) -> None:
+    """Raise unless the batch has changed recently enough to be worth waiting for."""
+    updated_date = batch["updatedDate"]
+    if updated_date is None:
+        # Nothing to measure the wait against, so it is unbounded after all.
+        logger.warning("Batch %s of job %s did not say when it last changed", job.batch_uid, job)
+        return
+
+    if timezone.now() - updated_date > timedelta(seconds=BATCH_STALL_LIMIT_SECONDS):
+        raise BatchStalled(f"Batch {job.batch_uid} last changed at {updated_date.isoformat()} and still holds files")
 
 
 def _upload_files_to_batch(job: "Job", job_files: list["JobFile"], *, batch_uid: str) -> None:
