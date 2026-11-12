@@ -14,7 +14,7 @@ from wagtail_localize.operations import translate_object
 
 from wagtail_localize_smartling import models as wls_models
 from wagtail_localize_smartling.api.types import JobStatus
-from wagtail_localize_smartling.models import Job, JobTranslation, LandedTranslationTask
+from wagtail_localize_smartling.models import SYNC_ERROR_MAX_LENGTH, Job, JobTranslation, LandedTranslationTask
 from wagtail_localize_smartling.utils import compute_content_hash, get_snippet_admin_url
 
 from testapp.factories import (
@@ -667,6 +667,41 @@ def test_get_or_create_excluded_locale_not_added_to_existing_job(smartling_proje
     assert set(job.translations.all()) == {fr_translation}
 
 
+def test_a_job_blocked_before_it_reached_smartling_does_not_stop_a_replacement(smartling_project, root_page):
+    user = UserFactory()
+    page = InfoPageFactory(parent=root_page, title="Blocked page")
+    translation_source, _ = TranslationSource.get_or_create_from_instance(page)
+    content_hash = compute_content_hash(translation_source.export_po())
+    translation = Translation.objects.create(
+        source=translation_source,
+        target_locale=Locale.objects.get(language_code="fr"),
+    )
+    blocked_job = Job.objects.create(
+        project=smartling_project,
+        translation_source=translation_source,
+        user=user,
+        name="Blocked job",
+        description="Blocked",
+        reference_number="blocked",
+        content_hash=content_hash,
+        status=JobStatus.UNSYNCED,
+        sync_blocked=True,
+    )
+    wls_models.JobFile.objects.create(job=blocked_job, translation_source=translation_source, content_hash=content_hash)
+    blocked_job.translations.set([translation])
+
+    Job.get_or_create_from_source_and_translation_data(
+        translation_source=translation_source,
+        translations=[translation],
+        user=user,
+        due_date=None,
+    )
+
+    replacement_job = Job.objects.exclude(pk=blocked_job.pk).get()
+    assert replacement_job.sync_blocked is False
+    assert list(replacement_job.translations.all()) == [translation]
+
+
 def test_order_starts_as_a_draft(superuser):
     order = wls_models.Order.objects.create(name="WNP 157", created_by=superuser)
 
@@ -1245,3 +1280,117 @@ def test_closing_an_order_is_not_an_edit(root_page, locales, superuser, smartlin
     order.full_clean()
 
     assert order.submitted_at is not None
+
+
+def test_recording_a_permanent_sync_failure_blocks_the_job(root_page):
+    job = JobFactory(source_instance=root_page)
+
+    job.record_sync_failure(ValueError("duplicate job name"), permanent=True, pushing=True)
+    job.refresh_from_db()
+
+    assert job.sync_blocked is True
+    assert job.consecutive_sync_failures == 1
+    assert "duplicate job name" in job.last_sync_error
+    assert job.last_sync_error_at is not None
+
+
+def test_transient_sync_failures_block_only_at_the_limit(root_page, smartling_settings):
+    smartling_settings.SYNC_FAILURE_LIMIT = 3
+    job = JobFactory(source_instance=root_page)
+
+    for _ in range(2):
+        job.record_sync_failure(TimeoutError("timed out"), permanent=False, pushing=True)
+    job.refresh_from_db()
+    assert job.sync_blocked is False
+
+    job.record_sync_failure(TimeoutError("timed out"), permanent=False, pushing=True)
+    job.refresh_from_db()
+    assert job.sync_blocked is True
+    assert job.consecutive_sync_failures == 3
+
+
+def test_a_failure_that_is_not_a_push_never_blocks_the_job(root_page):
+    """
+    Blocking stops a push from being retried; a job whose files have been synced Smartling has no push left to stop.
+    """
+    job = JobFactory(source_instance=root_page)
+
+    job.record_sync_failure(ValueError("job was deleted at Smartling"), permanent=True, pushing=False)
+    job.refresh_from_db()
+
+    assert job.sync_blocked is False
+    assert job.consecutive_sync_failures == 1
+    assert "deleted at Smartling" in job.last_sync_error
+
+
+def test_failures_that_are_not_pushes_do_not_block_at_the_limit(root_page, smartling_settings):
+    smartling_settings.SYNC_FAILURE_LIMIT = 2
+    job = JobFactory(source_instance=root_page)
+
+    for _ in range(3):
+        job.record_sync_failure(TimeoutError("timed out"), permanent=False, pushing=False)
+    job.refresh_from_db()
+
+    assert job.sync_blocked is False
+    assert job.consecutive_sync_failures == 3
+
+
+def test_a_huge_error_message_is_truncated(root_page):
+    """A proxy answering with an HTML error page must not write that page to the row on every sweep."""
+    job = JobFactory(source_instance=root_page)
+
+    job.record_sync_failure(ValueError("upload rejected: " + "x" * 10_000), permanent=False, pushing=True)
+    job.refresh_from_db()
+
+    assert len(job.last_sync_error) == SYNC_ERROR_MAX_LENGTH
+    assert job.last_sync_error.startswith("upload rejected: ")
+    assert job.last_sync_error.endswith("\u2026")
+
+
+def test_an_error_message_that_fits_is_stored_whole(root_page):
+    """If an error message is below the limit, all of it is stored."""
+    job = JobFactory(source_instance=root_page)
+
+    job.record_sync_failure(ValueError("upload rejected"), permanent=False, pushing=True)
+    job.refresh_from_db()
+
+    assert job.last_sync_error == "upload rejected"
+
+
+def test_clearing_sync_failure_resets_every_field(root_page):
+    job = JobFactory(source_instance=root_page)
+    job.record_sync_failure(ValueError("nope"), permanent=True, pushing=True)
+
+    job.clear_sync_failure()
+    job.refresh_from_db()
+
+    assert job.sync_blocked is False
+    assert job.consecutive_sync_failures == 0
+    assert job.last_sync_error == ""
+    assert job.last_sync_error_at is None
+
+
+@pytest.mark.parametrize(
+    "status,blocked,expected_needs_a_new_job",
+    [
+        (JobStatus.CANCELLED, False, True),
+        (JobStatus.CANCELLED, True, True),
+        (JobStatus.DELETED, False, True),
+        (JobStatus.DELETED, True, True),
+        (JobStatus.UNSYNCED, True, True),
+        (JobStatus.UNSYNCED, False, False),
+        (JobStatus.IN_PROGRESS, False, False),
+        (JobStatus.IN_PROGRESS, True, False),
+        (JobStatus.COMPLETED, False, False),
+        (JobStatus.COMPLETED, True, False),
+    ],
+)
+def test_needs_a_new_job(root_page, status, blocked, expected_needs_a_new_job):
+    job = JobFactory(
+        source_instance=root_page,
+        status=status,
+        sync_blocked=blocked,
+        synced=status != JobStatus.UNSYNCED,
+    )
+
+    assert job.needs_a_new_job is expected_needs_a_new_job

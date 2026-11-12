@@ -27,6 +27,7 @@ class SmartlingSettings:
     SEND_TO_SMARTLING_BY_DEFAULT: bool = True
     ENVIRONMENT: Literal["production", "staging"] = "production"
     API_TIMEOUT_SECONDS: float = 5.0
+    SYNC_FAILURE_LIMIT: int = 10
     LOCALE_TO_SMARTLING_LOCALE: "dict[str, str]" = dataclasses.field(default_factory=dict)
     SMARTLING_LOCALE_TO_LOCALE: "dict[str, str]" = dataclasses.field(default_factory=dict)
     REFORMAT_LANGUAGE_CODES: bool = True
@@ -96,6 +97,16 @@ def _init_settings() -> SmartlingSettings:
         if api_timeout_seconds <= 0:
             raise ImproperlyConfigured(f"{setting_name}['API_TIMEOUT_SECONDS'] must be a positive number")
         settings_kwargs["API_TIMEOUT_SECONDS"] = api_timeout_seconds
+
+    if "SYNC_FAILURE_LIMIT" in settings_dict:
+        try:
+            sync_failure_limit = int(settings_dict["SYNC_FAILURE_LIMIT"])
+        except (TypeError, ValueError) as e:
+            raise ImproperlyConfigured(f"{setting_name}['SYNC_FAILURE_LIMIT'] must be an integer") from e
+
+        if sync_failure_limit < 1:
+            raise ImproperlyConfigured(f"{setting_name}['SYNC_FAILURE_LIMIT'] must be at least 1")
+        settings_kwargs["SYNC_FAILURE_LIMIT"] = sync_failure_limit
 
     if "LOCALE_MAPPING_CALLBACK" in settings_dict and "LOCALE_TO_SMARTLING_LOCALE" in settings_dict:
         raise ImproperlyConfigured(

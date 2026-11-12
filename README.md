@@ -66,6 +66,9 @@ integrates with the Smartling translation platform.
         "SEND_TO_SMARTLING_BY_DEFAULT": True,
         "ENVIRONMENT": "production",  # Set this to "staging" to use Smartling's staging API
         "API_TIMEOUT_SECONDS": 5.0,  # Timeout in seconds for requests to the Smartling API
+        # How many times in a row a job's upload to Smartling may fail
+        # before the job is blocked and stops being retried.
+        "SYNC_FAILURE_LIMIT": 10,
     }
     ```
 
@@ -419,7 +422,7 @@ flowchart LR
 
 ## Signals
 
-This app provides two Signals.
+This app provides the following Signals.
 
 `wagtail_localize.signals.individual_translation_imported` is sent each time a translation for a single locale (and for a single content object) is imported from Smartling.
 
@@ -437,6 +440,28 @@ Signal kwargs:
 - `sender`: The `wagtail_localize_smartling.models.Job` class
 - `instance`: The `Job` instance for which translation are being imported
 - `translations_imported`: A list of `wagtail_localize.models.Translation` instances that were imported to for the entire Job.
+
+`wagtail_localize_smartling.signals.job_sync_failed` is sent when an attempt to sync a Job to Smartling raised, after the failure has been recorded on the Job.
+
+Signal kwargs:
+
+- `sender`: The `wagtail_localize_smartling.models.Job` class
+- `instance`: The `Job` instance whose sync failed
+- `exception`: The exception that was raised
+- `permanent`: `True` when retrying cannot succeed (a rejected request, or too many consecutive failures), `False` while the Job is still being retried
+
+Note: this signal fires on every failed attempt. If a receiver only needs to act on permanent failures, it can check the value of `permanent`:
+
+```python
+from django.dispatch import receiver
+from wagtail_localize_smartling.signals import job_sync_failed
+
+
+@receiver(job_sync_failed)
+def report_sync_failure(sender, instance, exception, permanent, **kwargs):
+    if permanent:
+        sentry_sdk.capture_exception(exception)
+```
 
 ## Cutting a new release
 

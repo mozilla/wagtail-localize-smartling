@@ -347,3 +347,39 @@ def test_exclude_locales_invalid_locale_code():
 def test_exclude_locales_valid_and_invalid_in_excluded_locales():
     with pytest.raises(ImproperlyConfigured, match="WAGTAIL_CONTENT_LANGUAGES"):
         _init_settings()
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "SYNC_FAILURE_LIMIT": 3,
+    }
+)
+def test_sync_failure_limit():
+    assert _init_settings().SYNC_FAILURE_LIMIT == 3
+
+
+def test_sync_failure_limit_default():
+    assert _init_settings().SYNC_FAILURE_LIMIT == 10
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "SYNC_FAILURE_LIMIT": "not_a_number",
+    }
+)
+def test_non_numeric_sync_failure_limit():
+    with pytest.raises(ImproperlyConfigured):
+        _init_settings()
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "SYNC_FAILURE_LIMIT": 0,
+    }
+)
+def test_sync_failure_limit_below_one():
+    with pytest.raises(ImproperlyConfigured, match="at least 1"):
+        _init_settings()

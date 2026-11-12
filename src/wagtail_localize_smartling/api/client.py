@@ -35,6 +35,7 @@ from .serializers import (
     AuthenticateResponseSerializer,
     CreateBatchResponseSerializer,
     CreateJobResponseSerializer,
+    ErrorResponseSerializer,
     GetFileStatusResponseSerializer,
     GetJobDetailsResponseSerializer,
     GetProjectDetailsResponseSerializer,
@@ -76,9 +77,16 @@ class FailedResponse(SmartlingAPIError):
     unsuccessful for some reason.
     """
 
-    def __init__(self, *, code: str, errors: list[types.SmartlingAPIErrorDict]):
+    def __init__(
+        self,
+        *,
+        code: str,
+        errors: list[types.SmartlingAPIErrorDict],
+        status_code: int | None = None,
+    ):
         self.code = code
         self.errors = errors
+        self.status_code = status_code
 
     def __str__(self):
         return f"{self.code}\n{textwrap.indent(pprint.pformat(self.errors, indent=2), prefix='  ')}"
@@ -240,7 +248,7 @@ class SmartlingAPIClient:
             response.raise_for_status()
         except HTTPError as e:
             code, errors = serializer.response_errors
-            raise FailedResponse(code=code, errors=errors) from e
+            raise FailedResponse(code=code, errors=errors, status_code=response.status_code) from e
 
         return serializer.response_data
 
@@ -620,7 +628,7 @@ class SmartlingAPIClient:
                 except requests.exceptions.JSONDecodeError as e:
                     raise InvalidResponse(f"Response was not valid JSON: {response.text}") from e
 
-                serializer = ResponseSerializer(data=response_json)
+                serializer = ErrorResponseSerializer(data=response_json)
 
                 try:
                     serializer.is_valid(raise_exception=True)
@@ -631,7 +639,7 @@ class SmartlingAPIClient:
                     response.raise_for_status()
                 except HTTPError as e:
                     code, errors = serializer.response_errors
-                    raise FailedResponse(code=code, errors=errors) from e
+                    raise FailedResponse(code=code, errors=errors, status_code=response.status_code) from e
 
             # Ok, cool, the response body is a ZIP file
             # TODO buffer to a temporary file instead of a BytesIO for large files
@@ -698,7 +706,7 @@ class SmartlingAPIClient:
             except requests.exceptions.JSONDecodeError as e:
                 raise InvalidResponse(f"Response was not valid JSON: {response.text}") from e
 
-            serializer = ResponseSerializer(data=response_json)
+            serializer = ErrorResponseSerializer(data=response_json)
 
             try:
                 serializer.is_valid(raise_exception=True)
@@ -709,7 +717,7 @@ class SmartlingAPIClient:
                 response.raise_for_status()
             except HTTPError as e:
                 code, errors = serializer.response_errors
-                raise FailedResponse(code=code, errors=errors) from e
+                raise FailedResponse(code=code, errors=errors, status_code=response.status_code) from e
 
         return response.content
 

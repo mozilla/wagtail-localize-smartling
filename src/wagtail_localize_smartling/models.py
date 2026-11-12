@@ -25,7 +25,7 @@ from wagtail_localize.tasks import ImmediateBackend, background
 from . import utils as smartling_utils
 from .api.client import client
 from .api.types import JobStatus
-from .constants import EXPANDABLE_JOB_STATUSES, UNSYNCED_OR_PENDING_STATUSES
+from .constants import EXPANDABLE_JOB_STATUSES, UNSYNCED_OR_PENDING_STATUSES, UNTRANSLATED_STATUSES
 from .forms import JobForm
 from .settings import settings as smartling_settings
 from .sync import sync_job
@@ -33,6 +33,10 @@ from .utils import compute_content_hash, get_snippet_admin_url
 
 
 logger = logging.getLogger(__name__)
+
+# A failing Smartling call can answer with a whole HTML error page, and the
+# message is written to the job on every sweep and shown in the admin.
+SYNC_ERROR_MAX_LENGTH = 2000
 
 
 class SyncedModel(models.Model):
@@ -476,6 +480,13 @@ class Job(SyncedModel):
     #   https://api-reference.smartling.com/#tag/Jobs/operation/getJobFilesList
     #
     file_uri = models.CharField(max_length=255, blank=True, editable=False)
+    # Error-related fields
+    last_sync_error = models.TextField(blank=True)
+    last_sync_error_at = models.DateTimeField(null=True, editable=False)
+    consecutive_sync_failures = models.PositiveIntegerField(default=0)
+    # Set when a job cannot succeed by being retried, so we can avoid retrying
+    # it.
+    sync_blocked = models.BooleanField(default=False)
 
     files: Manager["JobFile"]
 
@@ -508,6 +519,72 @@ class Job(SyncedModel):
 
     def __str__(self):
         return self.name
+
+    def record_sync_failure(self, exc: Exception, *, permanent: bool, pushing: bool) -> None:
+        """
+        Persist a failed sync attempt and stop retrying if it cannot succeed.
+
+        Only a failed push blocks the job. Once its files are at Smartling the
+        job is polled on every sweep whatever happens, so blocking it would
+        stop nothing while hiding a translation that can still land.
+
+        A transient failure keeps retrying until SYNC_FAILURE_LIMIT, so a job
+        whose Smartling project is unreachable does not retry forever either.
+        """
+        message = str(exc)
+        if len(message) > SYNC_ERROR_MAX_LENGTH:
+            message = message[: SYNC_ERROR_MAX_LENGTH - 1] + "\u2026"
+        self.last_sync_error = message
+        self.last_sync_error_at = timezone.now()
+        self.consecutive_sync_failures += 1
+        if pushing and (permanent or self.consecutive_sync_failures >= smartling_settings.SYNC_FAILURE_LIMIT):
+            self.sync_blocked = True
+        self.save(
+            update_fields=[
+                "last_sync_error",
+                "last_sync_error_at",
+                "consecutive_sync_failures",
+                "sync_blocked",
+            ]
+        )
+
+    def clear_sync_failure(self) -> None:
+        """Forget a past failure, so a healthy job does not read as a failing one."""
+        if not (self.last_sync_error or self.last_sync_error_at or self.consecutive_sync_failures or self.sync_blocked):
+            return
+
+        self.last_sync_error = ""
+        self.last_sync_error_at = None
+        self.consecutive_sync_failures = 0
+        self.sync_blocked = False
+        self.save(
+            update_fields=[
+                "last_sync_error",
+                "last_sync_error_at",
+                "consecutive_sync_failures",
+                "sync_blocked",
+            ]
+        )
+
+    @property
+    def push_is_incomplete(self) -> bool:
+        """
+        Whether this job still needs to send something to Smartling.
+
+        A push is incomplete until the job exists in Smartling and every one of
+        its files has been uploaded.
+        """
+        return self.translation_job_uid == "" or self.files.filter(file_uri="").exists()
+
+    @property
+    def needs_a_new_job(self) -> bool:
+        """
+        Whether these translations can now only arrive via a new job.
+
+        A job blocked after its files reached Smartling is not one of those: its
+        locales can still land, and a second job would duplicate them.
+        """
+        return self.status in UNTRANSLATED_STATUSES or (self.sync_blocked and not self.translation_job_uid)
 
     @staticmethod
     def get_default_name(
@@ -669,6 +746,8 @@ class Job(SyncedModel):
                 files__content_hash=content_hash,
                 status__in=UNSYNCED_OR_PENDING_STATUSES,
             )
+            # Exclude Jobs that are blocked and never reached Smartling.
+            .exclude(sync_blocked=True, translation_job_uid="")
             .prefetch_related("translations", "files")
             .distinct()
             # A job that carries other pages belongs to a different order.
