@@ -288,10 +288,9 @@ def _initial_sync(job: "Job") -> None:
                 batch_uid=batch_uid,
             )
 
-            # The file's copy is what marks it uploaded and the job's is what
-            # the download path reads, so a job carrying only one of the two is
-            # a job that looks pushed and then cannot take its translations
-            # back. The job takes the URI of the first file to land.
+            # The file's copy is what marks it uploaded. The job's copy is
+            # the deprecated single-file field, which takes the URI of the
+            # first file to land and goes when the field does.
             with transaction.atomic():
                 job_file.file_uri = file_uri
                 job_file.save(update_fields=["file_uri"])

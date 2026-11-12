@@ -2,7 +2,7 @@ import logging
 import pprint
 import textwrap
 
-from collections.abc import Generator, Iterable
+from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from functools import cached_property
@@ -48,6 +48,8 @@ from .serializers import (
 
 
 if TYPE_CHECKING:
+    from wagtail_localize.models import TranslationSource
+
     from ..models import Job, JobFile
 
 
@@ -502,11 +504,19 @@ class SmartlingAPIClient:
             logger.info("No visual context callback configured")
             return
 
+        # One file's failure must not cost the rest of the job its context, so
+        # the first one to fail is raised only when every file has had its turn.
+        first_failure: Exception | None = None
+
         # Smartling matches each context to the strings it recognises, so a job
         # of several pages takes several contexts.
         for job_file in job.files.select_related("translation_source"):
             try:
-                url, html = visual_context_callback_fn(job, job_file.translation_source)
+                self._send_visual_context_for_file(
+                    job=job,
+                    job_file=job_file,
+                    get_visual_context=visual_context_callback_fn,
+                )
             except IncapableVisualContextCallback as ex:
                 logger.info(
                     "Visual context callback refused to provide values for source %s. "
@@ -514,50 +524,72 @@ class SmartlingAPIClient:
                     job_file.translation_source_id,
                     ex,
                 )
-                continue
+            except Exception as ex:
+                logger.exception("Could not send the visual context for source %s", job_file.translation_source_id)
+                if first_failure is None:
+                    first_failure = ex
 
-            # data:
-            # `name` - url of the page this file was generated from
-            # `matchparams` - config params for Smartling's string matching
-            # `content` - the HTML of that page, as bytes
+        if first_failure is not None:
+            raise first_failure
 
-            data_payload: dict[str, Any] = {
-                "name": url,
-                "matchparams": {
-                    "translationJobUids": [job.translation_job_uid],
-                },
-            }
+    def _send_visual_context_for_file(
+        self,
+        *,
+        job: "Job",
+        job_file: "JobFile",
+        get_visual_context: Callable[["Job", "TranslationSource"], tuple[str, str]],
+    ) -> None:
+        """
+        Render one file's page through the host's callback and send it to
+        Smartling as the context for that file's strings.
 
-            # The file payload contains the rendered HTML of the page
-            # being translated. It needs to be send as multipart form
-            # data, so we turn the HTML string into a bytearray
-            # and pass it along with a filename based on the slug
-            # of the page
+        Raises IncapableVisualContextCallback if the callback says this object
+        has no page to show.
+        """
+        url, html = get_visual_context(job, job_file.translation_source)
 
-            if isinstance(html, str):
-                html = bytearray(html, "utf-8")
+        # data:
+        # `name` - url of the page this file was generated from
+        # `matchparams` - config params for Smartling's string matching
+        # `content` - the HTML of that page, as bytes
 
-            filename = utils.get_filename_for_visual_context(url)
+        data_payload: dict[str, Any] = {
+            "name": url,
+            "matchparams": {
+                "translationJobUids": [job.translation_job_uid],
+            },
+        }
 
-            file_payload: dict[str, tuple[str, bytearray, str]] = {
-                "content": (filename, html, "text/html"),
-            }
+        # The file payload contains the rendered HTML of the page
+        # being translated. It needs to be send as multipart form
+        # data, so we turn the HTML string into a bytearray
+        # and pass it along with a filename based on the slug
+        # of the page
 
-            logger.info(
-                "Sending visual context to Smartling for Job %s for URL %s",
-                job.translation_job_uid,
-                url,
-            )
+        if isinstance(html, str):
+            html = bytearray(html, "utf-8")
 
-            result = self._request(
-                method="POST",
-                path=f"/context-api/v2/projects/{quote(job.project.project_id)}/contexts/upload-and-match-async",
-                response_serializer_class=AddVisualContextToJobSerializer,
-                files=file_payload,
-                data=data_payload,
-            )
+        filename = utils.get_filename_for_visual_context(url)
 
-            logger.info("Visual context sent. processUid returned: %s", result.get("processUid"))
+        file_payload: dict[str, tuple[str, bytearray, str]] = {
+            "content": (filename, html, "text/html"),
+        }
+
+        logger.info(
+            "Sending visual context to Smartling for Job %s for URL %s",
+            job.translation_job_uid,
+            url,
+        )
+
+        result = self._request(
+            method="POST",
+            path=f"/context-api/v2/projects/{quote(job.project.project_id)}/contexts/upload-and-match-async",
+            response_serializer_class=AddVisualContextToJobSerializer,
+            files=file_payload,
+            data=data_payload,
+        )
+
+        logger.info("Visual context sent. processUid returned: %s", result.get("processUid"))
 
     @contextmanager
     def download_translations(self, *, job_file: "JobFile") -> Generator[ZipFile]:

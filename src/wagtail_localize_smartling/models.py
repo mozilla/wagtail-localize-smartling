@@ -770,7 +770,12 @@ class Job(SyncedModel):
 
             # Try to add new locales if the job is in an expandable state
             if existing_job.status in EXPANDABLE_JOB_STATUSES:
-                _add_locales_to_existing_job(existing_job, new_translations_for_job)
+                _add_locales_to_existing_job(
+                    existing_job,
+                    translation_source,
+                    new_translations_for_job,
+                    user=user,
+                )
                 for t in new_translations_for_job:
                     remaining_translations.pop(t.target_locale.pk, None)
 
@@ -862,22 +867,30 @@ class JobFile(models.Model):
         return self.file_uri or f"file for source {self.translation_source_id}"
 
 
-def _add_locales_to_existing_job(job: "Job", translations: list[Translation]) -> None:
+def _add_locales_to_existing_job(
+    job: "Job",
+    translation_source: TranslationSource,
+    translations: list[Translation],
+    *,
+    user: AbstractBaseUser,
+) -> None:
     """
-    Add new locales to an existing job.
+    Add new locales to an existing job and to the order behind it.
 
     For UNSYNCED jobs, the translations are simply added to the M2M relationship.
     For synced jobs (DRAFT, AWAITING_AUTHORIZATION), the Smartling API is called
     to add the new locales to the job.
 
     Uses transactions and savepoints to ensure consistency between the database
-    and Smartling API state.
+    and Smartling API state. The order is recorded inside them, so a locale the
+    job keeps is a locale the order knows about.
     """
     if job.status == JobStatus.UNSYNCED:
         # Job hasn't been synced yet - just add to M2M in a single transaction
         with transaction.atomic():
             for translation in translations:
                 JobTranslation.objects.create(job=job, translation=translation)
+            _record_locales_on_order(job, translation_source, translations, user=user)
         logger.info(
             "Added %d locale(s) to unsynced job %s",
             len(translations),
@@ -893,10 +906,11 @@ def _add_locales_to_existing_job(job: "Job", translations: list[Translation]) ->
                 locale_id = smartling_utils.format_smartling_locale_id(translation.target_locale.language_code)
                 sid = transaction.savepoint()
                 try:
-                    # Create DB record first (inside savepoint)
+                    # Create DB records first (inside savepoint)
                     JobTranslation.objects.create(job=job, translation=translation)
+                    _record_locales_on_order(job, translation_source, [translation], user=user)
 
-                    # Then call API - if this fails, savepoint rolls back the DB create
+                    # Then call API - if this fails, savepoint rolls back the DB creates
                     client.add_locale_to_job(job=job, locale_id=locale_id)
 
                     transaction.savepoint_commit(sid)
@@ -913,6 +927,36 @@ def _add_locales_to_existing_job(job: "Job", translations: list[Translation]) ->
                         job,
                     )
                     raise
+
+
+def _record_locales_on_order(
+    job: "Job",
+    translation_source: TranslationSource,
+    translations: list[Translation],
+    *,
+    user: AbstractBaseUser,
+) -> None:
+    """
+    Record the locales the job has on the job's order.
+
+    An order's items are what a resend reads to decide what to send, so an order
+    that previously only knew about some of the job's locales needs to add the
+    rest of the job's locales now.
+    """
+    if job.order_id is None:
+        return
+
+    order_item, created = OrderItem.objects.get_or_create(
+        order_id=job.order_id,
+        translation_source=translation_source,
+        defaults={"added_by": user},
+    )
+    if created:
+        # A page the order has no item for is owed every locale its job
+        # carries, not only the ones arriving now.
+        order_item.translations.set(job.translations.all())
+    else:
+        order_item.translations.add(*translations)
 
 
 class LandedTranslationTaskManager(models.Manager):

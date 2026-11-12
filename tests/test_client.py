@@ -2,6 +2,7 @@ import json
 import re
 
 from unittest.mock import Mock
+from urllib.parse import quote
 
 import pytest
 
@@ -216,6 +217,81 @@ def test_one_file_without_visual_context_does_not_silence_the_others(
     sent = _visual_context_calls(responses)
     assert len(sent) == 1
     assert f"https://example.com/{expected_source.pk}/" in sent[0].request.body.decode(errors="ignore")
+
+
+# Parametrized over which of the two files Smartling rejects, because a job that
+# stopped at the first rejection would look right whenever the rejected file came last.
+@pytest.mark.parametrize("rejected_file", (0, 1), ids=["the first file is rejected", "the second file is rejected"])
+def test_a_file_smartling_rejects_does_not_cost_the_others_their_context(
+    rejected_file,
+    root_page,
+    locales,
+    settings,
+    smartling_settings,
+    smartling_auth,
+    responses,
+):
+    sources = [
+        TranslationSourceFactory(source_instance=root_page),
+        TranslationSourceFactory(source_instance=_second_page(root_page)),
+    ]
+    job = JobFactory(source_instance=root_page, files=sources, synced=True)
+    rejected_url = f"https://example.com/{sources[rejected_file].pk}/"
+
+    def respond(request):
+        if rejected_url in request.body.decode(errors="ignore"):
+            body = {"response": {"code": "VALIDATION_ERROR", "data": [{"key": "some key"}]}}
+        else:
+            body = {"response": {"code": "SUCCESS", "data": {"processUid": "dummy_process_uid"}}}
+        return 200, {}, json.dumps(body)
+
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+    responses.add_callback(
+        method="POST",
+        url=f"https://api.smartling.com/context-api/v2/projects/{quote(project_id)}/contexts/upload-and-match-async",
+        callback=respond,
+    )
+    smartling_settings.VISUAL_CONTEXT_CALLBACK = lambda job, translation_source: (
+        f"https://example.com/{translation_source.pk}/",
+        "<html><body>test</body></html>",
+    )
+
+    with pytest.raises(InvalidResponse):
+        client.add_html_context_to_job(job=job)
+
+    sent = [call.request.body.decode(errors="ignore") for call in _visual_context_calls(responses)]
+    assert len(sent) == 2
+    assert any(f"https://example.com/{sources[1 - rejected_file].pk}/" in body for body in sent)
+
+
+def test_a_callback_that_fails_for_one_file_does_not_cost_the_others_their_context(
+    root_page,
+    locales,
+    smartling_settings,
+    smartling_add_visual_context,
+    responses,
+):
+    sources = [
+        TranslationSourceFactory(source_instance=root_page),
+        TranslationSourceFactory(source_instance=_second_page(root_page)),
+    ]
+    job = JobFactory(source_instance=root_page, files=sources, synced=True)
+
+    def callback(job, translation_source):
+        # Rendering a page can fail for reasons the callback cannot foresee, and
+        # only IncapableVisualContextCallback means "this one has no page".
+        if translation_source.pk == sources[0].pk:
+            raise ValueError("Could not render the page")
+        return (f"https://example.com/{translation_source.pk}/", "<html><body>test</body></html>")
+
+    smartling_settings.VISUAL_CONTEXT_CALLBACK = callback
+
+    with pytest.raises(ValueError):
+        client.add_html_context_to_job(job=job)
+
+    sent = _visual_context_calls(responses)
+    assert len(sent) == 1
+    assert f"https://example.com/{sources[1].pk}/" in sent[0].request.body.decode(errors="ignore")
 
 
 def test_client__create_batch_for_job__happy_path(
