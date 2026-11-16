@@ -369,6 +369,15 @@ is_in_flight_target(page)  # Is this page the target of a translation still at S
 ## How it works
 <!-- TODO -->
 
+### Submitting for translation
+
+This library subclasses and serves wagtail-localize's submit-for-translation
+views for pages and snippets, under wagtail-localize's own URL names, so that
+the confirmation messages are more accurate to what this library does.
+If your project redefines those wagtail-localize views, subclass
+`SmartlingSubmitTranslationMixin` from `wagtail_localize_smartling.views` to
+combine the two.
+
 ## Workflow
 
 <!-- TODO make sure this is fleshed out properly -->

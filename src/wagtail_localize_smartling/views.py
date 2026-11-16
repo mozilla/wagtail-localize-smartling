@@ -1,13 +1,13 @@
 import logging
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.html import format_html
+from django.utils.translation import gettext, ngettext
 from django.utils.translation import gettext_lazy as _
-from django.utils.translation import ngettext
 from django.views.generic import TemplateView
 from laces.components import MediaContainer
 from wagtail.admin.auth import permission_denied
@@ -18,16 +18,23 @@ from wagtail.admin.views.generic import (
 )
 from wagtail.models import Locale
 from wagtail.permission_policies import ModelPermissionPolicy
+from wagtail_localize.models import TranslationSource
+from wagtail_localize.views.submit_translations import (
+    SubmitPageTranslationView,
+    SubmitSnippetTranslationView,
+    SubmitTranslationView,
+)
 
 from .components import LandedTranslationsPanel
 from .forms import ResubmitOrderForm
-from .models import Job, Project
+from .models import Job, Order, Project
 from .templatetags.wagtail_localize_smartling_admin_tags import smartling_job_url
 from .utils import (
     format_smartling_project_url,
     get_wagtail_source_locale,
     suggest_source_locale,
 )
+from .viewsets import OrderPermissionPolicy
 
 
 logger = logging.getLogger(__name__)
@@ -205,6 +212,73 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
             )
 
         return context
+
+
+class SmartlingSubmitTranslationMixin(SubmitTranslationView if TYPE_CHECKING else object):
+    """
+    Give the user a success message that states that the object joined an order.
+
+    wagtail_localize's success message is generic, but a little misleading for
+    what happens in this library, since translating a page doesn't necessarily
+    submit the translation to smartling; it may only create an order and need
+    the user to submit the order to smartling.
+    """
+
+    def get_order_success_message(self, order: Order) -> str:
+        raise NotImplementedError
+
+    def get_success_message(self, locales):
+        order = self._order_joined()
+        if order is None:
+            return super().get_success_message(locales)  # pyright: ignore[reportAttributeAccessIssue]
+
+        message = self.get_order_success_message(order)
+        if not OrderPermissionPolicy(Order).user_has_permission_for_instance(self.request.user, "change", order):
+            return f"{message} {gettext('Someone who manages Smartling orders will need to send it.')}"
+
+        return format_html(
+            '{} <a href="{}">{}</a>',
+            message,
+            reverse("wagtail_localize_smartling_jobs:edit", args=(order.pk,)),
+            gettext("Review and send the order."),
+        )
+
+    def _order_joined(self) -> Order | None:
+        """The order this object was just added to, or None if it was not."""
+        for component, _instance, form in self.components.components:
+            if component["model"] is not Job:
+                continue
+            # A disabled component is never cleaned, so it has no cleaned_data.
+            order = getattr(form, "cleaned_data", {}).get("order")
+            break
+        else:
+            return None
+
+        # A new order is written only once a page joins it, so one still
+        # unsaved means nothing joined it.
+        if order is None or order.pk is None:
+            return None
+
+        # An order that already existed proves nothing either: a submission
+        # that ends up with nothing to translate adds no page to it.
+        source = TranslationSource.objects.get_for_instance_or_none(self.object)
+        if source is None or not order.order_items.filter(translation_source=source).exists():
+            return None
+        return order
+
+
+class SmartlingSubmitPageTranslationView(SmartlingSubmitTranslationMixin, SubmitPageTranslationView):
+    def get_order_success_message(self, order: Order) -> str:
+        return gettext(
+            "The page '%(page_title)s' was added to order '%(order)s'. It has not been sent to Smartling yet."
+        ) % {"page_title": self.object.get_admin_display_title(), "order": order.name}
+
+
+class SmartlingSubmitSnippetTranslationView(SmartlingSubmitTranslationMixin, SubmitSnippetTranslationView):
+    def get_order_success_message(self, order: Order) -> str:
+        return gettext(
+            "The %(model_name)s '%(object)s' was added to order '%(order)s'. It has not been sent to Smartling yet."
+        ) % {"model_name": self.object._meta.verbose_name, "object": self.object, "order": order.name}
 
 
 def landed_translations_list(request):
