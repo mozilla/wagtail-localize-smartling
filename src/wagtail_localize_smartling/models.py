@@ -36,7 +36,7 @@ from .constants import (
 from .forms import JobForm
 from .settings import settings as smartling_settings
 from .sync import sync_job
-from .utils import compute_content_hash, get_snippet_admin_url
+from .utils import compute_content_hash, get_snippet_admin_url, prefixed_job_name
 
 
 logger = logging.getLogger(__name__)
@@ -399,9 +399,7 @@ class Order(models.Model):
         """
         send_number = self.jobs.count() + 1
         name = self.name if send_number == 1 else f"{self.name}-{send_number}"
-        if smartling_settings.JOB_NAME_PREFIX:
-            name = f"{smartling_settings.JOB_NAME_PREFIX} {name}"
-        return name
+        return prefixed_job_name(name)
 
     def submit(
         self,
@@ -745,10 +743,7 @@ class Job(SyncedModel):
             usedforsecurity=False,
         ).hexdigest()[:8]
 
-        name = f"{hash} #{translation_source.pk}"
-        if smartling_settings.JOB_NAME_PREFIX:
-            name = f"{smartling_settings.JOB_NAME_PREFIX} {name}"
-        return name
+        return prefixed_job_name(f"{hash} #{translation_source.pk}")
 
     @staticmethod
     def get_default_reference_number(

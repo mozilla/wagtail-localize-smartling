@@ -4,6 +4,7 @@ into an order, offered on wagtail-localize's submit-for-translation form.
 """
 
 from datetime import timedelta
+from html import unescape
 
 import pytest
 
@@ -14,7 +15,7 @@ from wagtail.models import Locale
 from wagtail_localize_smartling import models as wls_models
 
 from testapp.factories import InfoPageFactory
-from tests.factories import OrderFactory
+from tests.factories import JobFactory, OrderFactory
 
 
 pytestmark = pytest.mark.django_db
@@ -29,6 +30,11 @@ def page(root_page):
 
 def submit_url(page):
     return reverse("wagtail_localize:submit_page_translation", kwargs={"page_id": page.pk})
+
+
+def page_text(response):
+    """The re-rendered submit page, with escaped characters back as an editor sees them."""
+    return unescape(response.content.decode())
 
 
 def component_form_errors(response):
@@ -181,7 +187,7 @@ def test_naming_a_new_order_while_sending_now_is_refused(client, page, superuser
     )
 
     assert response.status_code == 200
-    assert "The values of “Order name”, “Notes for translators” are not valid" in response.content.decode()
+    assert "The values of 'Order name', 'Notes for translators' are not valid" in page_text(response)
     assert "how_to_send_choice" in component_form_errors(response)
     assert wls_models.Order.objects.count() == 0
     assert wls_models.Job.objects.count() == 0
@@ -193,7 +199,7 @@ def test_picking_an_order_while_sending_now_is_refused(client, page, superuser):
 
     response = client.post(submit_url(page), submit_data(page, order=order.pk))
 
-    assert "The value of “Open order” is not valid" in response.content.decode()
+    assert "The value of 'Open order' is not valid" in page_text(response)
     assert wls_models.OrderItem.objects.count() == 0
     assert wls_models.Job.objects.count() == 0
 
@@ -207,9 +213,87 @@ def test_picking_an_order_while_starting_a_new_one_is_refused(client, page, supe
         submit_data(page, how_to_send_choice="new", new_order_name="WNP 158", order=order.pk),
     )
 
-    assert "The value of “Open order” is not valid" in response.content.decode()
+    assert "The value of 'Open order' is not valid" in page_text(response)
     assert list(wls_models.Order.objects.values_list("name", flat=True)) == [order.name]
     assert wls_models.Job.objects.count() == 0
+
+
+def test_a_name_an_open_order_already_has_is_refused(client, page, superuser):
+    OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    client.force_login(superuser)
+    assert wls_models.Order.objects.count() == 1
+    assert wls_models.Job.objects.count() == 0
+
+    response = client.post(submit_url(page), submit_data(page, how_to_send_choice="new", new_order_name="  wnp 157  "))
+
+    # Neither case nor the padding an editor pastes in makes a name different.
+    assert "An order called 'wnp 157' is already open." in page_text(response)
+    assert "new_order_name" in component_form_errors(response)
+    assert wls_models.Order.objects.count() == 1
+    assert wls_models.Job.objects.count() == 0
+
+
+def test_a_name_a_sent_order_s_job_took_is_refused(client, page, superuser, smartling_settings):
+    smartling_settings.JOB_NAME_PREFIX = "www.firefox.com"
+    sent_order = OrderFactory(name="WNP 157", created_by=superuser)
+    JobFactory(source_instance=page, order=sent_order, name=sent_order.suggested_job_name())
+    client.force_login(superuser)
+    assert wls_models.Order.objects.count() == 1
+    assert wls_models.Job.objects.count() == 1
+
+    response = client.post(submit_url(page), submit_data(page, how_to_send_choice="new", new_order_name="WNP 157"))
+
+    assert "already called 'www.firefox.com WNP 157'" in page_text(response)
+    assert "new_order_name" in component_form_errors(response)
+    assert wls_models.Order.objects.count() == 1
+    assert wls_models.Order.objects.filter(submitted_at__isnull=True).count() == 0
+    assert wls_models.Job.objects.count() == 1
+
+
+def test_a_name_held_only_by_a_sent_order_is_free(client, root_page, page, superuser, smartling_project):
+    client.force_login(superuser)
+    assert wls_models.Order.objects.count() == 0
+    assert wls_models.Job.objects.count() == 0
+
+    # Sending a page now names its order after the page, while that order's job
+    # carries a generated name, so nothing at the Smartling end holds the title.
+    client.post(submit_url(page), submit_data(page))
+    assert wls_models.Order.objects.get().name == page.title
+    another_page = InfoPageFactory(parent=root_page, title="Another page")
+    assert wls_models.Order.objects.count() == 1
+    assert wls_models.Job.objects.count() == 1
+
+    client.post(
+        submit_url(another_page),
+        submit_data(another_page, how_to_send_choice="new", new_order_name=page.title),
+    )
+
+    assert wls_models.Order.objects.filter(submitted_at__isnull=True, name=page.title).count() == 1
+    assert wls_models.Order.objects.count() == 2
+    assert wls_models.Job.objects.count() == 1
+
+
+def test_a_name_too_long_once_the_prefix_is_added_is_refused(client, page, superuser, smartling_settings):
+    smartling_settings.JOB_NAME_PREFIX = "x" * 70
+    client.force_login(superuser)
+
+    response = client.post(submit_url(page), submit_data(page, how_to_send_choice="new", new_order_name="W" * 100))
+
+    assert "too long" in response.content.decode()
+    assert "new_order_name" in component_form_errors(response)
+    assert wls_models.Order.objects.count() == 0
+    assert wls_models.Job.objects.count() == 0
+
+
+def test_a_name_the_field_itself_refuses_is_reported_only_once(client, page, superuser):
+    client.force_login(superuser)
+
+    response = client.post(submit_url(page), submit_data(page, how_to_send_choice="new", new_order_name="W" * 150))
+
+    content = response.content.decode()
+    assert "at most 100 characters" in content
+    assert "Give the order a name." not in content
+    assert wls_models.Order.objects.count() == 0
 
 
 def test_a_new_order_is_not_created_when_every_locale_is_excluded(client, page, superuser, smartling_settings):

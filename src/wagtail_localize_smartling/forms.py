@@ -9,6 +9,7 @@ from django.utils.translation import gettext_lazy as _
 from wagtail.admin.forms import WagtailAdminModelForm
 
 from .settings import settings as smartling_settings
+from .utils import job_name_begins_with_prefix, name_without_job_prefix, prefixed_job_name
 
 
 if TYPE_CHECKING:
@@ -97,6 +98,29 @@ class JobForm(WagtailAdminModelForm):
             "age": timesince(order.created_at),
         }
 
+    @staticmethod
+    def _order_name_error(order_name: str) -> str | None:
+        """Why this order cannot be given this name, or None if it can."""
+        # Imported here because models.py imports this module.
+        from .models import Job, Order
+
+        job_name = prefixed_job_name(order_name)
+
+        if Order.objects.filter(submitted_at__isnull=True, name__iexact=order_name).exists():
+            return gettext("An order called '%(name)s' is already open. Add to it, or pick another name.") % {
+                "name": order_name
+            }
+        if Job.objects.filter(name__iexact=job_name).exists():
+            return gettext("A Smartling job is already called '%(name)s'. Pick another name.") % {"name": job_name}
+
+        # Resending an order appends a suffix to the job name, and Smartling
+        # refuses a name over its limit.
+        longest_resend_suffix = len("-99")
+        if len(job_name) > Job._meta.get_field("name").max_length - longest_resend_suffix:  # pyright: ignore[reportAttributeAccessIssue]
+            return gettext("That name is too long once the Smartling prefix is added.")
+
+        return None
+
     def clean(self) -> dict[str, Any]:
         # Imported here because models.py imports this module.
         from .models import Order
@@ -121,17 +145,21 @@ class JobForm(WagtailAdminModelForm):
                     "The values of %(fields)s are not valid for this choice.",
                     len(fields_that_should_be_empty_but_are_not),
                 )
-                % {"fields": ", ".join(f"“{label}”" for label in fields_that_should_be_empty_but_are_not)},
+                % {"fields": ", ".join(f"'{label}'" for label in fields_that_should_be_empty_but_are_not)},
             )
             return data
 
         if how_to_send_choice == self.EXISTING_ORDER:
             if not data.get("order"):
                 self.add_error("order", _("Choose an order, or start a new one."))
-        elif how_to_send_choice == self.NEW_ORDER:
+        elif how_to_send_choice == self.NEW_ORDER and not self.has_error("new_order_name"):
+            # If there is not already a new_order_name error, we run our own
+            # validation on the field.
             name = (data.get("new_order_name") or "").strip()
             if not name:
                 self.add_error("new_order_name", _("Give the order a name."))
+            elif name_error := self._order_name_error(name):
+                self.add_error("new_order_name", name_error)
             else:
                 # Left unsaved: an order is written to the database only once a
                 # page has joined it, so a submission that ends up adding
@@ -180,22 +208,18 @@ class ResubmitOrderForm(forms.Form):
         # background task, which a user won't see.
         if Job.objects.filter(name__iexact=job_name).exists():
             raise ValidationError(
-                _("A Smartling job is already called “%(name)s”. Pick another name.") % {"name": job_name}
+                _("A Smartling job is already called '%(name)s'. Pick another name.") % {"name": job_name}
             )
 
-        prefix = smartling_settings.JOB_NAME_PREFIX
-        order_name = job_name
-        if prefix:
-            # The prefix is how this project's jobs are picked out at the
-            # Smartling end.
-            if not job_name.startswith(f"{prefix} "):
-                raise ValidationError(
-                    _("Keep the “%(prefix)s ” that every job from here carries.") % {"prefix": prefix}
-                )
-            order_name = job_name[len(prefix) + 1 :]
+        if not job_name_begins_with_prefix(job_name):
+            raise ValidationError(
+                _("Keep the '%(prefix)s ' that every job from here carries.")
+                % {"prefix": smartling_settings.JOB_NAME_PREFIX}
+            )
+        order_name = name_without_job_prefix(job_name)
 
         # Any other order's name is refused.
         if Order.objects.exclude(pk=self.order.pk).filter(name__iexact=order_name).exists():
-            raise ValidationError(_("An order is already called “%(name)s”. Pick another name.") % {"name": order_name})
+            raise ValidationError(_("An order is already called '%(name)s'. Pick another name.") % {"name": order_name})
 
         return job_name

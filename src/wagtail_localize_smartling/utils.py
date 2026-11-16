@@ -59,6 +59,26 @@ def format_wagtail_locale_id(locale_id: str) -> str:
     return locale_id.lower()
 
 
+def prefixed_job_name(name: str) -> str:
+    """Add JOB_NAME_PREFIX to a Smartling job name."""
+    prefix = smartling_settings.JOB_NAME_PREFIX
+    return f"{prefix} {name}" if prefix else name
+
+
+def job_name_begins_with_prefix(job_name: str) -> bool:
+    """Whether a job name carries JOB_NAME_PREFIX. True when none is configured."""
+    prefix = smartling_settings.JOB_NAME_PREFIX
+    return not prefix or job_name.startswith(f"{prefix} ")
+
+
+def name_without_job_prefix(job_name: str) -> str:
+    """The opposite of prefixed_job_name, leaving a name that carries no prefix alone."""
+    prefix = smartling_settings.JOB_NAME_PREFIX
+    if prefix and job_name.startswith(f"{prefix} "):
+        return job_name[len(prefix) + 1 :]
+    return job_name
+
+
 def _get_smartling_dashboard_base_url() -> str:
     if smartling_settings.ENVIRONMENT == "staging":
         return "https://dashboard.stg.smartling.net"
