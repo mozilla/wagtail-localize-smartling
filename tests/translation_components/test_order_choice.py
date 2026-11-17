@@ -8,6 +8,7 @@ from html import unescape
 
 import pytest
 
+from bs4 import BeautifulSoup
 from django.urls import reverse
 from django.utils import timezone
 from wagtail.models import Locale
@@ -46,6 +47,13 @@ def component_form(response):
 def component_form_errors(response):
     """The Smartling component's own errors, from a submit page re-rendered after a refusal."""
     return component_form(response).errors
+
+
+def orders_in_open_orders_dropdown(response):
+    """The orders the submit page's dropdown offers as 'Open orders'."""
+    soup = BeautifulSoup(response.content.decode(), "html.parser")
+    options = soup.select(f'select[name="{COMPONENT_PREFIX}-order"] option')
+    return [option.get_text(strip=True) for option in options]
 
 
 def add_children(page, count):
@@ -544,3 +552,78 @@ def test_a_subtree_whose_order_is_deleted_midway_is_not_lost(client, page, super
     assert wls_models.Job.objects.count() == 3
     assert wls_models.Order.objects.count() == 3
     assert wls_models.Order.objects.filter(name="WNP 157").count() == 0
+
+
+def test_an_order_sent_while_the_form_was_open_is_refused_with_a_choice(client, page, superuser, smartling_project):
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    client.force_login(superuser)
+    data = submit_data(page, how_to_send_choice="existing", order=order.pk)
+    assert wls_models.Order.objects.count() == 1
+
+    # Someone else sends the order between this form being rendered and submitted.
+    order.submitted_at = timezone.now()
+    order.save(update_fields=["submitted_at"])
+    response = client.post(submit_url(page), data)
+
+    content = page_text(response)
+    assert "WNP 157 was sent to Smartling while you were on this page" in content
+    # What the editor is told replaces the dropdown's own refusal rather than joining it.
+    assert "not one of the available choices" not in content
+    assert "Choose an order, or start a new one." not in content
+    # The order is what went wrong, so that is where the editor is sent to fix it.
+    assert list(component_form_errors(response)) == ["order"]
+    assert order.order_items.count() == 0
+    assert wls_models.Job.objects.count() == 0
+    assert wls_models.Order.objects.count() == 1
+
+
+def test_an_order_sent_mid_edit_is_refused_while_other_orders_stay_open(client, page, superuser, smartling_project):
+    sent_order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    OrderFactory(submitted_at=None, created_by=superuser, name="WNP 158")
+    client.force_login(superuser)
+    data = submit_data(page, how_to_send_choice="existing", order=sent_order.pk)
+
+    sent_order.submitted_at = timezone.now()
+    sent_order.save(update_fields=["submitted_at"])
+    response = client.post(submit_url(page), data)
+
+    assert "WNP 157 was sent to Smartling while you were on this page" in page_text(response)
+    # The message above names the sent order, so only the dropdown itself can
+    # say which orders are still on offer.
+    offered_open_orders = orders_in_open_orders_dropdown(response)
+    assert not any(offer.startswith("WNP 157") for offer in offered_open_orders)
+    assert any(offer.startswith("WNP 158") for offer in offered_open_orders)
+    assert wls_models.OrderItem.objects.count() == 0
+    assert wls_models.Job.objects.count() == 0
+
+
+def test_a_subtree_is_not_told_to_send_now_when_its_order_is_sent_mid_edit(client, page, superuser, smartling_project):
+    add_children(page, 3)
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    client.force_login(superuser)
+    data = submit_data(page, how_to_send_choice="existing", order=order.pk, include_subtree=True)
+
+    order.submitted_at = timezone.now()
+    order.save(update_fields=["submitted_at"])
+    response = client.post(submit_url(page), data)
+
+    content = page_text(response)
+    assert "WNP 157 was sent to Smartling while you were on this page" in content
+    # Sending a subtree as its own job is refused, so it is not advised here.
+    assert "send this page as its own job" not in content
+    assert wls_models.OrderItem.objects.count() == 0
+    assert wls_models.Job.objects.count() == 0
+
+
+def test_an_order_deleted_mid_edit_does_not_leave_an_empty_dropdown(client, page, superuser, smartling_project):
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    client.force_login(superuser)
+    data = submit_data(page, how_to_send_choice="existing", order=order.pk)
+
+    wls_models.Order.objects.filter(pk=order.pk).delete()
+    response = client.post(submit_url(page), data)
+
+    # With no order left to join, the choice that needs one is not on offer.
+    assert "Add to an open order" not in page_text(response)
+    assert wls_models.OrderItem.objects.count() == 0
+    assert wls_models.Job.objects.count() == 0

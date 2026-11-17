@@ -294,17 +294,40 @@ As well as the `sync_smartling` management command, the plugin sets the `callbac
 
 ### Permissions
 
-The `Order` model groups jobs together, and has the four standard Django permissions:
+The `Order` model groups jobs together. Grant these to whoever decides what
+goes to Smartling and when:
 
-- `wagtail_localize_smartling.add_order`
-- `wagtail_localize_smartling.change_order`
-- `wagtail_localize_smartling.delete_order`
-- `wagtail_localize_smartling.view_order`
+- `wagtail_localize_smartling.view_order` — read the order listing and see what
+  each order holds.
+- `wagtail_localize_smartling.change_order` — edit an order and send it to
+  Smartling. An order that has already been sent can no longer be changed.
+- `wagtail_localize_smartling.delete_order` — discard an order that has not
+  been sent.
+
+Django also creates `wagtail_localize_smartling.add_order`, but granting it
+does nothing: an order is opened by the first page that joins it, from that
+page's own submit-for-translation form.
 
 ## Usage
 
 ### Submitting new content for translation
-<!-- TODO -->
+
+Wagtail's "Translate" buttons lead to wagtail-localize's submit form, where
+this library asks how the content should reach Smartling:
+
+- **Send now as its own job** — it goes to Smartling immediately, in a job of
+  its own. This is the default.
+- **Start a new order…** — it is held in a new order, under a name you give.
+  Nothing reaches Smartling until someone sends the order.
+- **Add to an open order…** — it joins an order someone has already opened.
+
+An order holds pages until they are sent together, which keeps related content
+in one job and lets someone review the batch first. A page submitted together
+with its subtree has to go into an order, since sending it now would make a
+separate job for every page beneath it.
+
+Orders are listed under "Smartling orders" in the admin menu. Open one to see
+what it holds, set its due date and notes, and send it.
 
 ### Updating translations
 <!-- TODO -->

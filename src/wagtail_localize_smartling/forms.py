@@ -86,7 +86,10 @@ class JobForm(WagtailAdminModelForm):
             (self.SEND_NOW, _("Send now as its own job")),
             (self.NEW_ORDER, _("Start a new order…")),
         ]
-        if open_orders.exists():
+        # Someone who picked an order that has since been sent still needs the
+        # option on screen, or validation would refuse the radio instead and
+        # say nothing about the order.
+        if open_orders.exists() or self.chosen_order_already_sent:
             how_to_send_choices.append((self.EXISTING_ORDER, _("Add to an open order…")))
         else:
             # An empty dropdown is a choice nobody can make, so neither it
@@ -151,6 +154,20 @@ class JobForm(WagtailAdminModelForm):
 
         return None
 
+    @cached_property
+    def chosen_order_already_sent(self) -> "Order | None":
+        """The order that was picked, if it has since been sent to Smartling."""
+        # Imported here because models.py imports this module.
+        from .models import Order
+
+        # Only open orders are offered, so one sent since this form was
+        # rendered survives nowhere but the raw POST data.
+        try:
+            return Order.objects.filter(pk=self.data.get(self.add_prefix("order")), submitted_at__isnull=False).first()
+        except (TypeError, ValueError):
+            # Not a primary key at all, which the field itself reports.
+            return None
+
     def clean(self) -> dict[str, Any]:
         # Imported here because models.py imports this module.
         from .models import Order
@@ -196,8 +213,26 @@ class JobForm(WagtailAdminModelForm):
             )
             return data
 
-        if how_to_send_choice == self.EXISTING_ORDER:
-            if not data.get("order"):
+        if how_to_send_choice == self.EXISTING_ORDER and not data.get("order"):
+            if order_already_sent := self.chosen_order_already_sent:
+                # The user chose an order that the field has now refused,
+                # because it was sent between the time the user loaded the form
+                # and submitted the form.
+                self.errors.pop("order", None)
+                if self.adds_a_subtree:
+                    # Sending a subtree as its own job is refused, so it is
+                    # not advised here.
+                    advice = _(
+                        "%(name)s was sent to Smartling while you were on this page. "
+                        "Start a new order for this page and its subtree."
+                    )
+                else:
+                    advice = _(
+                        "%(name)s was sent to Smartling while you were on this page."
+                        "Send this page as its own job, or start a new order."
+                    )
+                self.add_error("order", advice % {"name": order_already_sent.name})
+            else:
                 self.add_error("order", _("Choose an order, or start a new one."))
         elif how_to_send_choice == self.NEW_ORDER and not self.has_error("new_order_name"):
             # If there is not already a new_order_name error, we run our own
