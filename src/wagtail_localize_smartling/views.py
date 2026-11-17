@@ -17,11 +17,11 @@ from wagtail.admin.views.generic import (
     WagtailAdminTemplateMixin,
 )
 from wagtail.models import Locale
-from wagtail.permission_policies import ModelPermissionPolicy
 
 from .components import LandedTranslationsPanel
 from .constants import UNTRANSLATED_STATUSES
 from .models import Job, Project
+from .permissions import job_permission_policy
 from .templatetags.wagtail_localize_smartling_admin_tags import smartling_job_url
 from .utils import (
     format_smartling_project_url,
@@ -101,10 +101,11 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
     permission_required = "view"
     jobs_report_url: str = ""
 
-    # permission_policy is a cached_property in Wagtail >= 8.0.
+    # Wagtail >= 8.0 declares permission_policy as a cached_property, so a plain
+    # class attribute here fails type checking.
     @cached_property
     def permission_policy(self):
-        return ModelPermissionPolicy(Job)
+        return job_permission_policy
 
     def get_breadcrumbs_items(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         # TODO: link to the report view

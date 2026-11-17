@@ -8,9 +8,10 @@ from wagtail.admin.staticfiles import versioned_static
 from . import admin_urls
 from .components import LandedTranslationsPanel
 from .models import Job
+from .permissions import job_permission_policy
 from .settings import settings as smartling_settings
 from .views import SmartlingResubmitJobView
-from .viewsets import job_permission_policy, smartling_job_viewset
+from .viewsets import smartling_job_viewset
 
 
 try:
