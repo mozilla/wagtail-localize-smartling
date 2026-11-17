@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
@@ -7,6 +8,7 @@ from django.utils.timesince import timesince
 from django.utils.translation import gettext, ngettext
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.forms import WagtailAdminModelForm
+from wagtail.models import Page
 
 from .settings import settings as smartling_settings
 from .utils import job_name_begins_with_prefix, name_without_job_prefix, prefixed_job_name
@@ -47,17 +49,28 @@ class JobForm(WagtailAdminModelForm):
         EXISTING_ORDER: ("new_order_name", "new_order_notes"),
     }
 
-    def __init__(self, *args, user, **kwargs):
+    def __init__(self, *args, user, source_object_instance=None, **kwargs):
         # Imported here because models.py imports this module.
         from .models import Order
 
         super().__init__(*args, **kwargs)
+        self.descendant_count = (
+            source_object_instance.get_descendants().count() if isinstance(source_object_instance, Page) else 0
+        )
         self.fields["new_order_name"] = forms.CharField(
             label=_("Order name"),
             required=False,
             # The name becomes the order's own, so it cannot outgrow it.
             max_length=Order._meta.get_field("name").max_length,  # pyright: ignore[reportAttributeAccessIssue]
         )
+        if self.descendant_count:
+            # A page with children may go in as a subtree, which needs an
+            # order, so the obvious name is offered — unless it is one the
+            # validation below would refuse, which a second send of the same
+            # section would hit.
+            suggested_order_name = str(source_object_instance)[: self.fields["new_order_name"].max_length]
+            if not self._order_name_error(suggested_order_name):
+                self.fields["new_order_name"].initial = suggested_order_name
         self.fields["due_date"].help_text = _(
             "Applies to this job, or to the new order. Adding to an open order uses "
             "that order's own due date, which you can change on the order."
@@ -80,10 +93,27 @@ class JobForm(WagtailAdminModelForm):
             # nor the radio that governs it is shown.
             self.fields["order"].widget = forms.HiddenInput()
         self.fields["how_to_send_choice"].choices = how_to_send_choices  # pyright: ignore[reportAttributeAccessIssue]
+        if self.descendant_count:
+            # Each open order says how many pages it holds; this is the size
+            # of what would join it.
+            count_pages_in_subtree = self.descendant_count + 1
+            self.fields["how_to_send_choice"].help_text = ngettext(
+                "This page and its subtree are %(count)s page.",
+                "This page and its subtree are %(count)s pages.",
+                count_pages_in_subtree,
+            ) % {"count": count_pages_in_subtree}
 
         # The "how_to_send_choice" field governs the fields below it, so it
         # should render before them.
         self.order_fields(["enabled", "how_to_send_choice", "new_order_name", "new_order_notes", "order", "due_date"])
+
+    @cached_property
+    def adds_a_subtree(self) -> bool:
+        """Whether this submission carries the object's descendants too."""
+        # include_subtree belongs to wagtail-localize's own form, which posts
+        # alongside this one and carries no prefix.
+        is_subtree_included = forms.CheckboxInput().value_from_datadict(self.data, self.files, "include_subtree")
+        return bool(is_subtree_included) and self.descendant_count > 0
 
     @staticmethod
     def _describe_order(order: "Order") -> str:
@@ -130,12 +160,29 @@ class JobForm(WagtailAdminModelForm):
 
         how_to_send_choice = data.get("how_to_send_choice") or self.SEND_NOW
 
+        if how_to_send_choice == self.SEND_NOW and self.adds_a_subtree:
+            # Sending now can not go through the entire subtree and add all
+            # descendant pages to it. Instead, that is done as a background
+            # task.
+            self.add_error(
+                "how_to_send_choice",
+                _(
+                    "A subtree can not be sent right now. To send the subtree "
+                    "with this page, either add the page and its subtree to an "
+                    "open order, or start a new order for the page and its "
+                    "subtree."
+                ),
+            )
+            return data
+
         # Every field renders whatever the radio says, so a filled-in field the
         # radio leaves unread is a disagreement, not a leftover. The radio
         # decides, and silently discarding the rest would send a page to
         # Smartling on its own, which cannot be undone.
         fields_that_should_be_empty_but_are_not = [
-            self.fields[name].label for name in self.FIELDS_THAT_SHOULD_BE_EMPTY[how_to_send_choice] if data.get(name)
+            self.fields[name].label
+            for name in self.FIELDS_THAT_SHOULD_BE_EMPTY[how_to_send_choice]
+            if data.get(name) and name in self.changed_data
         ]
         if fields_that_should_be_empty_but_are_not:
             self.add_error(

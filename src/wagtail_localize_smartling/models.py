@@ -832,6 +832,19 @@ class Job(SyncedModel):
             if not translations_list:
                 return
 
+        if order is not None and order.pk is not None:
+            # Try to find the order, but if it has already been sent, then send
+            # a new order.
+            try:
+                order.refresh_from_db(fields=["submitted_at"])
+            except Order.DoesNotExist:
+                logger.info(
+                    "Order %s is gone, sending %s as its own job",
+                    order.pk,
+                    translation_source,
+                )
+                order = None
+
         if order is not None and not order.is_draft:
             logger.info(
                 "Order %s has already been submitted, sending %s as its own job",

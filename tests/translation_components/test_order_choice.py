@@ -11,11 +11,12 @@ import pytest
 from django.urls import reverse
 from django.utils import timezone
 from wagtail.models import Locale
+from wagtail_localize.views import submit_translations
 
 from wagtail_localize_smartling import models as wls_models
 
-from testapp.factories import InfoPageFactory
-from tests.factories import JobFactory, OrderFactory
+from testapp.factories import InfoPageFactory, TranslationSourceFactory
+from tests.factories import JobFactory, OrderFactory, OrderItemFactory
 
 
 pytestmark = pytest.mark.django_db
@@ -37,18 +38,52 @@ def page_text(response):
     return unescape(response.content.decode())
 
 
+def component_form(response):
+    """The Smartling component's own form, as the submit page rendered it."""
+    return response.context["components"].components[0][2]
+
+
 def component_form_errors(response):
     """The Smartling component's own errors, from a submit page re-rendered after a refusal."""
-    component_form = response.context["components"].components[0][2]
-    return component_form.errors
+    return component_form(response).errors
 
 
-def submit_data(page, **component_fields):
+def add_children(page, count):
+    for index in range(count):
+        InfoPageFactory(parent=page, title=f"Child {index}")
+
+
+def add_page_to_order(order, page, user):
+    OrderItemFactory(order=order, translation_source=TranslationSourceFactory(source_instance=page), added_by=user)
+
+
+def hold_the_subtree_task(mocker):
+    """
+    Keep wagtail-localize's descendant task from running inline.
+
+    The default test backend runs it inside the same request, which leaves no
+    window for the order to change in between; a real worker runs it minutes
+    later, and that is the timing worth testing.
+    """
+    held = []
+    mocker.patch.object(
+        submit_translations.background,
+        "enqueue",
+        side_effect=lambda func, args, kwargs: held.append(lambda: func(*args, **kwargs)),
+    )
+    return held
+
+
+def submit_data(page, include_subtree=False, **component_fields):
     data = {
         "locales": list(Locale.objects.exclude(pk=page.locale_id).values_list("pk", flat=True)),
         f"{COMPONENT_PREFIX}-enabled": True,
         f"{COMPONENT_PREFIX}-due_date": "",
     }
+    if include_subtree:
+        # include_subtree belongs to wagtail-localize's own form, which posts
+        # alongside the component's and carries no prefix.
+        data["include_subtree"] = "on"
     data.update({f"{COMPONENT_PREFIX}-{name}": value for name, value in component_fields.items()})
     return data
 
@@ -315,3 +350,197 @@ def test_how_to_send_choice_renders_above_the_fields_it_controls(client, page, s
     assert content.index("how_to_send_choice") < content.index("new_order_name")
     assert content.index("how_to_send_choice") < content.index("new_order_notes")
     assert content.index("new_order_name") < content.index(f'name="{COMPONENT_PREFIX}-order"')
+
+
+def test_a_subtree_goes_into_one_order(client, page, superuser, smartling_project):
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    add_children(page, 3)
+    client.force_login(superuser)
+    assert wls_models.Order.objects.count() == 1
+    assert order.order_items.count() == 0
+
+    client.post(
+        submit_url(page),
+        submit_data(
+            page, how_to_send_choice="existing", order=order.pk, new_order_name=page.title, include_subtree=True
+        ),
+    )
+
+    assert wls_models.Order.objects.count() == 1
+    assert order.order_items.count() == 4
+    assert wls_models.Job.objects.count() == 0
+
+
+def test_a_subtree_starting_a_new_order_creates_only_one_order(client, page, superuser, smartling_project):
+    add_children(page, 3)
+    client.force_login(superuser)
+    assert wls_models.Order.objects.count() == 0
+
+    client.post(
+        submit_url(page),
+        submit_data(page, how_to_send_choice="new", new_order_name="WNP 157", include_subtree=True),
+    )
+
+    order = wls_models.Order.objects.get()
+    assert order.order_items.count() == 4
+    assert wls_models.Job.objects.count() == 0
+
+
+def test_a_subtree_whose_order_is_sent_midway_is_not_lost(client, page, superuser, smartling_project, mocker):
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    add_children(page, 3)
+    client.force_login(superuser)
+    # Make sure that the subtree is queued to join the order.
+    held = hold_the_subtree_task(mocker)
+
+    assert wls_models.Order.objects.count() == 1
+
+    # The user requests to add the subtree to the open order.
+    client.post(
+        submit_url(page),
+        submit_data(
+            page, how_to_send_choice="existing", order=order.pk, new_order_name=page.title, include_subtree=True
+        ),
+    )
+    # The order gets submitted before the background task can add the subtree to it.
+    order.submit(user=superuser)
+    assert len(held) == 1
+    # The background task processes the subtree.
+    held[0]()
+
+    # The order went to Smartling holding only the page itself. Each stranded
+    # descendant follows as its own job.
+    assert order.order_items.count() == 1
+    assert wls_models.Job.objects.exclude(order=order).count() == 3
+    assert wls_models.Order.objects.count() == 4
+    assert [job.order.order_items.count() for job in wls_models.Job.objects.exclude(order=order)] == [1, 1, 1]
+
+
+def test_the_form_gives_the_editor_both_numbers_for_a_subtree(client, page, superuser):
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    add_page_to_order(order, page, superuser)
+    add_children(page, 3)
+    client.force_login(superuser)
+
+    content = page_text(client.get(submit_url(page)))
+
+    assert "This page and its subtree are 4 pages." in content
+    assert "WNP 157 — 1 page" in content
+
+
+def test_the_subtree_size_is_stated_even_with_no_order_to_join(client, page, superuser):
+    add_children(page, 3)
+    client.force_login(superuser)
+
+    content = page_text(client.get(submit_url(page)))
+
+    assert "This page and its subtree are 4 pages." in content
+
+
+def test_nothing_is_said_about_a_subtree_for_a_page_with_no_descendants(client, page, superuser):
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    add_page_to_order(order, page, superuser)
+    client.force_login(superuser)
+
+    content = page_text(client.get(submit_url(page)))
+
+    assert "its subtree" not in content
+    assert "WNP 157 — 1 page" in content
+
+
+def test_sending_a_subtree_now_is_refused(client, page, superuser, smartling_project):
+    add_children(page, 1)
+    client.force_login(superuser)
+
+    response = client.post(submit_url(page), submit_data(page, include_subtree=True))
+
+    expected_error_text = (
+        "A subtree can not be sent right now. To send the subtree with this "
+        "page, either add the page and its subtree to an open order, or start "
+        "a new order for the page and its subtree."
+    )
+    assert expected_error_text in page_text(response)
+    assert "how_to_send_choice" in component_form_errors(response)
+    assert wls_models.Job.objects.count() == 0
+    assert wls_models.Order.objects.count() == 0
+
+
+def test_sending_a_page_with_descendants_now_is_allowed_without_the_subtree(client, page, superuser, smartling_project):
+    add_children(page, 1)
+    client.force_login(superuser)
+    assert wls_models.Job.objects.count() == 0
+    assert wls_models.Order.objects.count() == 0
+
+    client.post(submit_url(page), submit_data(page, new_order_name=page.title))
+
+    assert wls_models.Job.objects.count() == 1
+    assert wls_models.Order.objects.count() == 1
+
+
+def test_sending_now_is_allowed_with_the_prefilled_name_untouched(client, page, superuser, smartling_project):
+    add_children(page, 1)
+    client.force_login(superuser)
+    assert wls_models.Job.objects.count() == 0
+    assert wls_models.Order.objects.count() == 0
+
+    client.post(submit_url(page), submit_data(page, new_order_name=page.title))
+
+    assert wls_models.Job.objects.count() == 1
+    assert wls_models.Order.objects.count() == 1
+
+
+def test_a_new_order_for_a_subtree_is_named_after_its_root_page(client, page, superuser):
+    add_children(page, 1)
+    client.force_login(superuser)
+
+    response = client.get(submit_url(page))
+
+    assert component_form(response)["new_order_name"].value() == page.title
+    assert f'value="{page.title}"' in page_text(response)
+
+
+def test_a_page_without_descendants_does_not_prefill_an_order_name(client, page, superuser):
+    client.force_login(superuser)
+
+    response = client.get(submit_url(page))
+
+    assert not component_form(response)["new_order_name"].value()
+
+
+def test_a_name_already_taken_is_not_offered_for_a_subtree(client, page, superuser):
+    # Offering a name the form would then refuse sends the editor round a
+    # loop they did not start.
+
+    OrderFactory(submitted_at=None, created_by=superuser, name=page.title)
+    add_children(page, 1)
+    client.force_login(superuser)
+
+    response = client.get(submit_url(page))
+
+    assert not component_form(response)["new_order_name"].value()
+
+
+def test_a_subtree_whose_order_is_deleted_midway_is_not_lost(client, page, superuser, smartling_project, mocker):
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    add_children(page, 3)
+    client.force_login(superuser)
+    # Make sure that the subtree is queued to join the order.
+    held = hold_the_subtree_task(mocker)
+    assert wls_models.Order.objects.count() == 1
+
+    client.post(
+        submit_url(page),
+        submit_data(
+            page, how_to_send_choice="existing", order=order.pk, new_order_name=page.title, include_subtree=True
+        ),
+    )
+    # The order gets deleted before the background task can add the subtree to it.
+    wls_models.Order.objects.filter(pk=order.pk).delete()
+    assert wls_models.Order.objects.count() == 0
+    # The background task processes the subtree.
+    held[0]()
+
+    # Each stranded descendant follows as its own job.
+    assert wls_models.Job.objects.count() == 3
+    assert wls_models.Order.objects.count() == 3
+    assert wls_models.Order.objects.filter(name="WNP 157").count() == 0
