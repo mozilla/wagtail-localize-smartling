@@ -219,10 +219,10 @@ def test_outstanding_job_locks_the_translated_page(smartling_job):
     assert lock.is_target is True
 
 
-def test_scheduled_publish_lock_is_not_shadowed(smartling_job):
+def test_scheduled_publish_lock_is_not_replaced(smartling_job):
     """
-    ScheduledForPublishLock blocks everyone, and carries the "Cancel scheduled publish"
-    button; shadowing it would grant that edit and drop the button.
+    Wagtail's ScheduledForPublishLock blocks everyone, and carries the
+    "Cancel scheduled publish" button; our lock should not replace it.
     """
     page = source_page_of(smartling_job)
     page.save_revision(approved_go_live_at=timezone.now() + timedelta(days=1))
@@ -233,7 +233,7 @@ def test_scheduled_publish_lock_is_not_shadowed(smartling_job):
     assert isinstance(page.get_lock(), ScheduledForPublishLock)
 
 
-def test_manual_lock_is_not_shadowed(smartling_job, regular_user):
+def test_manual_lock_is_not_replaced(smartling_job, regular_user):
     page = source_page_of(smartling_job)
     page.locked = True
     page.locked_by = regular_user
@@ -368,7 +368,7 @@ def test_every_message_carries_the_marker_class(smartling_job, regular_user, sup
         assert PendingTranslationLock.message_class in str(message)
 
 
-def test_lock_furniture(smartling_job, regular_user):
+def test_the_lock_is_labelled_as_a_translation(smartling_job, regular_user):
     lock = source_page_of(smartling_job).get_lock()
 
     assert str(lock.get_locked_by(regular_user)) == "Being translated"
@@ -412,7 +412,7 @@ def test_manual_lock_does_not_release_the_smartling_restriction(smartling_job, p
     """
     page = source_page_of(smartling_job)
 
-    # The page has no (Wagtail-native) lock of its own, but it has has (this
+    # The page has no (Wagtail-native) lock of its own, but it has (this
     # package's) PendingTranslationLock.
     assert page.locked is False
     assert language_codes(get_in_flight_locales_for_instance(page)) == ["fr"]
@@ -433,7 +433,7 @@ def test_workflow_lock_does_not_release_the_smartling_restriction(smartling_job,
     Smartling restriction applies to all users.
     """
     page = source_page_of(smartling_job)
-    # The page has no (Wagtail-native) lock of its own, but it has has (this
+    # The page has no (Wagtail-native) lock of its own, but it has (this
     # package's) PendingTranslationLock.
     assert page.locked is False
     assert language_codes(get_in_flight_locales_for_instance(page)) == ["fr"]
