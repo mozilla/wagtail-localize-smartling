@@ -334,12 +334,17 @@ class Order(models.Model):
         # first_synced_at with nulls first.
         return self.jobs.order_by("-pk").first()
 
+    @staticmethod
+    def latest_job_subquery() -> "QuerySet[Job]":
+        """The jobs of the order being annotated, newest first."""
+        # Ordered by pk, not by Job.Meta.ordering, which puts a job that never
+        # reached Smartling ahead of the one that replaced it.
+        return Job.objects.filter(order=OuterRef("pk")).order_by("-pk")
+
     @classmethod
     def annotate_state(cls, queryset: "QuerySet[Order]") -> "QuerySet[Order]":
         """Annotate an "annotated_state" field for the Orders in the queryset."""
-        # Ordered by pk, not by Job.Meta.ordering, which puts a job that never
-        # reached Smartling ahead of the one that replaced it.
-        latest_job = Job.objects.filter(order=OuterRef("pk")).order_by("-pk")
+        latest_job = cls.latest_job_subquery()
         # A pair is one page in one target locale
         page_locale_pairs = JobTranslation.objects.filter(job__order=OuterRef("pk"))
         landed_page_locale_pairs = page_locale_pairs.filter(imported_at__isnull=False)

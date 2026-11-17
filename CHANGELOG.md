@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `Job.push_is_incomplete`, true while a job still has files that never reached Smartling.
 - the report at `/smartling-jobs/` lists orders instead of jobs. The URL and its `wagtail_localize_smartling_jobs` namespace are unchanged, but the menu item is now "Smartling orders", the columns show the order's name, page count and state, and reading the report takes `view_order` rather than `view_job` permission. A migration grants `view_order` to groups that already hold `view_job`; projects that manage their groups in code must grant it themselves.
 - Submitting a page or snippet for translation offers a choice: send it to Smartling now, start an order with it, or add it to an open order. Sending now is the default and behaves as before.
+- The Wagtail dashboard shows the orders that need a person: those nobody has sent, those whose last send stopped and will not be retried, and those whose last sync failed but is still being retried.
 - A submitted order can no longer be deleted from the admin. Its jobs reference it with `PROTECT`, so the delete view answered with a database error rather than a refusal.
 
 ## [0.13.0] - 2026-08-03

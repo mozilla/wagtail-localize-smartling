@@ -6,7 +6,7 @@ from wagtail.admin.menu import MenuItem
 from wagtail.admin.staticfiles import versioned_static
 
 from . import admin_urls
-from .components import LandedTranslationsPanel
+from .components import LandedTranslationsPanel, OpenOrdersPanel
 from .settings import settings as smartling_settings
 from .views import (
     SmartlingResubmitJobView,
@@ -66,6 +66,13 @@ def add_landed_translations_panel(request, panels):
     _group_name = smartling_settings.TRANSLATION_APPROVER_GROUP_NAME
     if _group_name in request.user.groups.all().values_list("name", flat=True):
         panels.append(LandedTranslationsPanel(max_to_show=smartling_settings.MAX_APPROVAL_TASKS_ON_DASHBOARD))
+
+
+@hooks.register("construct_homepage_panels")  # pyright: ignore[reportOptionalCall]
+def add_open_orders_panel(request, panels):
+    # Show only to users with the view_order permission.
+    if request.user.has_perm("wagtail_localize_smartling.view_order"):
+        panels.append(OpenOrdersPanel(user=request.user, max_to_show=smartling_settings.MAX_ORDERS_ON_DASHBOARD))
 
 
 @hooks.register("insert_global_admin_js")  # pyright: ignore[reportOptionalCall]
