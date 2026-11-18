@@ -196,6 +196,43 @@ def test_a_page_with_no_smartling_history_also_costs_one_query(root_page, locale
         get_pending_translation_state(page)
 
 
+def test_each_live_row_in_a_page_listing_costs_one_lock_query(client, root_page, superuser):
+    """
+    Wagtail asks every live row in the page explorer whether it is locked, to
+    decide whether to offer the "Unpublish" button, so the lock's query runs
+    once per row. The memo on the instance cannot help, because a listing builds
+    a fresh object for every row.
+
+    This is a documented cost, not a bug; the test pins it so that making it
+    worse (or fixing it) is a deliberate change.
+    """
+    parent = InfoPageFactory(parent=root_page, title="Parent")
+    client.force_login(superuser)
+    url = reverse("wagtailadmin_explore", args=[parent.pk])
+
+    def count_lock_queries():
+        # The first request warms caches that outlive a single request, such as
+        # content types and the user's permissions.
+        client.get(url)
+        with CaptureQueriesContext(connection) as queries:
+            response = client.get(url)
+        assert response.status_code == 200
+        return len([q for q in queries.captured_queries if "smartling_jobtranslation" in q["sql"]])
+
+    for i in range(2):
+        InfoPageFactory(parent=parent, title=f"Child {i}")
+    two_rows = count_lock_queries()
+
+    for i in range(2, 5):
+        InfoPageFactory(parent=parent, title=f"Child {i}")
+    five_rows = count_lock_queries()
+
+    assert two_rows >= 2
+    # Three more rows, three more queries. The absolute number is left alone
+    # because Wagtail also checks the parent page, for its own header buttons.
+    assert five_rows - two_rows == 3
+
+
 def test_no_outstanding_job_means_no_lock(root_page, locales):
     page = InfoPageFactory(parent=root_page, title="Never translated")
     assert not Job.objects.filter(translation_source__object_id=page.translation_key).exists()
