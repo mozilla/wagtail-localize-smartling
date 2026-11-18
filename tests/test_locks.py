@@ -46,6 +46,12 @@ def source_page_of(job):
     return job.translation_source.get_source_instance()
 
 
+@pytest.fixture()
+def source_page_of_smartling_job(smartling_job):
+    """The source page of `smartling_job`, fetched before the test body runs."""
+    return source_page_of(smartling_job)
+
+
 def target_page_of(translation):
     """Materialise the translated page, so the predicates get a real instance."""
     translation.save_target(publish=False)
@@ -75,8 +81,8 @@ def test_page_with_no_jobs_is_not_in_flight(root_page, locales):
     assert is_in_flight_target(page) is False
 
 
-def test_pending_job_puts_its_target_locale_in_flight(smartling_job):
-    assert language_codes(get_in_flight_locales_for_instance(source_page_of(smartling_job))) == ["fr"]
+def test_pending_job_puts_its_target_locale_in_flight(source_page_of_smartling_job):
+    assert language_codes(get_in_flight_locales_for_instance(source_page_of_smartling_job)) == ["fr"]
 
 
 @pytest.mark.parametrize(
@@ -88,9 +94,9 @@ def test_pending_job_puts_its_target_locale_in_flight(smartling_job):
         JobStatus.IN_PROGRESS,
     ],
 )
-def test_every_outstanding_status_locks(smartling_job, status):
+def test_every_outstanding_status_locks(smartling_job, source_page_of_smartling_job, status):
     set_status(smartling_job, status)
-    assert language_codes(get_in_flight_locales_for_instance(source_page_of(smartling_job))) == ["fr"]
+    assert language_codes(get_in_flight_locales_for_instance(source_page_of_smartling_job)) == ["fr"]
 
 
 def test_a_page_locks_from_the_moment_of_submission(smartling_job):
@@ -102,20 +108,20 @@ def test_a_page_locks_from_the_moment_of_submission(smartling_job):
     "status",
     [JobStatus.COMPLETED, JobStatus.CLOSED, JobStatus.CANCELLED, JobStatus.DELETED],
 )
-def test_finished_statuses_do_not_lock(smartling_job, status):
+def test_finished_statuses_do_not_lock(smartling_job, source_page_of_smartling_job, status):
     set_status(smartling_job, status)
 
-    assert get_in_flight_locales_for_instance(source_page_of(smartling_job)) == []
+    assert get_in_flight_locales_for_instance(source_page_of_smartling_job) == []
 
 
-def test_imported_locale_is_no_longer_in_flight(smartling_job):
+def test_imported_locale_is_no_longer_in_flight(smartling_job, source_page_of_smartling_job):
     JobTranslation.objects.filter(job=smartling_job).update(imported_at=timezone.now())
-    assert get_in_flight_locales_for_instance(source_page_of(smartling_job)) == []
+    assert get_in_flight_locales_for_instance(source_page_of_smartling_job) == []
 
 
-def test_disabled_translation_is_not_in_flight(smartling_job):
+def test_disabled_translation_is_not_in_flight(smartling_job, source_page_of_smartling_job):
     Translation.objects.filter(smartling_jobs=smartling_job).update(enabled=False)
-    assert get_in_flight_locales_for_instance(source_page_of(smartling_job)) == []
+    assert get_in_flight_locales_for_instance(source_page_of_smartling_job) == []
 
 
 def test_german_unlocks_while_french_is_still_pending(smartling_job_multi_locale):
@@ -134,8 +140,8 @@ def test_german_unlocks_while_french_is_still_pending(smartling_job_multi_locale
     assert is_in_flight_target(de_page) is False
 
 
-def test_source_page_is_never_its_own_target(smartling_job):
-    assert is_in_flight_target(source_page_of(smartling_job)) is False
+def test_source_page_is_never_its_own_target(source_page_of_smartling_job):
+    assert is_in_flight_target(source_page_of_smartling_job) is False
 
 
 def test_a_translated_page_is_not_also_a_source(smartling_job):
@@ -147,7 +153,7 @@ def test_a_translated_page_is_not_also_a_source(smartling_job):
     assert state.locales == []
 
 
-def test_the_same_locale_in_two_pending_jobs_is_named_once(smartling_job, superuser):
+def test_the_same_locale_in_two_pending_jobs_is_named_once(smartling_job, source_page_of_smartling_job, superuser):
     """
     Re-submitting a page can leave two outstanding jobs covering the same locale,
     and callers name those locales to the user, so never "French, French".
@@ -167,7 +173,7 @@ def test_the_same_locale_in_two_pending_jobs_is_named_once(smartling_job, superu
     )
     second_job.translations.set([translation])
 
-    assert language_codes(get_in_flight_locales_for_instance(source_page_of(smartling_job))) == ["fr"]
+    assert language_codes(get_in_flight_locales_for_instance(source_page_of_smartling_job)) == ["fr"]
 
 
 def test_locales_come_back_in_a_stable_order(smartling_job_multi_locale):
@@ -202,8 +208,8 @@ def test_no_outstanding_job_means_no_lock(root_page, locales):
     assert page.get_lock() is None
 
 
-def test_outstanding_job_locks_the_source_page(smartling_job):
-    lock = source_page_of(smartling_job).get_lock()
+def test_outstanding_job_locks_the_source_page(source_page_of_smartling_job):
+    lock = source_page_of_smartling_job.get_lock()
 
     assert isinstance(lock, PendingTranslationLock)
     assert lock.is_target is False
@@ -219,12 +225,12 @@ def test_outstanding_job_locks_the_translated_page(smartling_job):
     assert lock.is_target is True
 
 
-def test_scheduled_publish_lock_is_not_replaced(smartling_job):
+def test_scheduled_publish_lock_is_not_replaced(source_page_of_smartling_job):
     """
     Wagtail's ScheduledForPublishLock blocks everyone, and carries the
     "Cancel scheduled publish" button; our lock should not replace it.
     """
-    page = source_page_of(smartling_job)
+    page = source_page_of_smartling_job
     page.save_revision(approved_go_live_at=timezone.now() + timedelta(days=1))
     # Refetch rather than refresh_from_db(), which leaves the cached
     # scheduled_revision property in place.
@@ -233,8 +239,8 @@ def test_scheduled_publish_lock_is_not_replaced(smartling_job):
     assert isinstance(page.get_lock(), ScheduledForPublishLock)
 
 
-def test_manual_lock_is_not_replaced(smartling_job, regular_user):
-    page = source_page_of(smartling_job)
+def test_manual_lock_is_not_replaced(source_page_of_smartling_job, regular_user):
+    page = source_page_of_smartling_job
     page.locked = True
     page.locked_by = regular_user
     page.locked_at = timezone.now()
@@ -244,20 +250,20 @@ def test_manual_lock_is_not_replaced(smartling_job, regular_user):
     assert isinstance(page.get_lock(), BasicLock)
 
 
-def test_lock_blocks_a_regular_user_and_not_a_superuser(smartling_job, regular_user, superuser):
+def test_lock_blocks_a_regular_user_and_not_a_superuser(source_page_of_smartling_job, regular_user, superuser):
     """
     The lock object exists for both users, which is what renders the banner, but
     applies to only one, which is what refuses the save.
     """
-    lock = source_page_of(smartling_job).get_lock()
+    lock = source_page_of_smartling_job.get_lock()
 
     assert lock.for_user(regular_user) is True
     assert lock.for_user(superuser) is False
 
 
-def test_the_project_decides_who_may_bypass(smartling_job, regular_user, superuser, monkeypatch):
+def test_the_project_decides_who_may_bypass(source_page_of_smartling_job, regular_user, superuser, monkeypatch):
     """A model that overrides the hook gets its own policy, up to letting nobody through."""
-    page = source_page_of(smartling_job)
+    page = source_page_of_smartling_job
     monkeypatch.setattr(type(page), "can_bypass_pending_translation_lock", lambda self, user: False)
 
     lock = page.get_lock()
@@ -273,12 +279,12 @@ def test_the_project_decides_who_may_bypass(smartling_job, regular_user, superus
     assert lock.for_user(regular_user) is False
 
 
-def test_get_lock_is_memoised(smartling_job):
+def test_get_lock_is_memoised(source_page_of_smartling_job):
     """
     The edit view, the status side panel and PagePermissionTester each reach
     get_lock() during one request, so the repeat call must not re-run our query.
     """
-    page = source_page_of(smartling_job)
+    page = source_page_of_smartling_job
     plain = InfoPageFactory(parent=page.get_parent(), title="No Smartling history")
 
     page.get_lock()
@@ -293,8 +299,8 @@ def test_get_lock_is_memoised(smartling_job):
     assert [q for q in repeated_without_job.captured_queries if "smartling" in q["sql"]] == []
 
 
-def test_editor_and_superuser_get_different_messages(smartling_job, regular_user, superuser):
-    lock = source_page_of(smartling_job).get_lock()
+def test_editor_and_superuser_get_different_messages(source_page_of_smartling_job, regular_user, superuser):
+    lock = source_page_of_smartling_job.get_lock()
 
     editor_message = str(lock.get_message(regular_user))
     superuser_message = str(lock.get_message(superuser))
@@ -309,9 +315,9 @@ def test_editor_and_superuser_get_different_messages(smartling_job, regular_user
     assert "mismatch" in superuser_message
 
 
-def test_the_message_follows_the_bypass_policy_not_is_superuser(smartling_job, superuser, monkeypatch):
+def test_the_message_follows_the_bypass_policy_not_is_superuser(source_page_of_smartling_job, superuser, monkeypatch):
     """A superuser the project does not let through is being held like anyone else."""
-    page = source_page_of(smartling_job)
+    page = source_page_of_smartling_job
     monkeypatch.setattr(type(page), "can_bypass_pending_translation_lock", lambda self, user: False)
 
     message = str(page.get_lock().get_message(superuser))
@@ -345,7 +351,7 @@ def test_target_page_message_is_about_being_overwritten(smartling_job, regular_u
     assert "overwritten" in message
 
 
-def test_every_message_carries_the_marker_class(smartling_job, regular_user, superuser):
+def test_every_message_carries_the_marker_class(smartling_job, source_page_of_smartling_job, regular_user, superuser):
     """
     The message contains the PendingTranslationLock.message_class CSS class.
 
@@ -355,7 +361,7 @@ def test_every_message_carries_the_marker_class(smartling_job, regular_user, sup
     actually sees on that page comes from the
     smartling_edit_translation_message tag.
     """
-    source_lock = source_page_of(smartling_job).get_lock()
+    source_lock = source_page_of_smartling_job.get_lock()
     target_lock = target_page_of(smartling_job.translations.get()).get_lock()
 
     messages = (
@@ -368,16 +374,16 @@ def test_every_message_carries_the_marker_class(smartling_job, regular_user, sup
         assert PendingTranslationLock.message_class in str(message)
 
 
-def test_the_lock_is_labelled_as_a_translation(smartling_job, regular_user):
-    lock = source_page_of(smartling_job).get_lock()
+def test_the_lock_is_labelled_as_a_translation(source_page_of_smartling_job, regular_user):
+    lock = source_page_of_smartling_job.get_lock()
 
     assert str(lock.get_locked_by(regular_user)) == "Being translated"
     assert lock.get_icon(regular_user) == "wagtail-localize-language"
     assert "French" in str(lock.get_description(regular_user))
 
 
-def test_an_anonymous_user_is_locked_out(smartling_job):
-    lock = source_page_of(smartling_job).get_lock()
+def test_an_anonymous_user_is_locked_out(source_page_of_smartling_job):
+    lock = source_page_of_smartling_job.get_lock()
     assert lock.for_user(AnonymousUser()) is True
 
 
@@ -404,13 +410,13 @@ def put_page_in_moderation(page, user):
     return type(page).objects.get(pk=page.pk)
 
 
-def test_manual_lock_does_not_release_the_smartling_restriction(smartling_job, page_editor_and_locker):
+def test_manual_lock_does_not_release_the_smartling_restriction(source_page_of_smartling_job, page_editor_and_locker):
     """
     A BasicLock does not apply to the user who owns it, so an editor who locks a
     page may edit it. That must not also allow them to edit the page while its
     content is in Smartling.
     """
-    page = source_page_of(smartling_job)
+    page = source_page_of_smartling_job
 
     # The page has no (Wagtail-native) lock of its own, but it has (this
     # package's) PendingTranslationLock.
@@ -426,13 +432,13 @@ def test_manual_lock_does_not_release_the_smartling_restriction(smartling_job, p
     assert page.get_lock().for_user(page_editor_and_locker) is True
 
 
-def test_workflow_lock_does_not_release_the_smartling_restriction(smartling_job, page_editor_and_locker):
+def test_workflow_lock_does_not_release_the_smartling_restriction(source_page_of_smartling_job, page_editor_and_locker):
     """
     Applying a WorkflowLock does not not lift the Smartling restriction.
     A WorkflowLock does not apply to a reviewer on the current task, but the
     Smartling restriction applies to all users.
     """
-    page = source_page_of(smartling_job)
+    page = source_page_of_smartling_job
     # The page has no (Wagtail-native) lock of its own, but it has (this
     # package's) PendingTranslationLock.
     assert page.locked is False
@@ -447,20 +453,22 @@ def test_workflow_lock_does_not_release_the_smartling_restriction(smartling_job,
     assert page.get_lock().for_user(page_editor_and_locker) is True
 
 
-def test_a_lock_held_by_someone_else_still_blocks(smartling_job, page_editor_and_locker, superuser):
+def test_a_lock_held_by_someone_else_still_blocks(source_page_of_smartling_job, page_editor_and_locker, superuser):
     """A lock owned by another user still blocks."""
-    page = lock_a_page(source_page_of(smartling_job), superuser)
+    page = lock_a_page(source_page_of_smartling_job, superuser)
     assert page.get_lock().for_user(page_editor_and_locker) is True
 
 
-def test_the_editor_who_locked_the_page_is_still_refused_in_the_admin(smartling_job, page_editor_and_locker, client):
+def test_the_editor_who_locked_the_page_is_still_refused_in_the_admin(
+    source_page_of_smartling_job, page_editor_and_locker, client
+):
     """
     An editor (with lock permission) who locks a page in Smartling can not edit it.
 
     This test exists to assert a regression does not occur in the way that the
     native Wagtail lock and the Smartling restriction affect each other.
     """
-    page = lock_a_page(source_page_of(smartling_job), page_editor_and_locker)
+    page = lock_a_page(source_page_of_smartling_job, page_editor_and_locker)
     client.force_login(page_editor_and_locker)
 
     response = client.get(reverse("wagtailadmin_pages:edit", args=[page.pk]))
