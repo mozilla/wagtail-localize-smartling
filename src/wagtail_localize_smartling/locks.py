@@ -155,7 +155,15 @@ class CombinedLockMixin(BaseLock):
         # has to be told which of the two restrictions is holding them.
         if self.pending_lock.for_user(user):
             return self.pending_lock.get_message(user)
-        return super().get_message(user)
+
+        # A user who may bypass the Smartling restriction is still told about
+        # it, because the native lock may let them edit.
+        native_message = super().get_message(user)
+        if not native_message:
+            return self.pending_lock.get_message(user)
+        # The Smartling message comes first, so that the native message keeps
+        # the Unlock (or Cancel scheduled publish) button next to it.
+        return format_html("{} {}", self.pending_lock.get_message(user), native_message)
 
     def get_context_for_user(self, user, parent_context=None):
         context = super().get_context_for_user(user, parent_context)
@@ -168,6 +176,14 @@ class CombinedLockMixin(BaseLock):
                     "locked_by": self.pending_lock.get_locked_by(user),
                     "description": self.pending_lock.get_description(user),
                 }
+            )
+        else:
+            # The side panel names the native lock, so only the description has
+            # room for the Smartling restriction.
+            context["description"] = format_html(
+                "{} {}",
+                self.pending_lock.get_description(user),
+                context["description"],
             )
         return context
 

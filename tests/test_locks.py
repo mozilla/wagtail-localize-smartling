@@ -470,3 +470,52 @@ def test_the_editor_who_locked_the_page_is_still_refused_in_the_admin(
     assert response.status_code == 200
     assert response.context["locked_for_user"] is True
     assert PendingTranslationLock.message_class in response.content.decode()
+
+
+def test_a_bypassing_user_is_told_about_smartling_behind_a_manual_lock(source_page_of_smartling_job, superuser):
+    """
+    A superuser who locks the page themselves may edit it, but the banner mentions the Smartling lock anyway.
+    """
+    page = lock_a_page(source_page_of_smartling_job, superuser)
+    lock = page.get_lock()
+
+    assert lock.for_user(superuser) is False
+
+    message = str(lock.get_message(superuser))
+
+    assert PendingTranslationLock.message_class in message
+    assert "being translated in Smartling" in message
+    # The native message is kept, and comes last, so that the page editor's
+    # Unlock button stays next to it.
+    assert "was locked</b> by <b>you</b>" in message
+    assert message.index("Smartling") < message.index("was locked")
+
+
+def test_a_bypassing_user_is_told_about_smartling_behind_a_scheduled_publish(source_page_of_smartling_job, superuser):
+    page = source_page_of_smartling_job
+    page.save_revision(approved_go_live_at=timezone.now() + timedelta(days=1))
+    page = type(page).objects.get(pk=page.pk)
+
+    message = str(page.get_lock().get_message(superuser))
+
+    assert "being translated in Smartling" in message
+    assert "scheduled to go live" in message
+
+
+def test_a_held_user_gets_the_smartling_message_alone(source_page_of_smartling_job, page_editor_and_locker):
+    """The restriction that holds the user is the whole message, as before."""
+    page = lock_a_page(source_page_of_smartling_job, page_editor_and_locker)
+
+    message = str(page.get_lock().get_message(page_editor_and_locker))
+
+    assert "being translated in Smartling" in message
+    assert "was locked" not in message
+
+
+def test_the_side_panel_description_names_both_restrictions(source_page_of_smartling_job, superuser):
+    page = lock_a_page(source_page_of_smartling_job, superuser)
+
+    description = str(page.get_lock().get_context_for_user(superuser)["description"])
+
+    assert "being translated in Smartling" in description
+    assert "Only you can make changes" in description
