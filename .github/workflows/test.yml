@@ -46,8 +46,8 @@ jobs:
     strategy:
       matrix:
         python: ["3.11", "3.12", "3.13"]
-        django: ["5.1", "5.2"]
-        wagtail: ["6.2", "7.2"]
+        django: ["5.2"]
+        wagtail: ["7.0", "7.2"]
         db: ["sqlite"]
         include:
           - python: "3.13"
@@ -135,10 +135,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: coverage-data-*
-          merge-multiple: true
 
       - name: Combine coverage
         run: |
+          python -Im coverage combine coverage-data-*/.coverage
           python -Im coverage html --skip-covered --skip-empty
           python -Im coverage report
           echo "## Coverage summary" >> $GITHUB_STEP_SUMMARY

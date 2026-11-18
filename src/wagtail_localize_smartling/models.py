@@ -4,13 +4,13 @@ import logging
 from collections.abc import Iterable
 from datetime import datetime
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models, transaction
-from django.db.models.manager import Manager
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -28,6 +28,10 @@ from .forms import JobForm
 from .settings import settings as smartling_settings
 from .sync import sync_job
 from .utils import compute_content_hash, get_snippet_admin_url
+
+
+if TYPE_CHECKING:
+    from django.db.models.fields.related_descriptors import RelatedManager
 
 
 logger = logging.getLogger(__name__)
@@ -85,7 +89,7 @@ class Project(SyncedModel):
     source_locale_description = models.CharField(max_length=255)
     source_locale_id = models.CharField(max_length=16)
 
-    target_locales: Manager["ProjectTargetLocale"]
+    target_locales: "RelatedManager[ProjectTargetLocale]"
 
     class Meta(SyncedModel.Meta):
         unique_together = ["environment", "account_uid", "project_id"]
