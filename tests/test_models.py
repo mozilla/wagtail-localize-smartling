@@ -1204,7 +1204,8 @@ def test_a_draft_order_is_editable(field, new_value, superuser):
     assert getattr(wls_models.Order.objects.get(pk=order.pk), field) == edited_value
 
 
-def test_a_direct_save_to_a_submitted_order_is_refused(superuser):
+def test_an_unvalidated_save_stores_an_edit_to_a_submitted_order(superuser):
+    """Calling save() does not do any validation on an order."""
     order = OrderFactory(created_by=superuser, name="WNP 157")
 
     order.name = "WNP 158"
@@ -1212,10 +1213,9 @@ def test_a_direct_save_to_a_submitted_order_is_refused(superuser):
     # The order has already been submitted.
     assert order.submitted_at is not None
 
-    with pytest.raises(ValidationError):
-        order.save()
+    order.save()
 
-    assert wls_models.Order.objects.get(pk=order.pk).name == "WNP 157"
+    assert wls_models.Order.objects.get(pk=order.pk).name == "WNP 158"
 
 
 def test_a_queryset_update_allows_updating_a_submitted_order(superuser):

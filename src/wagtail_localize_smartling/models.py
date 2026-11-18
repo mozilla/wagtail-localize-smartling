@@ -242,8 +242,6 @@ class Order(models.Model):
             # carry one number to Smartling, whose UI has no view of the FK.
             self.reference_number = uuid.uuid4().hex
 
-        # Clean the data being saved before saving.
-        self.clean()
         super().save(*args, **kwargs)
 
     def clean(self):
