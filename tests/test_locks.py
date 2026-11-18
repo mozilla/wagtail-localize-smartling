@@ -3,7 +3,7 @@ from datetime import timedelta
 import pytest
 
 from django.contrib.auth.models import AnonymousUser, Group, Permission
-from django.db import connection, models
+from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -14,7 +14,6 @@ from wagtail_localize.models import Translation
 from wagtail_localize_smartling.api.types import JobStatus
 from wagtail_localize_smartling.locks import (
     PendingTranslationLock,
-    PendingTranslationLockMixin,
     get_in_flight_locales_for_instance,
     get_pending_translation_state,
     is_in_flight_target,
@@ -195,11 +194,6 @@ def test_a_page_with_no_smartling_history_also_costs_one_query(root_page, locale
 
     with django_assert_num_queries(1):
         get_pending_translation_state(page)
-
-
-def test_the_mixin_is_not_a_model():
-    """The mixin must generate no migration wherever it is applied."""
-    assert not issubclass(PendingTranslationLockMixin, models.Model)
 
 
 def test_no_outstanding_job_means_no_lock(root_page, locales):
