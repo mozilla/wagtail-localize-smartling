@@ -1,3 +1,5 @@
+from typing import cast
+
 import django_filters
 
 from django.contrib.auth import get_user_model
@@ -9,16 +11,20 @@ from wagtail.admin.filters import WagtailFilterSet
 from wagtail.admin.ui.tables import Column, DateColumn, TitleColumn, UserColumn
 from wagtail.admin.views import generic
 from wagtail.admin.viewsets.model import ModelViewSet
-from wagtail.permission_policies import ModelPermissionPolicy
 
 from .api.types import JobStatus
 from .models import Job
+from .permissions import job_permission_policy
 from .templatetags.wagtail_localize_smartling_admin_tags import smartling_job_url
 
 
 def get_users_for_filter(user):
     User = get_user_model()
-    return User.objects.filter(pk__in=Job.objects.values_list("user", flat=True)).order_by(User.USERNAME_FIELD)  # pyright: ignore[reportAttributeAccessIssue]
+    # USERNAME_FIELD is a str at runtime, but django-stubs models get_user_model()'s
+    # return as a placeholder whose __getattr__ only knows "objects".
+    username_field = cast(str, User.USERNAME_FIELD)  # pyright: ignore[reportArgumentType]
+
+    return User.objects.filter(pk__in=Job.objects.values_list("user", flat=True)).order_by(username_field)
 
 
 class JobReportFilterSet(WagtailFilterSet):
@@ -32,14 +38,6 @@ class JobReportFilterSet(WagtailFilterSet):
     class Meta:
         model = Job
         fields = ["status"]
-
-
-class JobPermissionPolicy(ModelPermissionPolicy):
-    def user_has_permission(self, user, action):
-        if action in ["add", "change"]:
-            return False
-
-        return super().user_has_permission(user, action)
 
 
 class SourceInstanceColumn(TitleColumn):
@@ -206,9 +204,11 @@ class JobViewSet(ModelViewSet):
     copy_view_enabled = False
     inspect_view_enabled = True
 
-    @property
+    # Wagtail 8.0 resolves this from the policy registry. This property can be
+    # removed when we drop support for Wagtail 7.
+    @cached_property
     def permission_policy(self):
-        return JobPermissionPolicy(self.model)
+        return job_permission_policy
 
     @cached_property
     def url_namespace(self):  # # pyright: ignore[reportIncompatibleVariableOverride]

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add support for Wagtail 7.4 and 8.0 - @dchukhin
+- The minimum required Django version is now 5.2 - @dchukhin
+- The minimum required Wagtail version is now 7.0 - @dchukhin
 - Add `PendingTranslationLockMixin`, which locks a page in the Wagtail admin while its content is awaiting translation in Smartling, so that edits made in the meantime aren't overwritten when the translation is imported.
 - Add `Order` model for batching pages sent to Smartling as one job. A `Job` now has a `JobFile` per translatable object and every job belongs to an order.
 - Deprecate `Job.translation_source`, `Job.file_uri` and `Job.content_hash`, which describe a job of a single page: read the job's `files` instead. A job created from an order leaves all three unset, and `Job.file_uri` names only the first file of a job carrying several.
