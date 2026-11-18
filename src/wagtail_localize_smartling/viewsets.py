@@ -11,10 +11,10 @@ from wagtail.admin.filters import WagtailFilterSet
 from wagtail.admin.ui.tables import Column, DateColumn, TitleColumn, UserColumn
 from wagtail.admin.views import generic
 from wagtail.admin.viewsets.model import ModelViewSet
-from wagtail.permission_policies import ModelPermissionPolicy
 
 from .api.types import JobStatus
 from .models import Job
+from .permissions import job_permission_policy
 from .templatetags.wagtail_localize_smartling_admin_tags import smartling_job_url
 
 
@@ -38,14 +38,6 @@ class JobReportFilterSet(WagtailFilterSet):
     class Meta:
         model = Job
         fields = ["status"]
-
-
-class JobPermissionPolicy(ModelPermissionPolicy):
-    def user_has_permission(self, user, action):
-        if action in ["add", "change"]:
-            return False
-
-        return super().user_has_permission(user, action)
 
 
 class SourceInstanceColumn(TitleColumn):
@@ -199,9 +191,11 @@ class JobViewSet(ModelViewSet):
     copy_view_enabled = False
     inspect_view_enabled = True
 
-    @property
+    # Wagtail 8.0 resolves this from the policy registry. This property can be
+    # removed when we drop support for Wagtail 7.
+    @cached_property
     def permission_policy(self):
-        return JobPermissionPolicy(self.model)
+        return job_permission_policy
 
     @cached_property
     def url_namespace(self):  # # pyright: ignore[reportIncompatibleVariableOverride]
