@@ -627,3 +627,46 @@ def test_an_order_deleted_mid_edit_does_not_leave_an_empty_dropdown(client, page
     assert "Add to an open order" not in page_text(response)
     assert wls_models.OrderItem.objects.count() == 0
     assert wls_models.Job.objects.count() == 0
+
+
+def test_the_form_keeps_the_markup_the_order_choice_script_reaches_into(client, page, superuser):
+    """
+    The script finds the rows to hide in markup that belongs to Wagtail and to
+    wagtail-localize, so an upgrade that renames any of it would leave every
+    field on screen with nothing to say so.
+    """
+    OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    add_children(page, 1)
+    client.force_login(superuser)
+
+    content = client.get(submit_url(page)).content.decode()
+    # The order-choice.js is in the page content
+    assert "order-choice.js" in content
+
+    soup = BeautifulSoup(content, "html.parser")
+    # Each field the choice governs sits in a row that can be hidden whole,
+    # taking its label with it.
+    for field_name in ("new_order_name", "new_order_notes", "order"):
+        field_input = soup.select_one(f"#id_{COMPONENT_PREFIX}-{field_name}")
+        assert field_input is not None, field_name
+        assert field_input.find_parent("li") is not None, field_name
+
+    # Every option of the choice is wrapped on its own, so that "Send now" can
+    # be taken off screen without the other two.
+    send_now = soup.select_one(f'input[name="{COMPONENT_PREFIX}-how_to_send_choice"][value="now"]')
+    assert send_now is not None
+    option_wrapper = send_now.find_parent("div")
+    assert len(option_wrapper.select(f'input[name="{COMPONENT_PREFIX}-how_to_send_choice"]')) == 1
+
+    assert soup.select_one('input[name="include_subtree"]') is not None
+
+
+def test_a_refused_field_is_marked_the_way_the_order_choice_script_looks_for(client, page, superuser):
+    """A row the form re-renders with an error stays on screen, so it has to be findable."""
+    client.force_login(superuser)
+
+    response = client.post(submit_url(page), submit_data(page, how_to_send_choice="new", new_order_name=""))
+
+    soup = BeautifulSoup(response.content.decode(), "html.parser")
+    refused_row = soup.select_one(f"#id_{COMPONENT_PREFIX}-new_order_name").find_parent("li")
+    assert refused_row.select_one(".error-message") is not None

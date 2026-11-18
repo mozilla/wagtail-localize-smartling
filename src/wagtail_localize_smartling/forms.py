@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, cast
 from django import forms
 from django.core.exceptions import ValidationError
 from django.db.models import Count
+from django.utils.html import format_html
 from django.utils.timesince import timesince
 from django.utils.translation import gettext, ngettext
 from django.utils.translation import gettext_lazy as _
@@ -100,11 +101,23 @@ class JobForm(WagtailAdminModelForm):
             # Each open order says how many pages it holds; this is the size
             # of what would join it.
             count_pages_in_subtree = self.descendant_count + 1
-            self.fields["how_to_send_choice"].help_text = ngettext(
+            subtree_size = ngettext(
                 "This page and its subtree are %(count)s page.",
                 "This page and its subtree are %(count)s pages.",
                 count_pages_in_subtree,
             ) % {"count": count_pages_in_subtree}
+            # The subtree_note stays hidden until the user checks the checkbox
+            # to include the subtree. The note lives in the help text, so that
+            # it is translated like every other string on this form.
+            subtree_note = _(
+                "The pages in a subtree go to Smartling together, as one order, so they "
+                "cannot be sent on their own. Send the order once every page has been collected."
+            )
+            self.fields["how_to_send_choice"].help_text = format_html(
+                '{} <span data-subtree-order-note role="status" hidden>{}</span>',
+                subtree_size,
+                subtree_note,
+            )
 
         # The "how_to_send_choice" field governs the fields below it, so it
         # should render before them.
