@@ -123,8 +123,8 @@ def test_backfill_gives_every_eligible_job_its_own_order(migrator, django_db_ser
     first_job = _build_pre_orders_job(old_state)
     second_job = _build_pre_orders_job(old_state, name="A second page", file_uri="job_2_ts_2.po")
     prefixed_job = _build_pre_orders_job(old_state, name=f"PREFIX {'x' * 150}", reference_number="")
-    already_ordered_job = _build_pre_orders_job(old_state, order=hand_made_order)
-    sourceless_job = _build_pre_orders_job(old_state, translation_source=None)
+    already_ordered_job = _build_pre_orders_job(old_state, name="A page already in an order", order=hand_made_order)
+    sourceless_job = _build_pre_orders_job(old_state, name="A page since deleted", translation_source=None)
 
     # There is currently 1 Order in the database, 0 OrderItems, and 0 JobFiles.
     assert Order.objects.count() == 1

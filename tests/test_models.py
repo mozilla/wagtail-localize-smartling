@@ -30,7 +30,7 @@ from testapp.factories import (
     UserFactory,
 )
 from testapp.settings import job_description_callback
-from tests.factories import JobFactory, OrderFactory, OrderItemFactory
+from tests.factories import JobFactory, OrderFactory, OrderItemFactory, ProjectFactory
 
 
 pytestmark = pytest.mark.django_db
@@ -69,12 +69,26 @@ def test_Job_get_default_name(name_prefix, smartling_settings, root_page):
 
     name = Job.get_default_name(translation_source, [page_translation])
 
-    expected_name = f"70018f7c #{translation_source.pk}"
+    expected_name = f"8d6b4241 #{translation_source.pk}"
 
     if name_prefix:
         expected_name = f"{name_prefix} {expected_name}"
 
     assert expected_name == name
+
+
+def test_two_jobs_for_one_page_are_named_apart(root_page):
+    page = InfoPageFactory(parent=root_page, title="Component test page")
+    translation_source, _ = TranslationSource.get_or_create_from_instance(page)
+    page_translation = Translation.objects.create(
+        source=translation_source,
+        target_locale=Locale.objects.get(language_code="fr"),
+    )
+
+    first_name = Job.get_default_name(translation_source, [page_translation])
+    second_name = Job.get_default_name(translation_source, [page_translation])
+
+    assert first_name != second_name
 
 
 def test_LandedTranslationTaskManager_incomplete():
@@ -748,6 +762,22 @@ def test_a_resend_is_suggested_a_distinct_job_name(superuser, root_page, smartli
     assert order.suggested_job_name() == "www.firefox.com WNP 157-2"
 
 
+def test_a_resend_is_suggested_a_name_no_job_has_taken(root_page, superuser, smartling_settings):
+    """Another order may be named as if it were this one's resend, and still leave this one resendable."""
+    smartling_settings.JOB_NAME_PREFIX = "www.firefox.com"
+    order = OrderFactory(name="WNP 157", created_by=superuser)
+    JobFactory(source_instance=root_page, order=order, name="www.firefox.com WNP 157")
+    order2 = OrderFactory(name="WNP 157-2", created_by=superuser)
+    JobFactory(
+        source_instance=_second_page(root_page),
+        order=order2,
+        name="www.firefox.com WNP 157-2",
+    )
+
+    # The suggested name ends in "-3"
+    assert order.suggested_job_name() == "www.firefox.com WNP 157-3"
+
+
 def test_a_job_is_not_left_behind_when_its_file_cannot_be_created(
     root_page, locales, superuser, smartling_project, mocker
 ):
@@ -1315,6 +1345,15 @@ def test_a_sent_order_survives_a_prefix_that_grew_after_it_was_sent(superuser, s
     order.full_clean()
 
 
+def test_a_sent_order_is_not_refused_by_the_job_it_created(root_page, superuser, smartling_settings):
+    """A sent order keeps the name a job now carries, or it could never be saved again."""
+    smartling_settings.JOB_NAME_PREFIX = "www.firefox.com"
+    order = OrderFactory(created_by=superuser, name="WNP 157")
+    JobFactory(source_instance=root_page, order=order, name="www.firefox.com WNP 157")
+
+    order.full_clean()
+
+
 def test_a_resend_of_the_longest_allowed_order_name_still_fits(root_page, superuser, smartling_settings):
     smartling_settings.JOB_NAME_PREFIX = "x" * 100
     order = OrderFactory(created_by=superuser, name="y" * max_order_name_length())
@@ -1353,3 +1392,88 @@ def test_submitting_an_order_named_before_the_prefix_grew_is_refused(
         order.submit(user=superuser)
 
     assert wls_models.Job.objects.count() == 0
+
+
+def test_a_job_name_cannot_be_reused_within_a_project(root_page, smartling_project):
+    JobFactory(source_instance=root_page, name="www.firefox.com WNP 157")
+
+    with pytest.raises(IntegrityError):
+        JobFactory(source_instance=_second_page(root_page), name="WWW.FIREFOX.COM WNP 157")
+
+
+def test_each_project_may_hold_a_job_of_one_name(root_page):
+    """Smartling's names are unique per project, so another project's job is no obstacle."""
+    JobFactory(source_instance=root_page, name="www.firefox.com WNP 157")
+
+    other_project = ProjectFactory(project_id="another-project")
+    JobFactory(source_instance=_second_page(root_page), name="www.firefox.com WNP 157", project=other_project)
+
+    assert wls_models.Job.objects.filter(name="www.firefox.com WNP 157").count() == 2
+
+
+def test_an_order_name_another_open_order_holds_is_refused(superuser):
+    OrderFactory(created_by=superuser, submitted_at=None, name="WNP 157")
+    order = OrderFactory.build(created_by=superuser, submitted_at=None, name="wnp 157")
+
+    with pytest.raises(ValidationError) as excinfo:
+        order.full_clean()
+
+    assert excinfo.value.message_dict["name"] == ["Another open order is already called 'wnp 157'. Pick another name."]
+
+
+def test_an_order_keeps_the_name_it_already_has(superuser):
+    """An order is not its own duplicate, so re-saving a draft is not a rename."""
+    order = OrderFactory(created_by=superuser, submitted_at=None, name="WNP 157")
+    order.full_clean()
+
+
+def test_an_order_named_after_an_existing_job_is_refused(root_page, superuser, smartling_settings):
+    smartling_settings.JOB_NAME_PREFIX = "www.firefox.com"
+    JobFactory(source_instance=root_page, name="www.firefox.com WNP 157")
+    order = OrderFactory.build(created_by=superuser, submitted_at=None, name="wnp 157")
+
+    with pytest.raises(ValidationError) as excinfo:
+        order.full_clean()
+
+    assert excinfo.value.message_dict["name"] == [
+        "A Smartling job is already called 'www.firefox.com wnp 157'. Pick another name."
+    ]
+
+
+def test_submitting_under_a_job_name_that_is_taken_is_refused(
+    root_page, locales, superuser, smartling_project, smartling_settings
+):
+    smartling_settings.JOB_NAME_PREFIX = "www.firefox.com"
+    order = OrderFactory(created_by=superuser, submitted_at=None, name="WNP 157")
+    source = TranslationSourceFactory(source_instance=root_page)
+    OrderItemFactory(
+        order=order,
+        translation_source=source,
+        added_by=superuser,
+        translations=[Translation.objects.create(source=source, target_locale=locale) for locale in target_locales()],
+    )
+    JobFactory(source_instance=_second_page(root_page), name="www.firefox.com WNP 157")
+
+    with pytest.raises(ValueError, match="A Smartling job is already called 'www.firefox.com WNP 157'"):
+        order.submit(user=superuser, job_name="www.firefox.com WNP 157")
+
+    assert order.jobs.count() == 0
+
+
+def test_submitting_an_order_whose_name_a_job_took_is_sent_under_a_free_name(
+    root_page, locales, superuser, smartling_project, smartling_settings
+):
+    smartling_settings.JOB_NAME_PREFIX = "www.firefox.com"
+    order = OrderFactory(created_by=superuser, submitted_at=None, name="WNP 157")
+    source = TranslationSourceFactory(source_instance=root_page)
+    OrderItemFactory(
+        order=order,
+        translation_source=source,
+        added_by=superuser,
+        translations=[Translation.objects.create(source=source, target_locale=locale) for locale in target_locales()],
+    )
+    JobFactory(source_instance=_second_page(root_page), name="www.firefox.com WNP 157")
+
+    job = order.submit(user=superuser)
+
+    assert job.name == "www.firefox.com WNP 157-2"

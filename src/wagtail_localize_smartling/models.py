@@ -13,6 +13,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.db.models.functions import Lower
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -258,6 +259,7 @@ class Order(models.Model):
         super().clean()
         if self.is_draft:
             self._clean_name_length()
+            self._clean_name_unique()
             return
 
         # A sent order's name is already in Smartling, so a prefix that grew
@@ -287,6 +289,27 @@ class Order(models.Model):
                 % {"limit": longest_allowed_length, "prefix": smartling_settings.JOB_NAME_PREFIX}
             }
         )
+
+    def _clean_name_unique(self) -> None:
+        """Refuse a name the job built from it could not be given."""
+        # An absent name is the field's own error to report.
+        if not self.name:
+            return
+
+        open_orders = Order.objects.filter(submitted_at__isnull=True, name__iexact=self.name)
+        if open_orders.exclude(pk=self.pk).exists():
+            raise ValidationError(
+                {"name": _("Another open order is already called '%(name)s'. Pick another name.") % {"name": self.name}}
+            )
+
+        # Covers the orders already sent, too: sending one leaves a job behind
+        # under the name it was sent as. Not narrowed to one Smartling project,
+        # because naming the current one costs an API call.
+        job_name = prefixed_job_name(self.name)
+        if Job.name_is_taken(job_name):
+            raise ValidationError(
+                {"name": _("A Smartling job is already called '%(name)s'. Pick another name.") % {"name": job_name}}
+            )
 
     def _clean_fields_sent_to_smartling(self) -> None:
         # No further cleaning for Orders that are unsaved.
@@ -319,11 +342,17 @@ class Order(models.Model):
         A Smartling job name for the next send of this order.
 
         Smartling rejects a duplicate job name, so a resend cannot reuse the
-        first one.
+        first one, nor one that another order has been named after.
         """
-        send_number = self.jobs.count() + 1
-        name = self.name if send_number == 1 else f"{self.name}-{send_number}"
-        return prefixed_job_name(name)
+        # Stops where max_order_name_length() stops reserving room: an order
+        # name is measured against a two-digit suffix and no more.
+        for send_number in range(self.jobs.count() + 1, 100):
+            name = self.name if send_number == 1 else f"{self.name}-{send_number}"
+            job_name = prefixed_job_name(name)
+            if not Job.name_is_taken(job_name):
+                return job_name
+
+        raise ValueError(f"Order {self.pk} has been sent under every name there is room for")
 
     def submit(
         self,
@@ -378,6 +407,10 @@ class Order(models.Model):
             raise ValueError(
                 f"Job name '{job_name}' is longer than the {max_job_name_length()} characters Smartling allows"
             )
+        # Checked here as well as in clean(), because a name free when the
+        # order was named can be taken by the time it is sent.
+        if Job.name_is_taken(job_name):
+            raise ValueError(f"A Smartling job is already called '{job_name}'")
 
         with transaction.atomic():
             job = Job.objects.create(
@@ -552,10 +585,25 @@ class Job(SyncedModel):
                 ),
                 name="status_consistent_with_sync_dates",
             ),
+            # Smartling refuses a job name one of its jobs in the same project
+            # already has, and refuses it in a background push nobody watches.
+            models.UniqueConstraint(
+                Lower("name"),
+                "project",
+                name="job_name_unique_per_project",
+            ),
         ]
 
     def __str__(self):
         return self.name
+
+    @classmethod
+    def name_is_taken(cls, job_name: str) -> bool:
+        """Whether a job of this name exists, regardless of casing."""
+        # Lower(), not iexact: iexact compiles to UPPER() on Postgres, which
+        # cannot use the index job_name_unique_per_project builds on Lower(),
+        # and which folds some non-ASCII pairs differently from it.
+        return cls.objects.alias(name_lower=Lower("name")).filter(name_lower=job_name.lower()).exists()
 
     @staticmethod
     def get_default_name(
@@ -583,7 +631,7 @@ class Job(SyncedModel):
         _timestamp = (
             timezone.now()
             .replace(tzinfo=None)  # remove +00:00 - we know it's UTC
-            .isoformat(timespec="seconds")
+            .isoformat(timespec="microseconds")
         )
         _locales = ":".join(sorted(t.target_locale.language_code for t in translations))
 
