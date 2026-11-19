@@ -29,7 +29,13 @@ from .constants import EXPANDABLE_JOB_STATUSES, UNSYNCED_OR_PENDING_STATUSES
 from .forms import JobForm
 from .settings import settings as smartling_settings
 from .sync import sync_job
-from .utils import compute_content_hash, get_snippet_admin_url
+from .utils import (
+    compute_content_hash,
+    get_snippet_admin_url,
+    max_job_name_length,
+    max_order_name_length,
+    prefixed_job_name,
+)
 
 
 if TYPE_CHECKING:
@@ -245,10 +251,46 @@ class Order(models.Model):
         super().save(*args, **kwargs)
 
     def clean(self):
-        """Refuse to rewrite what a sent order told translators."""
+        """
+        Refuse a name too long for the Smartling job it will become, and refuse
+        to rewrite what a sent order told translators.
+        """
         super().clean()
-        # No further cleaning for Orders that are unsaved or draft.
-        if self.pk is None or self.is_draft:
+        if self.is_draft:
+            self._clean_name_length()
+            return
+
+        # A sent order's name is already in Smartling, so a prefix that grew
+        # afterwards must not make the record of that send unsaveable.
+        self._clean_fields_sent_to_smartling()
+
+    def _clean_name_length(self) -> None:
+        longest_allowed_length = max_order_name_length()
+        # An absent name is the field's own error to report.
+        if not self.name or len(self.name) <= longest_allowed_length:
+            return
+
+        if longest_allowed_length <= 0:
+            raise ValidationError(
+                {
+                    "name": _(
+                        "No name will fit, because the Smartling job name prefix"
+                        " is too long for this job name. Ask an administrator "
+                        "to shorten the prefix."
+                    )
+                }
+            )
+
+        raise ValidationError(
+            {
+                "name": _("Keep this to %(limit)s characters: Smartling's job name puts '%(prefix)s ' in front of it.")
+                % {"limit": longest_allowed_length, "prefix": smartling_settings.JOB_NAME_PREFIX}
+            }
+        )
+
+    def _clean_fields_sent_to_smartling(self) -> None:
+        # No further cleaning for Orders that are unsaved.
+        if self.pk is None:
             return
 
         # If the Order has been deleted, no further cleaning is done.
@@ -259,8 +301,6 @@ class Order(models.Model):
         changed = sorted(field for field, value in stored.items() if getattr(self, field) != value)
         if changed:
             raise ValidationError(
-                # A sent order is the record of what went to Smartling, so the
-                # fields translators were given have to keep saying what they said.
                 f"This order was sent to Smartling and can no longer be edited ({', '.join(changed)})."
             )
 
@@ -283,9 +323,7 @@ class Order(models.Model):
         """
         send_number = self.jobs.count() + 1
         name = self.name if send_number == 1 else f"{self.name}-{send_number}"
-        if smartling_settings.JOB_NAME_PREFIX:
-            name = f"{smartling_settings.JOB_NAME_PREFIX} {name}"
-        return name
+        return prefixed_job_name(name)
 
     def submit(
         self,
@@ -333,12 +371,20 @@ class Order(models.Model):
         if not order_items_to_send:
             raise ValueError(f"Order {self.pk} has no pages to translate")
 
+        job_name = job_name or self.suggested_job_name()
+        # Checked here as well as in clean(), because the prefix can grow
+        # between the day an order is named and the day it is sent.
+        if len(job_name) > max_job_name_length():
+            raise ValueError(
+                f"Job name '{job_name}' is longer than the {max_job_name_length()} characters Smartling allows"
+            )
+
         with transaction.atomic():
             job = Job.objects.create(
                 project=Project.get_current(),
                 order=self,
                 user=user,
-                name=job_name or self.suggested_job_name(),
+                name=job_name,
                 reference_number=self.reference_number,
                 due_date=due_date,
             )
@@ -546,10 +592,7 @@ class Job(SyncedModel):
             usedforsecurity=False,
         ).hexdigest()[:8]
 
-        name = f"{hash} #{translation_source.pk}"
-        if smartling_settings.JOB_NAME_PREFIX:
-            name = f"{smartling_settings.JOB_NAME_PREFIX} {name}"
-        return name
+        return prefixed_job_name(f"{hash} #{translation_source.pk}")
 
     @staticmethod
     def get_default_reference_number(
