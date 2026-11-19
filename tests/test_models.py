@@ -1196,7 +1196,7 @@ def test_the_description_callback_receives_the_job(
     assert received["job"] == job
     assert "WNP 157" in received["default_description"]
     # Read back rather than off the instance, which holds the callback's answer
-    # either way: what needs pinning is that it reached the database.
+    # either way: pin that it reached the database.
     assert wls_models.Job.objects.get(pk=job.pk).description == "overridden"
 
 

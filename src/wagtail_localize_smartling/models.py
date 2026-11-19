@@ -262,8 +262,6 @@ class Order(models.Model):
             self._clean_name_unique()
             return
 
-        # A sent order's name is already in Smartling, so a prefix that grew
-        # afterwards must not make the record of that send unsaveable.
         self._clean_fields_sent_to_smartling()
 
     def _clean_name_length(self) -> None:
@@ -316,7 +314,6 @@ class Order(models.Model):
         if self.pk is None:
             return
 
-        # If the Order has been deleted, no further cleaning is done.
         stored = Order.objects.filter(pk=self.pk).values(*self.FIELDS_SENT_TO_SMARTLING).first()
         if stored is None:
             return
@@ -362,14 +359,7 @@ class Order(models.Model):
         items: "Iterable[OrderItem] | None" = None,
         translations: Iterable[Translation] | None = None,
     ) -> "Job":
-        """
-        Create the one Smartling job that carries every page of this order.
-
-        Returns the new Job. A resend passes the items and translations that
-        still need sending, and a name of its own, because Smartling rejects a
-        duplicate job name. Whatever this send leaves behind is put on
-        `dropped_order_items` and `dropped_due_date` for the caller to report.
-        """
+        """Create the one Smartling job that carries every page of this order."""
         order_items = list(items if items is not None else self.order_items.select_related("translation_source"))
         wanted_translations = set(
             translations
@@ -802,19 +792,13 @@ class Job(SyncedModel):
             # Create Job and JobFile in 1 transaction to avoid having an invalid
             # Job (that later gets sent to Smartling).
             with transaction.atomic():
-                # Sending one page now is an order of one, submitted the moment
-                # it is made, so that every job has an order behind it.
                 job_order = Order.objects.create(
-                    # The prefix belongs to the Smartling job name built from
-                    # this one, not to the order an editor sees listed.
                     name=str(translation_source.get_source_instance())[:100],
                     created_by=user,
                     due_date=due_date,
                     submitted_at=timezone.now(),
                 )
                 job_order.contributors.add(user)
-                # Create the OrderItem, because without the OrderItem the order
-                # holds no pages, which is what the order screens count and list.
                 order_item = OrderItem.objects.create(
                     order=job_order,
                     translation_source=translation_source,
@@ -953,9 +937,9 @@ def _record_locales_on_order(
     """
     Record the locales the job has on the job's order.
 
-    An order's items are what a resend reads to decide what to send, so an order
-    that previously only knew about some of the job's locales needs to add the
-    rest of the job's locales now.
+    A resend reads an order's items to decide what to send, so an order that
+    previously only knew about some of the job's locales needs to add the rest
+    of the job's locales now.
     """
     if job.order_id is None:
         return
@@ -966,8 +950,6 @@ def _record_locales_on_order(
         defaults={"added_by": user},
     )
     if created:
-        # A page the order has no item for is owed every locale its job
-        # carries, not only the ones arriving now.
         order_item.translations.set(job.translations.all())
     else:
         order_item.translations.add(*translations)

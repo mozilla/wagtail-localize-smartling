@@ -138,8 +138,8 @@ def test_backfill_gives_every_eligible_job_its_own_order(migrator, django_db_ser
     OrderItem = new_state.apps.get_model("wagtail_localize_smartling", "OrderItem")
     JobFile = new_state.apps.get_model("wagtail_localize_smartling", "JobFile")
     # Three of the five jobs are eligible, and the hand-made order is a fourth
-    # that the backfill must not touch. Counting the totals here is what would
-    # catch a stray row that the per-job assertions below would walk past.
+    # that the backfill must not touch. Count the totals here to catch a
+    # stray row that the per-job assertions below would miss.
     assert Order.objects.count() == 4
     assert OrderItem.objects.count() == 3
     assert JobFile.objects.count() == 3
