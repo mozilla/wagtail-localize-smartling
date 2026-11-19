@@ -55,6 +55,7 @@ class JobForm(WagtailAdminModelForm):
         from .models import Order
 
         super().__init__(*args, **kwargs)
+        self.source_object_instance = source_object_instance
         self.descendant_count = (
             source_object_instance.get_descendants().count() if isinstance(source_object_instance, Page) else 0
         )
@@ -130,6 +131,33 @@ class JobForm(WagtailAdminModelForm):
         # alongside this one and carries no prefix.
         is_subtree_included = forms.CheckboxInput().value_from_datadict(self.data, self.files, "include_subtree")
         return bool(is_subtree_included) and self.descendant_count > 0
+
+    @cached_property
+    def pages_this_submission_adds(self) -> int:
+        """The object being submitted, and its descendants when the subtree is included."""
+        return 1 + self.descendant_count if self.adds_a_subtree else 1
+
+    @cached_property
+    def page_count_when_complete(self) -> int:
+        """How many pages the chosen order will hold once this submission has finished joining it."""
+        order = self.cleaned_data.get("order")
+        if order is None or not order.pk:
+            return self.pages_this_submission_adds
+
+        pages_already_accounted_for = max(order.page_count_when_complete or 0, order.order_items.count())
+        return pages_already_accounted_for + self.pages_this_submission_adds - self._pages_already_in_the_order(order)
+
+    def _pages_already_in_the_order(self, order: "Order") -> int:
+        """How many of the pages this submission carries the order holds already."""
+        if self.source_object_instance is None:
+            return 0
+
+        # An order item points at a TranslationSource, whose object_id is the
+        # translation key the page keeps across locales.
+        translation_keys = [self.source_object_instance.translation_key]
+        if self.adds_a_subtree:
+            translation_keys += self.source_object_instance.get_descendants().values_list("translation_key", flat=True)
+        return order.order_items.filter(translation_source__object_id__in=translation_keys).count()
 
     @staticmethod
     def _describe_order(order: "Order") -> str:

@@ -5,7 +5,8 @@ import django_filters
 from django import forms
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
-from django.db.models import Count, OuterRef, Subquery
+from django.db import transaction
+from django.db.models import Count, F, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -174,6 +175,10 @@ class OrderEditView(generic.EditView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["page_count"] = self.object.order_items.count()
+        expected = self.object.page_count_when_complete
+        # Decided here rather than in the template, where comparing against an
+        # order that expects nothing raises and renders as though it were False.
+        context["is_still_collecting_pages"] = expected is not None and context["page_count"] < expected
         return context
 
     def post(self, request, *args, **kwargs):
@@ -242,7 +247,15 @@ class OrderEditView(generic.EditView):
     def _remove_page(self, request, item_pk):
         self.object = self.get_object()
 
-        removed_count = OrderItem.objects.filter(order=self.object, pk=item_pk).delete()[0]
+        with transaction.atomic():
+            removed_count = OrderItem.objects.filter(order=self.object, pk=item_pk).delete()[0]
+            if removed_count:
+                # Since we have removed a page from the order, we lower the
+                # order's page_count_when_complete by 1.
+                Order.objects.filter(pk=self.object.pk, page_count_when_complete__gt=0).update(
+                    page_count_when_complete=F("page_count_when_complete") - 1
+                )
+
         if removed_count:
             # Only on a real removal: a second tab clicking the same row would
             # otherwise be told about a page it did not remove.

@@ -10,6 +10,14 @@
     {# The page already sits in a .nice-padding column; adding another doubles it. #}
     <div class="order-screen__intro">
         {% status object.state_label classname="w-status--primary" %}
+        {% if is_still_collecting_pages %}
+            {% blocktranslate count total_page_count=object.page_count_when_complete with collected_page_count=page_count asvar pages_collected_label trimmed %}
+                {{ collected_page_count }} of {{ total_page_count }} page collected
+            {% plural %}
+                {{ collected_page_count }} of {{ total_page_count }} pages collected
+            {% endblocktranslate %}
+            {% status pages_collected_label classname="order-screen__collecting" %}
+        {% endif %}
         <p class="order-screen__standfirst">
             {% trans "This order is still being assembled. Saving keeps your changes in Wagtail; nothing reaches translators until you submit it." %}
         </p>

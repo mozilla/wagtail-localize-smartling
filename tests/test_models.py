@@ -1397,3 +1397,28 @@ def test_needs_a_new_job(root_page, status, blocked, expected_needs_a_new_job):
     )
 
     assert job.needs_a_new_job is expected_needs_a_new_job
+
+
+def test_recording_what_an_order_will_hold_never_lowers_it(superuser):
+    """
+    A count is worked out before the pages it counts have joined, so two
+    submissions can be in flight at once with the earlier one holding the
+    smaller number.
+    """
+    order = OrderFactory(submitted_at=None, created_by=superuser)
+
+    order.record_page_count_when_complete(11)
+    order.record_page_count_when_complete(4)
+
+    order.refresh_from_db()
+    assert order.page_count_when_complete == 11
+
+
+def test_recording_what_an_order_will_hold_raises_it(superuser):
+    order = OrderFactory(submitted_at=None, created_by=superuser)
+
+    order.record_page_count_when_complete(4)
+    order.record_page_count_when_complete(11)
+
+    order.refresh_from_db()
+    assert order.page_count_when_complete == 11
