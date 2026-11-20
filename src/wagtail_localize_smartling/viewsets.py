@@ -174,7 +174,7 @@ class OrderEditView(generic.EditView):
         messages.success(self.request, _("Order '%(name)s' was sent to Smartling.") % {"name": self.object.name})
         self._report_dropped_pages(self.object.dropped_order_items)
 
-        return redirect(self.get_inspect_url())
+        return redirect(self.get_inspect_url())  # pyright: ignore[reportArgumentType]
 
     def _report_dropped_pages(self, dropped_order_items):
         """Name the pages the send left behind."""
@@ -233,12 +233,15 @@ class OrderViewSet(ModelViewSet):
         FieldPanel("notes"),
         OrderPagesPanel(),
     ]
-    edit_template_name = "wagtail_localize_smartling/admin/order_edit.html"
     icon = "wagtail-localize-language"
     add_to_admin_menu = True
     menu_label = _("Smartling orders")  # pyright: ignore[reportAssignmentType]
     copy_view_enabled = False
     inspect_view_enabled = True
+
+    @cached_property
+    def edit_template_name(self):
+        return ["wagtail_localize_smartling/admin/order_edit.html"]
 
     # Wagtail >= 8.0 declares permission_policy as a cached_property, so a plain
     # class attribute here fails type checking.
