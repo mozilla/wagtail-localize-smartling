@@ -11,10 +11,17 @@ from django.utils import timezone
 from wagtail_localize.models import Translation
 
 from . import utils
+from .api.client import JobNotFound as SmartlingJobNotFound
 from .api.client import client
 from .api.types import JobStatus
 from .constants import PENDING_STATUSES, TRANSLATED_STATUSES, UNTRANSLATED_STATUSES
-from .signals import individual_translation_imported, job_synced_to_smartling, translation_import_successful
+from .settings import settings as smartling_settings
+from .signals import (
+    individual_translation_imported,
+    job_sync_failed,
+    job_synced_to_smartling,
+    translation_import_successful,
+)
 
 
 def _sanitize_po_content(content: str) -> str:
@@ -56,8 +63,8 @@ class SyncJobException(Exception):
     pass
 
 
-class JobNotFound(SyncJobException):
-    pass
+class LocalJobNotFound(SyncJobException):
+    """The Job row is gone from the database; Smartling is not involved."""
 
 
 class FileURIMismatch(SyncJobException):
@@ -68,6 +75,27 @@ class FileURIMismatch(SyncJobException):
 # Long enough for a large order's uploads, short enough that a worker killed
 # mid-push does not strand the job until someone notices.
 SYNC_LEASE_SECONDS = 60 * 30
+
+
+# Statuses where a 4xx says something about the caller, the moment, or the
+# network, rather than about the job, so retrying is the right move.
+RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({401, 403, 408, 409, 429})
+
+
+def is_failure_permanent(exc: Exception) -> bool:
+    """
+    Return True if this failure will recur on every retry.
+
+    A 4xx means Smartling rejected the request itself (for example, for a
+    duplicate job name, a job with no strings, an unknown locale), and will
+    reject it again.
+    """
+    status_code = getattr(exc, "status_code", None)
+    if status_code is None:
+        return False
+    if status_code in RETRYABLE_CLIENT_ERROR_STATUSES:
+        return False
+    return 400 <= status_code < 500
 
 
 def sync_job(job_id: int) -> None:
@@ -90,13 +118,45 @@ def sync_job(job_id: int) -> None:
         return
 
     claimed_at = job.sync_started_at
+    was_blocked = job.sync_blocked
+    # A blocked job is never pushed again: its push is what failed, and nothing
+    # here can fix it.
+    pushing = not was_blocked and job.push_is_incomplete
     try:
-        if _push_is_incomplete(job):
+        if pushing:
             _initial_sync(job)
-        else:
+        elif job.translation_job_uid:
             _sync(job)
+        # A blocked job with no uid never reached Smartling, so there is
+        # nothing to poll and nothing worth pushing until the block is cleared.
     except Exception as e:
+        permanent = is_failure_permanent(e)
+        job.record_sync_failure(e, permanent=permanent, pushing=pushing)
+
+        # Past the limit the job keeps being swept but stops being announced:
+        # a job that fails every sweep would otherwise alert every sweep.
+        if job.consecutive_sync_failures <= smartling_settings.SYNC_FAILURE_LIMIT:
+            # Sent a job_sync_failed signal robustly, so that this exception
+            # reaches the caller.
+            for receiver, response in job_sync_failed.send_robust(
+                sender=job.__class__,
+                instance=job,
+                exception=e,
+                permanent=permanent,
+            ):
+                if isinstance(response, Exception):
+                    logger.error(
+                        "%s could not handle the failed sync of job %s",
+                        receiver,
+                        job,
+                        exc_info=response,
+                    )
         raise SyncJobException(f"Exception syncing job {job}") from e
+    else:
+        # A job blocked on its push stays blocked until that push finishes: a
+        # clean poll says nothing about the upload that failed.
+        if not was_blocked or not job.push_is_incomplete:
+            job.clear_sync_failure()
     finally:
         try:
             _release_claim(job, claimed_at=claimed_at)
@@ -115,7 +175,7 @@ def _claim_job_for_sync(job_id: int) -> "Job | None":
     try:
         job = Job.objects.select_for_update().get(pk=job_id)
     except Job.DoesNotExist as e:
-        raise JobNotFound(f"Job with ID {job_id} not found") from e
+        raise LocalJobNotFound(f"Job with ID {job_id} not found") from e
 
     # A Job is already being synced (by another worker), so return None, and let
     # that worker finish.
@@ -140,17 +200,6 @@ def _release_claim(job: "Job", *, claimed_at: datetime) -> None:
     from .models import Job
 
     Job.objects.filter(pk=job.pk, sync_started_at=claimed_at).update(sync_started_at=None)
-
-
-def _push_is_incomplete(job: "Job") -> bool:
-    """
-    Whether this job still has work to do at Smartling's end.
-
-    A push is incomplete until the job exists in Smartling and every one of its
-    files has been uploaded. A push that dies in between leaves a job that has
-    a status and a UID and some of its files unpushed.
-    """
-    return job.translation_job_uid == "" or job.files.filter(file_uri="").exists()
 
 
 def _check_job_can_be_authorized(job: "Job") -> None:
@@ -250,7 +299,12 @@ def _initial_sync(job: "Job") -> None:
                     job.save(update_fields=["file_uri"])
 
     # Add context to the job (if settings.VISUAL_CONTEXT_CALLBACK is defined)
-    client.add_html_context_to_job(job=job)
+    try:
+        client.add_html_context_to_job(job=job)
+    except Exception:
+        # Every file is already at Smartling and authorized. Log the exception
+        # here, but do not raise an error for it.
+        logger.exception("Could not add visual context to job %s", job)
 
 
 def _sync(job: "Job") -> None:
@@ -268,7 +322,7 @@ def _sync(job: "Job") -> None:
 
     try:
         job_data = client.get_job_details(job=job)
-    except JobNotFound:
+    except SmartlingJobNotFound:
         logger.warning("Job not found in Smartling, marking as deleted")
         updated_status = JobStatus.DELETED
     else:
@@ -359,6 +413,14 @@ def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
             )
             continue
 
+        if not job_file.file_uri:
+            logger.warning(
+                "%s never reached Smartling, so translation %s cannot be checked yet",
+                job_file,
+                translation.pk,
+            )
+            continue
+
         smartling_locale_id = utils.format_smartling_locale_id(translation.target_locale.language_code)
 
         try:
@@ -440,7 +502,14 @@ def _download_and_apply_translations(job: "Job") -> None:
     # The endpoint takes one fileUri and answers with every locale of it, so a
     # job of many pages costs one zip per page rather than one per page and
     # locale.
-    job_files_by_uri = {job_file.file_uri: job_file for job_file in job.files.select_related("translation_source")}
+    # A file with no URI never reached Smartling, so there is nothing there to
+    # ask for; its page is translated once the rest of the push goes out.
+    job_files_by_uri = {
+        job_file.file_uri: job_file for job_file in job.files.select_related("translation_source") if job_file.file_uri
+    }
+    unsent_file_count = job.files.filter(file_uri="").count()
+    if unsent_file_count:
+        logger.warning("Job %s has %d file(s) that never reached Smartling", job, unsent_file_count)
     unknown_file_uris = []
 
     for job_file in job_files_by_uri.values():

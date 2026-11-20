@@ -11,3 +11,7 @@ translation_import_successful = Signal()
 # Sent when a job transitions from UNSYNCED to AWAITING_AUTHORIZATION
 # (i.e. it has been created in Smartling and is awaiting authorization)
 job_synced_to_smartling = Signal()
+
+# Sent when syncing a job raised an exception, with the exception and whether
+# the failure was classified as permanent
+job_sync_failed = Signal()

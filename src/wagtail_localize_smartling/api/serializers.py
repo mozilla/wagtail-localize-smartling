@@ -137,6 +137,10 @@ class ResponseSerializer(
         )
 
 
+class ErrorResponseSerializer(ResponseSerializer):
+    """For responses that can only be errors, such as a failed file download."""
+
+
 class NullDataResponseSerializer(ResponseSerializer):
     _acceptable_codes_for_null_response = [
         # Subclasses should define what are acceptable response messages
