@@ -99,7 +99,7 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
     header_icon = "wagtail-localize-language"
     object: Job
     permission_required = "view"
-    jobs_report_url: str = ""
+    orders_report_url: str = ""
 
     # Wagtail >= 8.0 declares permission_policy as a cached_property, so a plain
     # class attribute here fails type checking.
@@ -108,9 +108,8 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
         return job_permission_policy
 
     def get_breadcrumbs_items(self):  # pyright: ignore[reportIncompatibleMethodOverride]
-        # TODO: link to the report view
         return super().get_breadcrumbs_items() + [
-            {"url": self.jobs_report_url, "label": _("Smartling jobs")},
+            {"url": self.orders_report_url, "label": _("Smartling orders")},
             {"url": "", "label": self.page_title},
         ]
 
@@ -134,7 +133,7 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
         if latest_job != self.object.pk:
             return permission_denied(request)
 
-        self.jobs_report_url = reverse("wagtail_localize_smartling_jobs:index")
+        self.orders_report_url = reverse("wagtail_localize_smartling_jobs:index")
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request, *args, **kwargs):
@@ -154,7 +153,7 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
         return redirect(self.get_success_url())
 
     def get_success_url(self):
-        return get_valid_next_url_from_request(self.request) or self.jobs_report_url
+        return get_valid_next_url_from_request(self.request) or self.orders_report_url
 
     @property
     def confirmation_message(self):
