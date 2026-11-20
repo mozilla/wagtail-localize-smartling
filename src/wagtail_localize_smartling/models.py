@@ -548,6 +548,7 @@ class Job(SyncedModel):
     #
     file_uri = models.CharField(max_length=255, blank=True, editable=False)
 
+    order_id: int | None
     files: "RelatedManager[JobFile]"
 
     base_form_class = JobForm
