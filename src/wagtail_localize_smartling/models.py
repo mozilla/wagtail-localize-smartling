@@ -17,6 +17,7 @@ from django.db.models import Case, Count, ExpressionWrapper, F, OuterRef, Q, Que
 from django.db.models.functions import Coalesce, Lower
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.functional import Promise
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.panels import FieldPanel
 from wagtail.models import Locale, Page
@@ -428,7 +429,7 @@ class Order(models.Model):
         return OrderState(annotated_state)
 
     @property
-    def state_label(self) -> str:
+    def state_label(self) -> str | Promise:
         return self.state.label
 
     def suggested_job_name(self) -> str:

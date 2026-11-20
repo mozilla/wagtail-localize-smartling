@@ -10,6 +10,7 @@ import enum
 
 from typing import TYPE_CHECKING, Any
 
+from django.utils.functional import Promise
 from django.utils.translation import gettext_lazy as _
 from wagtail.models import Locale
 
@@ -28,7 +29,7 @@ class CellState(enum.Enum):
     NOT_REQUESTED = "not-requested"
 
     @property
-    def label(self) -> str:
+    def label(self) -> str | Promise:
         return {
             CellState.WILL_BE_SENT: _("will be sent"),
             CellState.LANDED: _("landed in Wagtail"),
@@ -172,7 +173,12 @@ def _get_source_instances(items: "list[OrderItem]") -> dict[tuple[int, int, str]
 def _get_ordered_page_locale_states(items: "list[OrderItem]") -> dict[tuple[int, int], CellState]:
     """What a draft order will send: the locales the editor ticked, nothing else."""
     return {
-        (item.translation_source_id, translation.target_locale_id): CellState.WILL_BE_SENT
+        (
+            item.translation_source_id,
+            # django-stubs gives pyright no "<field>_id" for a foreign key, so
+            # we have pyright ignore the target_locale_id.
+            translation.target_locale_id,  # pyright: ignore[reportAttributeAccessIssue]
+        ): CellState.WILL_BE_SENT
         for item in items
         for translation in item.translations.all()
     }
