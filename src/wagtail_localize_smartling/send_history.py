@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from django.db.models import Count, Q
 from django.urls import reverse
+from django.utils.functional import Promise
 from django.utils.translation import gettext_lazy as _
 from wagtail.permission_policies import ModelPermissionPolicy
 
@@ -38,7 +39,7 @@ class SendRow:
         return self.job.sync_blocked and not self.job.translation_job_uid
 
     @property
-    def status_label(self) -> str:
+    def status_label(self) -> str | Promise:
         if self.blocked_before_sending:
             return _("Submission failed")
         if self.job.status == JobStatus.UNSYNCED:
