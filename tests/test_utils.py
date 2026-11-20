@@ -83,3 +83,42 @@ def test_get_snippet_admin_url():
 
     expected_url = "/admin/snippets/testapp/testmodel/edit/1/"
     assert utils.get_snippet_admin_url(snippet) == expected_url
+
+
+@pytest.mark.parametrize(
+    ("prefix", "expected"),
+    [
+        ("www.firefox.com", "www.firefox.com WNP 157"),
+        ("", "WNP 157"),
+        (None, "WNP 157"),
+    ],
+)
+@pytest.mark.django_db
+def test_prefixed_job_name(prefix, expected, smartling_settings):
+    smartling_settings.JOB_NAME_PREFIX = prefix
+
+    assert utils.prefixed_job_name("WNP 157") == expected
+
+
+@pytest.mark.django_db
+def test_max_order_name_length_reserves_the_prefix_and_a_resend_suffix(smartling_settings):
+    smartling_settings.JOB_NAME_PREFIX = "job name prefix"
+
+    # 170 - len("job name prefix") - len("-99")
+    assert utils.max_order_name_length() == 151
+
+
+@pytest.mark.django_db
+def test_max_order_name_length_without_a_prefix_reserves_only_the_resend_suffix(smartling_settings):
+    smartling_settings.JOB_NAME_PREFIX = None
+
+    # 170 - len("-99")
+    assert utils.max_order_name_length() == 167
+
+
+@pytest.mark.django_db
+def test_max_order_name_length_is_not_positive_when_the_prefix_fills_the_job_name(smartling_settings):
+    smartling_settings.JOB_NAME_PREFIX = "x" * 170
+
+    # 170 - len("x" * 170") - len("-99")
+    assert utils.max_order_name_length() <= 0

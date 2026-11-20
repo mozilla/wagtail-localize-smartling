@@ -5,6 +5,7 @@ from typing import Any
 from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.functional import cached_property
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
@@ -17,11 +18,11 @@ from wagtail.admin.views.generic import (
     WagtailAdminTemplateMixin,
 )
 from wagtail.models import Locale
-from wagtail.permission_policies import ModelPermissionPolicy
 
 from .components import LandedTranslationsPanel
 from .forms import ResubmitOrderForm
 from .models import Job, Project
+from .permissions import job_permission_policy
 from .templatetags.wagtail_localize_smartling_admin_tags import smartling_job_url
 from .utils import (
     format_smartling_project_url,
@@ -33,7 +34,9 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 
-class SmartlingStatusView(WagtailAdminTemplateMixin, TemplateView):  # pyright: ignore[reportIncompatibleMethodOverride]
+class SmartlingStatusView(  # pyright: ignore[reportIncompatibleMethodOverride, reportGeneralTypeIssues]
+    WagtailAdminTemplateMixin, TemplateView
+):
     _show_breadcrumbs = True
     page_title = _("Smartling")
     template_name = "wagtail_localize_smartling/admin/smartling_status.html"
@@ -88,7 +91,7 @@ class SmartlingStatusView(WagtailAdminTemplateMixin, TemplateView):  # pyright: 
         return super().get_context_data(**context)
 
 
-class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverride]
+class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverride, reportGeneralTypeIssues]
     PermissionCheckedMixin, WagtailAdminTemplateMixin, TemplateView
 ):
     _show_breadcrumbs = True
@@ -96,9 +99,14 @@ class SmartlingResubmitJobView(  # pyright: ignore[reportIncompatibleMethodOverr
     template_name = "wagtail_localize_smartling/admin/resubmit_job.html"
     header_icon = "wagtail-localize-language"
     object: Job
-    permission_policy = ModelPermissionPolicy(Job)
     permission_required = "view"
     orders_report_url: str = ""
+
+    # Wagtail >= 8.0 declares permission_policy as a cached_property, so a plain
+    # class attribute here fails type checking.
+    @cached_property
+    def permission_policy(self):
+        return job_permission_policy
 
     def get_breadcrumbs_items(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         return super().get_breadcrumbs_items() + [
