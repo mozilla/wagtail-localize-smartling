@@ -4,11 +4,16 @@
 {% block main_content %}
     <div class="w-mt-6">
         <p>
-            {{ view.confirmation_message }}
+            {% blocktrans trimmed count counter=page_count with order=order.name locales=locale_names %}
+                Send “{{ order }}” to Smartling again as a new job, with {{ counter }} page in {{ locales }}?
+            {% plural %}
+                Send “{{ order }}” to Smartling again as a new job, with {{ counter }} pages in {{ locales }}?
+            {% endblocktrans %}
             {% if view_url %}{{ view_url }}{% endif %}
         </p>
         <form method="POST">
             {% csrf_token %}
+            {% include "wagtailadmin/shared/field.html" with field=form.job_name %}
             <button type="submit" class="button">{% trans 'Yes, resubmit' %}</button>
             <a href="{{ view.get_success_url }}" class="button button-secondary">{% trans "No, don't resubmit" %}</a>
         </form>
