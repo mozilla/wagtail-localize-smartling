@@ -1,3 +1,5 @@
+from typing import cast
+
 import django_filters
 
 from django.contrib.auth import get_user_model
@@ -9,16 +11,21 @@ from wagtail.admin.filters import WagtailFilterSet
 from wagtail.admin.ui.tables import Column, DateColumn, TitleColumn, UserColumn
 from wagtail.admin.views import generic
 from wagtail.admin.viewsets.model import ModelViewSet
-from wagtail.permission_policies import ModelPermissionPolicy
+from wagtail_localize.models import get_edit_url
 
 from .api.types import JobStatus
 from .models import Job
+from .permissions import job_permission_policy
 from .templatetags.wagtail_localize_smartling_admin_tags import smartling_job_url
 
 
 def get_users_for_filter(user):
     User = get_user_model()
-    return User.objects.filter(pk__in=Job.objects.values_list("user", flat=True)).order_by(User.USERNAME_FIELD)  # pyright: ignore[reportAttributeAccessIssue]
+    # USERNAME_FIELD is a str at runtime, but django-stubs models get_user_model()'s
+    # return as a placeholder whose __getattr__ only knows "objects".
+    username_field = cast(str, User.USERNAME_FIELD)  # pyright: ignore[reportArgumentType]
+
+    return User.objects.filter(pk__in=Job.objects.values_list("user", flat=True)).order_by(username_field)
 
 
 class JobReportFilterSet(WagtailFilterSet):
@@ -34,21 +41,10 @@ class JobReportFilterSet(WagtailFilterSet):
         fields = ["status"]
 
 
-class JobPermissionPolicy(ModelPermissionPolicy):
-    def user_has_permission(self, user, action):
-        if action in ["add", "change"]:
-            return False
-
-        return super().user_has_permission(user, action)
-
-
 class SourceInstanceColumn(TitleColumn):
     def get_value(self, instance):
         # A job carries one page per file, and an order's job carries several.
-        return ", ".join(
-            str(job_file.translation_source.get_source_instance())
-            for job_file in instance.files.select_related("translation_source")
-        )
+        return ", ".join(str(job_file.translation_source.get_source_instance()) for job_file in instance.files.all())
 
     def get_link_attrs(self, instance, parent_context):
         return {"title": _(f"Job {instance.name}")}
@@ -106,7 +102,10 @@ class JobIndexView(generic.IndexView):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        return queryset.prefetch_related("files__translation_source", "translations__target_locale")
+        # The source column resolves each file's page through its content type.
+        return queryset.prefetch_related(
+            "files__translation_source__specific_content_type", "translations__target_locale"
+        )
 
 
 class JobInspectView(generic.InspectView):
@@ -162,34 +161,31 @@ class JobInspectView(generic.InspectView):
         return self.object.reference_number
 
     def get_files_display_value(self):
+        # Each page is fetched once and used for both the link and its text.
+        source_instances = [
+            job_file.translation_source.get_source_instance()
+            for job_file in self.object.files.select_related("translation_source")
+        ]
+
         return format_html(
             "<ul>{}</ul>",
             format_html_join(
                 "\n",
                 '<li><a href="{}">{}</a></li>',
-                (
-                    (
-                        job_file.translation_source.get_source_instance_edit_url(),
-                        str(job_file.translation_source.get_source_instance()),
-                    )
-                    for job_file in self.object.files.select_related("translation_source")
-                ),
+                ((get_edit_url(source_instance), str(source_instance)) for source_instance in source_instances),
             ),
         )
 
     def get_translations_display_value(self):
-        content_html = format_html_join(
-            "\n",
-            '<li><a href="{}">{}</a> - {}</li>',
-            (
-                (
-                    translation.get_target_instance_edit_url(),
-                    str(translation.get_target_instance()),
-                    translation.target_locale.get_display_name(),
-                )
-                for translation in self.object.translations.all()
-            ),
-        )
+        # Each page is fetched once and used in multiple places in this method.
+        rows = []
+        for translation in self.object.translations.all():
+            target_instance = translation.get_target_instance()
+            rows.append(
+                (get_edit_url(target_instance), str(target_instance), translation.target_locale.get_display_name())
+            )
+
+        content_html = format_html_join("\n", '<li><a href="{}">{}</a> - {}</li>', rows)
 
         return format_html("<ul>{}</ul>", content_html)
 
@@ -206,9 +202,11 @@ class JobViewSet(ModelViewSet):
     copy_view_enabled = False
     inspect_view_enabled = True
 
-    @property
+    # Wagtail 8.0 resolves this from the policy registry. This property can be
+    # removed when we drop support for Wagtail 7.
+    @cached_property
     def permission_policy(self):
-        return JobPermissionPolicy(self.model)
+        return job_permission_policy
 
     @cached_property
     def url_namespace(self):  # # pyright: ignore[reportIncompatibleVariableOverride]
