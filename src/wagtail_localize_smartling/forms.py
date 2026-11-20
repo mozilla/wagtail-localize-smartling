@@ -11,7 +11,12 @@ from wagtail.admin.forms import WagtailAdminModelForm
 from wagtail.models import Page
 
 from .settings import settings as smartling_settings
-from .utils import job_name_begins_with_prefix, name_without_job_prefix, prefixed_job_name
+from .utils import (
+    job_name_begins_with_prefix,
+    max_order_name_length,
+    name_without_job_prefix,
+    prefixed_job_name,
+)
 
 
 if TYPE_CHECKING:
@@ -143,13 +148,12 @@ class JobForm(WagtailAdminModelForm):
             return gettext("An order called '%(name)s' is already open. Add to it, or pick another name.") % {
                 "name": order_name
             }
-        if Job.objects.filter(name__iexact=job_name).exists():
+        if Job.name_is_taken(job_name):
             return gettext("A Smartling job is already called '%(name)s'. Pick another name.") % {"name": job_name}
 
         # Resending an order appends a suffix to the job name, and Smartling
         # refuses a name over its limit.
-        longest_resend_suffix = len("-99")
-        if len(job_name) > Job._meta.get_field("name").max_length - longest_resend_suffix:  # pyright: ignore[reportAttributeAccessIssue]
+        if len(order_name) > max_order_name_length():
             return gettext("That name is too long once the Smartling prefix is added.")
 
         return None
@@ -288,7 +292,7 @@ class ResubmitOrderForm(forms.Form):
         job_name = self.cleaned_data["job_name"]
         # Checked here because Smartling's own rejection arrives in a
         # background task, which a user won't see.
-        if Job.objects.filter(name__iexact=job_name).exists():
+        if Job.name_is_taken(job_name):
             raise ValidationError(
                 _("A Smartling job is already called '%(name)s'. Pick another name.") % {"name": job_name}
             )

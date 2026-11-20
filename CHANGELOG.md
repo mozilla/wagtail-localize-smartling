@@ -7,11 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add support for Wagtail 7.4 and 8.0 - @dchukhin
+- The minimum required Django version is now 5.2 - @dchukhin
+- The minimum required Wagtail version is now 7.0 - @dchukhin
 - Add `PendingTranslationLockMixin`, which locks a page in the Wagtail admin while its content is awaiting translation in Smartling, so that edits made in the meantime aren't overwritten when the translation is imported.
 - Add `Order` model for batching pages sent to Smartling as one job. A `Job` now has a `JobFile` per translatable object and every job belongs to an order.
 - Deprecate `Job.translation_source`, `Job.file_uri` and `Job.content_hash`, which describe a job of a single page: read the job's `files` instead. A job created from an order leaves all three unset, and `Job.file_uri` names only the first file of a job carrying several.
 - **Breaking:** `JOB_DESCRIPTION_CALLBACK` is now called with `(default_description, job)`. It previously received the source instance and the translations, which the setting's own type annotation described incorrectly. The pages a job carries are `job.files`, each with a `translation_source`.
 - **Breaking:** `VISUAL_CONTEXT_CALLBACK` is now called with `(job, translation_source)`, once per file of the job. Raising `IncapableVisualContextCallback` now skips that one file rather than the whole job.
+- A `Job` name is now unique within its Smartling project, enforced by a database constraint, and an order whose name a job already carries is refused before it is sent.
 - **Breaking:** groups holding `wagtail_localize.submit_translation` are granted the new `Order` permissions by migration. Projects that manage their groups in code must grant those permissions themselves.
 - Record why a job failed to sync on the job itself: `last_sync_error`, `last_sync_error_at`, `consecutive_sync_failures` and `sync_blocked`. Only a failed push blocks a job. The fields are cleared by the next successful sync of a job with nothing left to push.
 - Add the `job_sync_failed` signal, sent with the job, the exception and whether the failure is permanent each time a sync attempt fails, as the hook for notifying a host project.

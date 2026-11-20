@@ -17,9 +17,9 @@ integrates with the Smartling translation platform.
 
 ## Supported versions
 
-- Python 3.8+
-- Django 4.2+
-- Wagtail 6.1+
+- Python 3.11+
+- Django 5.2+
+- Wagtail 7.0+
 
 ## Installation
 
@@ -388,6 +388,13 @@ from wagtail_localize_smartling.locks import (
 get_in_flight_locales_for_instance(page)  # Locales this page is being translated into
 is_in_flight_target(page)  # Is this page the target of a translation still at Smartling?
 ```
+
+#### Query cost in page listings
+
+The lock is worked out per page object, so it costs one extra database query per
+live page in a listing. Wagtail asks every live row in the page explorer whether
+it is locked, to decide whether to offer the "Unpublish" button, and each of
+those checks runs the lock's query.
 
 ## How it works
 <!-- TODO -->

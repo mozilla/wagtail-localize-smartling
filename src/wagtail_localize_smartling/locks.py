@@ -1,5 +1,6 @@
 from copy import copy
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from django.db.models import Q
 from django.utils.html import format_html
@@ -8,6 +9,18 @@ from wagtail.locks import BaseLock
 
 from .constants import UNSYNCED_OR_PENDING_STATUSES
 from .models import JobTranslation
+
+
+if TYPE_CHECKING:
+    from wagtail.models import Page
+
+    # PendingTranslationLockMixin is mixed into a page model, so it reads
+    # attributes it does not define itself. Giving it Page as a base for type
+    # checking only tells pyright where those come from, without changing the
+    # MRO of the models it is mixed into at runtime.
+    _PageBase = Page
+else:
+    _PageBase = object
 
 
 _UNSET = object()
@@ -77,13 +90,19 @@ class PendingTranslationLock(BaseLock):
     def locale_names(self):
         return ", ".join(locale.get_display_name() for locale in self.locales)
 
-    def for_user(self, user):
+    # BaseLock carries no annotations, so pyright infers each of its return
+    # types from the placeholder body it ships with: NotImplemented. Therefore,
+    # we ignore this line for pyright.
+    def for_user(self, user):  # pyright: ignore[reportIncompatibleMethodOverride]
         return not self.object.can_bypass_pending_translation_lock(user)
 
     def get_locked_by(self, user):
         return _("Being translated")
 
-    def get_icon(self, user):
+    # BaseLock carries no annotations, so pyright infers each of its return
+    # types from the placeholder body it ships with: the literal "lock". Therefore,
+    # we ignore this line for pyright.
+    def get_icon(self, user):  # pyright: ignore[reportIncompatibleMethodOverride]
         # Registered unconditionally by wagtail-localize.
         return "wagtail-localize-language"
 
@@ -92,7 +111,10 @@ class PendingTranslationLock(BaseLock):
             return _("The %(locales)s translation is in progress in Smartling.") % {"locales": self.locale_names}
         return _("This page is being translated in Smartling into %(locales)s.") % {"locales": self.locale_names}
 
-    def get_message(self, user):
+    # BaseLock carries no annotations, so pyright infers each of its return
+    # types from the placeholder body it ships with: None. Therefore,
+    # we ignore this line for pyright.
+    def get_message(self, user):  # pyright: ignore[reportIncompatibleMethodOverride]
         return format_html('<span class="{}">{}</span>', self.message_class, self.get_message_body(user))
 
     def get_message_body(self, user):
@@ -152,12 +174,20 @@ class CombinedLockMixin(BaseLock):
     def for_user(self, user):
         return super().for_user(user) or self.pending_lock.for_user(user)
 
-    def get_message(self, user):
+    def get_message(self, user):  # pyright: ignore[reportIncompatibleMethodOverride]
         # The page editor renders the banner straight from this, so the user
         # has to be told which of the two restrictions is holding them.
         if self.pending_lock.for_user(user):
             return self.pending_lock.get_message(user)
-        return super().get_message(user)
+
+        # A user who may bypass the Smartling restriction is still told about
+        # it, because the native lock may let them edit.
+        native_message = super().get_message(user)
+        if not native_message:
+            return self.pending_lock.get_message(user)
+        # The Smartling message comes first, so that the native message keeps
+        # the Unlock (or Cancel scheduled publish) button next to it.
+        return format_html("{} {}", self.pending_lock.get_message(user), native_message)
 
     def get_context_for_user(self, user, parent_context=None):
         context = super().get_context_for_user(user, parent_context)
@@ -171,10 +201,18 @@ class CombinedLockMixin(BaseLock):
                     "description": self.pending_lock.get_description(user),
                 }
             )
+        else:
+            # The side panel names the native lock, so only the description has
+            # room for the Smartling restriction.
+            context["description"] = format_html(
+                "{} {}",
+                self.pending_lock.get_description(user),
+                context["description"],
+            )
         return context
 
 
-class PendingTranslationLockMixin:
+class PendingTranslationLockMixin(_PageBase):
     """
     Mix into a translatable page model to lock it while its content is at Smartling.
 
@@ -209,7 +247,7 @@ class PendingTranslationLockMixin:
         state = get_pending_translation_state(self)
         if state.is_target:
             # Note: on a target page, this lock blocks unpublishing and
-            # submitting for moderation, but  does not block editing, because
+            # submitting for moderation, but does not block editing, because
             # wagtail-localize's before_edit_page hook overrides the edit view.
             # Warning the user there is already handled by the
             # smartling_edit_translation_message tag.
