@@ -8,8 +8,10 @@ from testapp.factories import InfoPageFactory
 from tests.factories import JobFactory
 
 
+pytestmark = pytest.mark.django_db
+
+
 @pytest.mark.skip("WRITE ME")
-@pytest.mark.django_db()
 def test_sync_smartling(smartling_project):
     unsynced_job_page = InfoPageFactory()
     JobFactory(source_instance=unsynced_job_page, unsynced=True)
@@ -19,7 +21,6 @@ def test_sync_smartling(smartling_project):
     raise AssertionError("TODO")
 
 
-@pytest.mark.django_db()
 def test_sync_smartling_skips_a_job_that_never_reached_smartling(root_page, locales, smartling_project, mocker):
     # Create an unsynced Job that never reached Smartling and is blocked.
     JobFactory(source_instance=root_page, unsynced=True, sync_blocked=True)
@@ -33,7 +34,6 @@ def test_sync_smartling_skips_a_job_that_never_reached_smartling(root_page, loca
     assert [call.args[0] for call in sync_job_function.call_args_list] == [live_job.pk]
 
 
-@pytest.mark.django_db()
 def test_sync_smartling_still_polls_a_blocked_job_that_reached_smartling(root_page, locales, smartling_project, mocker):
     """
     If a Job's files reached Smartling, then sync_smartling does not skip it.
