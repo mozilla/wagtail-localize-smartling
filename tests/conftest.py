@@ -1,13 +1,16 @@
 import dataclasses
 import json
 
+from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from urllib.parse import quote
+from zipfile import ZipFile
 
 import pytest
 
 from django.contrib.auth.models import Permission
+from responses import matchers
 from wagtail.coreutils import get_supported_content_language_variant
 from wagtail.models import Locale, Page
 from wagtail_localize.models import LocaleSynchronization
@@ -191,6 +194,45 @@ def smartling_add_visual_context__error_response(responses, settings, smartling_
     )
 
 
+CREATE_JOB_RESPONSE_BODY = {
+    "response": {
+        "code": "SUCCESS",
+        "data": {
+            "callbackMethod": None,
+            "callbackUrl": None,
+            "createdByUserUid": "dummy_user_uid",
+            "createdDate": "2025-01-01T00:00:00Z",
+            "description": "",
+            "dueDate": None,
+            "firstCompletedDate": None,
+            "firstAuthorizedDate": None,
+            "jobName": "Dummy job",
+            "jobNumber": None,
+            "jobStatus": "AWAITING_AUTHORIZATION",
+            "lastCompletedDate": None,
+            "lastAuthorizedDate": None,
+            "modifiedByUserUid": None,
+            "modifiedDate": "2025-01-01T00:00:00Z",
+            "targetLocaleIds": ["fr", "de"],
+            "translationJobUid": "dummy_translation_job_uid",
+            "referenceNumber": None,
+            "issues": None,
+        },
+    },
+}
+
+
+@pytest.fixture()
+def smartling_create_job(responses, settings, smartling_auth):
+    # Mock API request for creating a job
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+    responses.add(
+        method="POST",
+        url=f"https://api.smartling.com/jobs-api/v3/projects/{quote(project_id)}/jobs",
+        body=json.dumps(CREATE_JOB_RESPONSE_BODY),
+    )
+
+
 @pytest.fixture()
 def smartling_create_batch_for_job(responses, settings, smartling_auth):
     # Mock API request for creating a batch
@@ -319,7 +361,7 @@ def smartling_job(smartling_project, superuser, root_page) -> "Job":
     from wagtail_localize.models import Translation, TranslationSource
 
     from wagtail_localize_smartling.api.types import JobStatus
-    from wagtail_localize_smartling.models import Job
+    from wagtail_localize_smartling.models import Job, JobFile, Order, OrderItem
     from wagtail_localize_smartling.utils import compute_content_hash
 
     from testapp.factories import InfoPageFactory
@@ -333,12 +375,16 @@ def smartling_job(smartling_project, superuser, root_page) -> "Job":
     )
 
     now = timezone.now()
+    order = Order.objects.create(name="Component test page", created_by=superuser, submitted_at=now)
+    order_item = OrderItem.objects.create(order=order, translation_source=translation_source, added_by=superuser)
+    order_item.translations.set([page_translation])
+
     job = Job.objects.create(
         project=smartling_project,
+        order=order,
         translation_source=translation_source,
         user=superuser,
         name=Job.get_default_name(translation_source, [page_translation]),
-        description=Job.get_description(translation_source, [page_translation]),
         reference_number=Job.get_default_reference_number(translation_source, [page_translation]),
         content_hash=compute_content_hash(translation_source.export_po()),
         first_synced_at=now,
@@ -347,7 +393,15 @@ def smartling_job(smartling_project, superuser, root_page) -> "Job":
         translation_job_uid="job_to_be_cancelled",
         file_uri="job_1_ts_1.po",
     )
+    JobFile.objects.create(
+        job=job,
+        translation_source=translation_source,
+        file_uri=f"job_{job.pk}_ts_{translation_source.pk}.po",
+        content_hash=compute_content_hash(translation_source.export_po()),
+    )
     job.translations.set([page_translation])
+    job.description = Job.get_description_for_order(order, job=job)
+    job.save(update_fields=["description"])
 
     return job
 
@@ -360,7 +414,7 @@ def smartling_job_multi_locale(smartling_project, superuser, root_page) -> "Job"
     from wagtail_localize.models import Translation, TranslationSource
 
     from wagtail_localize_smartling.api.types import JobStatus
-    from wagtail_localize_smartling.models import Job
+    from wagtail_localize_smartling.models import Job, JobFile, Order, OrderItem
     from wagtail_localize_smartling.utils import compute_content_hash
 
     from testapp.factories import InfoPageFactory
@@ -378,12 +432,16 @@ def smartling_job_multi_locale(smartling_project, superuser, root_page) -> "Job"
     )
 
     now = timezone.now()
+    order = Order.objects.create(name="Multi-locale test page", created_by=superuser, submitted_at=now)
+    order_item = OrderItem.objects.create(order=order, translation_source=translation_source, added_by=superuser)
+    order_item.translations.set([fr_translation, de_translation])
+
     job = Job.objects.create(
         project=smartling_project,
+        order=order,
         translation_source=translation_source,
         user=superuser,
         name=Job.get_default_name(translation_source, [fr_translation, de_translation]),
-        description=Job.get_description(translation_source, [fr_translation, de_translation]),
         reference_number=Job.get_default_reference_number(translation_source, [fr_translation, de_translation]),
         content_hash=compute_content_hash(translation_source.export_po()),
         first_synced_at=now,
@@ -392,9 +450,24 @@ def smartling_job_multi_locale(smartling_project, superuser, root_page) -> "Job"
         translation_job_uid="multi_locale_job",
         file_uri="job_multi_locale.po",
     )
+    JobFile.objects.create(
+        job=job,
+        translation_source=translation_source,
+        file_uri=f"job_{job.pk}_ts_{translation_source.pk}.po",
+        content_hash=compute_content_hash(translation_source.export_po()),
+    )
     job.translations.set([fr_translation, de_translation])
+    job.description = Job.get_description_for_order(order, job=job)
+    job.save(update_fields=["description"])
 
     return job
+
+
+def _file_uri_matchers(file_uri: str) -> list:
+    """Match the request's fileUri when the caller named one."""
+    if not file_uri:
+        return []
+    return [matchers.query_param_matcher({"fileUri": file_uri}, strict_match=False)]
 
 
 @pytest.fixture()
@@ -406,6 +479,7 @@ def smartling_get_file_status(responses, settings, smartling_auth):
         locale_id: str,
         total_strings: int = 10,
         completed_strings: int = 10,
+        file_uri: str = "",
     ):
         responses.add(
             method="GET",
@@ -415,7 +489,7 @@ def smartling_get_file_status(responses, settings, smartling_auth):
                     "response": {
                         "code": "SUCCESS",
                         "data": {
-                            "fileUri": "test.po",
+                            "fileUri": file_uri or "test.po",
                             "totalStringCount": total_strings,
                             "totalWordCount": total_strings * 5,
                             "authorizedStringCount": total_strings,
@@ -429,6 +503,7 @@ def smartling_get_file_status(responses, settings, smartling_auth):
                 }
             ),
             match_querystring=False,
+            match=_file_uri_matchers(file_uri),
         )
 
     return add_file_status_response
@@ -439,7 +514,7 @@ def smartling_download_translation_for_locale(responses, settings, smartling_aut
     """Mock API response for downloading translation for a single locale."""
     project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
 
-    def add_download_response(locale_id: str, po_content: str = ""):
+    def add_download_response(locale_id: str, po_content: str = "", file_uri: str = ""):
         if not po_content:
             po_content = """
 msgid ""
@@ -455,9 +530,32 @@ msgstr "Bonjour"
             body=po_content.encode("utf-8"),
             status=200,
             match_querystring=False,
+            match=_file_uri_matchers(file_uri),
         )
 
     return add_download_response
+
+
+@pytest.fixture()
+def smartling_translations_zip(responses, settings, smartling_auth):
+    """Mock API response for the bulk download of one file's translations."""
+    project_id = settings.WAGTAIL_LOCALIZE_SMARTLING["PROJECT_ID"]
+
+    def add_translations_zip_response(*, file_uri: str, entries: dict):
+        buffer = BytesIO()
+        with ZipFile(buffer, "w") as archive:
+            for name, content in entries.items():
+                archive.writestr(name, content)
+
+        responses.add(
+            method="GET",
+            url=f"https://api.smartling.com/files-api/v2/projects/{quote(project_id)}/locales/all/file/zip",
+            body=buffer.getvalue(),
+            status=200,
+            match=_file_uri_matchers(file_uri),
+        )
+
+    return add_translations_zip_response
 
 
 @pytest.fixture()

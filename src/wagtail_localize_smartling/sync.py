@@ -1,6 +1,7 @@
 import hashlib
 import logging
 
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 import polib
@@ -45,7 +46,7 @@ def _compute_translation_hash(content: str) -> str:
 
 
 if TYPE_CHECKING:
-    from .models import Job, JobTranslation
+    from .models import Job, JobFile, JobTranslation
 
 
 logger = logging.getLogger(__name__)
@@ -60,26 +61,55 @@ class JobNotFound(SyncJobException):
 
 
 class FileURIMismatch(SyncJobException):
-    pass
+    """Smartling answered with a file URI that belongs to no file of the job."""
 
 
-@transaction.atomic(durable=True)
+# How long a claim on a Job is honoured before another worker may take it over.
+# Long enough for a large order's uploads, short enough that a worker killed
+# mid-push does not strand the job until someone notices.
+SYNC_LEASE_SECONDS = 60 * 30
+
+
 def sync_job(job_id: int) -> None:
     """
     Sync the state of a Job instance with the corresponding job in Smartling.
 
-    This uses select_for_update() to lock the Job row for the duration of the
-    method. These locks are only released when the _transaction_ ends, not
-    savepoints. To ensure we don't accidentally create long-lasting locks on the
-    the Job rows, we pass durable=True to the atomic decorator. That means that
-    this atomic() block is definitely the outermost one and the transaction will
-    be committed or rolled back at the end of this function.
+    One worker syncs a job at a time; a call made while another is part-way
+    through returns having done nothing.
 
     NB - this takes an ID, rather than a job instance, so that it's always
     operating on current data rather than pickled state. That means it's safe
     to be called after arbitrary time from the background task queue, if one
     is in use.
     """
+    # We claim a job for the sync, so that we properly handle any uploads that
+    # fail.
+    job = _claim_job_for_sync(job_id)
+    if job is None:
+        logger.info("Job %s is already being synced, skipping", job_id)
+        return
+
+    claimed_at = job.sync_started_at
+    try:
+        if _push_is_incomplete(job):
+            _initial_sync(job)
+        else:
+            _sync(job)
+    except Exception as e:
+        raise SyncJobException(f"Exception syncing job {job}") from e
+    finally:
+        try:
+            _release_claim(job, claimed_at=claimed_at)
+        except Exception:
+            # The lease expires on its own, so failing to clear it must neither
+            # mask the outcome of the sync nor stop the caller's next job.
+            logger.exception("Could not release the sync claim on job %s", job)
+
+
+@transaction.atomic
+def _claim_job_for_sync(job_id: int) -> "Job | None":
+    """Take the sync lease on a job, or return None if another worker holds it."""
+    # Imported here because models imports this module for sync_job.
     from .models import Job
 
     try:
@@ -87,70 +117,140 @@ def sync_job(job_id: int) -> None:
     except Job.DoesNotExist as e:
         raise JobNotFound(f"Job with ID {job_id} not found") from e
 
-    try:
-        if job.status == JobStatus.UNSYNCED:
-            _initial_sync(job)
-        else:
-            _sync(job)
-    except Exception as e:
-        raise SyncJobException(f"Exception syncing job {job}") from e
+    # A Job is already being synced (by another worker), so return None, and let
+    # that worker finish.
+    beginning_of_sync_lease_window = timezone.now() - timedelta(seconds=SYNC_LEASE_SECONDS)
+    if job.sync_started_at is not None and job.sync_started_at > beginning_of_sync_lease_window:
+        return None
+
+    job.sync_started_at = timezone.now()
+    job.save(update_fields=["sync_started_at"])
+    return job
+
+
+def _release_claim(job: "Job", *, claimed_at: datetime) -> None:
+    """
+    Give up the sync lease, unless someone else has already taken it over.
+
+    A push that outruns SYNC_LEASE_SECONDS is claimed by the next worker while
+    the first is still going; the first must not then clear the second's claim.
+    Everything that writes to the job while it pushes therefore has to leave
+    sync_started_at alone, or it would put its own claim back on the row.
+    """
+    from .models import Job
+
+    Job.objects.filter(pk=job.pk, sync_started_at=claimed_at).update(sync_started_at=None)
+
+
+def _push_is_incomplete(job: "Job") -> bool:
+    """
+    Whether this job still has work to do at Smartling's end.
+
+    A push is incomplete until the job exists in Smartling and every one of its
+    files has been uploaded. A push that dies in between leaves a job that has
+    a status and a UID and some of its files unpushed.
+    """
+    return job.translation_job_uid == "" or job.files.filter(file_uri="").exists()
+
+
+def _check_job_can_be_authorized(job: "Job") -> None:
+    """
+    Raise unless the job has files and every one of them is ordered in at least
+    one locale.
+    """
+    if not job.files.exists():
+        raise ValueError(f"No files to translate in {job}")
+
+    sources_with_locales = set(job.translations.values_list("source_id", flat=True))
+    files_without_locales = [
+        job_file for job_file in job.files.all() if job_file.translation_source_id not in sources_with_locales
+    ]
+    if files_without_locales:
+        # Named by file URI, which is how the upload itself refuses them.
+        file_uris = ", ".join(client.get_file_uri_for_job_file(job_file=job_file) for job_file in files_without_locales)
+        raise ValueError(f"No locales to authorize for {file_uris}")
 
 
 def _initial_sync(job: "Job") -> None:
     """
-    For jobs that have never been synced before, create the job in Smartling and
-    add the PO file from the TranslationSource.
+    Create the job in Smartling, if it is not there yet, and upload a PO file
+    for each of the job's files that has not been uploaded already.
+
+    Safe to call again on a job whose push stopped part-way through: it sends
+    what is still missing rather than ordering the whole job a second time.
 
     Also add Visual Context for Smartling CAT, if a callback to get that is configured
     """
     logger.info("Performing initial sync for job %s", job)
 
-    # Create the job in the Smartling API
-    target_locale_ids = [
-        utils.format_smartling_locale_id(lc)
-        for lc in job.translations.values_list("target_locale__language_code", flat=True)
-    ]
+    _check_job_can_be_authorized(job)
 
-    job_data = client.create_job(
-        job_name=job.name,
-        target_locale_ids=target_locale_ids,
-        description=job.description,
-        reference_number=job.reference_number,
-        due_date=job.due_date,
-    )
+    if not job.translation_job_uid:
+        # Every locale any of the job's files was ordered in. Each file is
+        # then authorized for only its own subset when it is uploaded.
+        target_locale_ids = [
+            utils.format_smartling_locale_id(lc)
+            for lc in job.translations.values_list("target_locale__language_code", flat=True)
+        ]
 
-    job.translation_job_uid = job_data["translationJobUid"]
-    job.status = job_data["jobStatus"]
+        job_data = client.create_job(
+            job_name=job.name,
+            target_locale_ids=target_locale_ids,
+            description=job.description,
+            reference_number=job.reference_number,
+            due_date=job.due_date,
+        )
 
-    now = timezone.now()
-    job.first_synced_at = now
-    job.last_synced_at = now
+        job.translation_job_uid = job_data["translationJobUid"]
+        job.status = job_data["jobStatus"]
 
-    job.full_clean()
-    job.save()
+        now = timezone.now()
+        job.first_synced_at = now
+        job.last_synced_at = now
+
+        job.full_clean()
+        # Recorded before the first upload: a later run that asked Smartling
+        # for a second job would be turned away for the duplicate name, and
+        # the order would need repairing by hand in Smartling.
+        job.save(update_fields=["translation_job_uid", "status", "first_synced_at", "last_synced_at"])
+
+        if job.status == JobStatus.AWAITING_AUTHORIZATION:
+            # Announced as soon as the job exists in Smartling. Everything
+            # below can fail, and the run that picks the job up afterwards
+            # finds the uid already recorded and announces nothing.
+            job_synced_to_smartling.send(
+                sender=job.__class__,
+                instance=job,
+            )
 
     # Create a Job Batch so we can upload Files without race conditions
     # in associating them with a Job (even a single PO file can go in a batch)
-    batch_uid = client.create_batch_for_job(job=job)
+    # It covers only what is left to send: the files that already landed belong
+    # to the job whether or not a later batch names them.
+    # Uploading a file reads its source, its job and that job's project, which
+    # is three queries per file of an order without the select_related.
+    pending_files = list(job.files.filter(file_uri="").select_related("translation_source", "job__project"))
+    if pending_files:
+        batch_uid = client.create_batch_for_job(job=job, job_files=pending_files)
 
-    # Upload the TranslationSource's PO file to the Batch in Smartling
-    file_uri = client.upload_files_to_job_batch(
-        job=job,
-        batch_uid=batch_uid,
-    )
+        for job_file in pending_files:
+            file_uri = client.upload_file_to_job_batch(
+                job_file=job_file,
+                batch_uid=batch_uid,
+            )
 
-    # Add the file URI to the Job
-    job.file_uri = file_uri
-    job.save(update_fields=["file_uri"])
+            # The file's copy is what marks it uploaded. The job's copy is
+            # the deprecated single-file field, which takes the URI of the
+            # first file to land and goes when the field does.
+            with transaction.atomic():
+                job_file.file_uri = file_uri
+                job_file.save(update_fields=["file_uri"])
+                if not job.file_uri:
+                    job.file_uri = file_uri
+                    job.save(update_fields=["file_uri"])
 
     # Add context to the job (if settings.VISUAL_CONTEXT_CALLBACK is defined)
     client.add_html_context_to_job(job=job)
-
-    if job.status == JobStatus.AWAITING_AUTHORIZATION:
-        job_synced_to_smartling.send(
-            sender=job.__class__,
-            instance=job,
-        )
 
 
 def _sync(job: "Job") -> None:
@@ -179,7 +279,6 @@ def _sync(job: "Job") -> None:
 
     job.status = updated_status
     job.last_synced_at = timezone.now()
-    job.save()
 
     # Check and import completed locales while job is still in progress
     # This allows individual locales to be imported before the full job completes
@@ -194,30 +293,40 @@ def _sync(job: "Job") -> None:
 
     if updated_status == initial_status:
         logger.info("No change in status, no further action required")
-        return
-
-    logger.info("Updated status: %s", updated_status)
-
-    if initial_status in PENDING_STATUSES:
-        if updated_status in PENDING_STATUSES:
-            logger.info("Job still pending, no further action required")
-        elif updated_status in TRANSLATED_STATUSES:
-            _download_and_apply_translations(job)
-            job.translations_imported_at = job.last_synced_at
-            job.save(update_fields=["translations_imported_at"])
-        elif updated_status in UNTRANSLATED_STATUSES:
-            logger.warning("Job is finalised but not translated")
     else:
-        logger.info("Job already finalised, no further action required")
+        logger.info("Updated status: %s", updated_status)
+
+        if initial_status in PENDING_STATUSES:
+            if updated_status in PENDING_STATUSES:
+                logger.info("Job still pending, no further action required")
+            elif updated_status in TRANSLATED_STATUSES:
+                _download_and_apply_translations(job)
+                job.translations_imported_at = job.last_synced_at
+            elif updated_status in UNTRANSLATED_STATUSES:
+                logger.warning("Job is finalised but not translated")
+        else:
+            logger.info("Job already finalised, no further action required")
+
+    # Written once the work that goes with the new status has been done.
+    job.save(
+        update_fields=[
+            "status",
+            "description",
+            "reference_number",
+            "due_date",
+            "last_synced_at",
+            "translations_imported_at",
+        ]
+    )
 
 
 def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
     """
-    Check each locale's completion status and import any that are 100% complete
-    but not yet imported.
+    Import every pending translation whose file Smartling reports as fully
+    translated in that translation's locale.
 
-    This allows individual locales to be imported as they complete, rather than
-    waiting for the entire job to finish.
+    A locale finishes at different times for different files of the same job,
+    and each one is imported as soon as its own file is done.
 
     Returns a list of Translation objects that were imported.
     """
@@ -227,7 +336,7 @@ def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
     # Get all JobTranslation records that haven't been imported yet
     pending_job_translations: list[JobTranslation] = list(
         job.job_translations.filter(imported_at__isnull=True).select_related(  # pyright: ignore[reportAttributeAccessIssue]
-            "translation__target_locale"
+            "translation__target_locale", "translation__source"
         )
     )
 
@@ -235,17 +344,29 @@ def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
         logger.info("No pending translations to check for job %s", job)
         return imported_translations
 
+    # Keyed by source because a file's locales are separate translations of it.
+    job_files_by_source = {job_file.translation_source_id: job_file for job_file in job.files.all()}
     now = timezone.now()
 
     for job_translation in pending_job_translations:
         translation = job_translation.translation
+        job_file = job_files_by_source.get(translation.source_id)
+        if job_file is None:
+            logger.warning(
+                "Translation %s belongs to no file of job %s, skipping",
+                translation.pk,
+                job,
+            )
+            continue
+
         smartling_locale_id = utils.format_smartling_locale_id(translation.target_locale.language_code)
 
         try:
-            file_status = client.get_file_status_for_locale(job=job, locale_id=smartling_locale_id)
+            file_status = client.get_file_status_for_locale(job_file=job_file, locale_id=smartling_locale_id)
         except Exception:
             logger.exception(
-                "Error getting file status for locale %s, skipping",
+                "Could not get the status of %s in locale %s, skipping",
+                job_file,
                 smartling_locale_id,
             )
             continue
@@ -254,7 +375,8 @@ def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
         completed_strings = file_status["completedStringCount"]
 
         logger.info(
-            "Locale %s: %d/%d strings completed",
+            "%s in locale %s: %d/%d strings completed",
+            job_file,
             smartling_locale_id,
             completed_strings,
             total_strings,
@@ -263,10 +385,12 @@ def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
         # Only import if 100% complete
         if total_strings > 0 and completed_strings >= total_strings:
             try:
-                content_hash = _import_translation_for_locale(job, translation, smartling_locale_id)
-                job_translation.imported_at = now
-                job_translation.content_hash = content_hash
-                job_translation.save(update_fields=["imported_at", "content_hash"])
+                # Make sure we record the imported time and the content..
+                with transaction.atomic():
+                    content_hash = _import_translation_for_locale(job, job_file, translation, smartling_locale_id)
+                    job_translation.imported_at = now
+                    job_translation.content_hash = content_hash
+                    job_translation.save(update_fields=["imported_at", "content_hash"])
                 imported_translations.append(translation)
                 logger.info(
                     "Imported translation for locale %s (job %s)",
@@ -279,13 +403,15 @@ def _check_and_import_completed_locales(job: "Job") -> list[Translation]:
     return imported_translations
 
 
-def _import_translation_for_locale(job: "Job", translation: Translation, smartling_locale_id: str) -> str:
+def _import_translation_for_locale(
+    job: "Job", job_file: "JobFile", translation: Translation, smartling_locale_id: str
+) -> str:
     """
-    Download and import the translation for a single locale.
+    Download and import the translation for a single locale of a single file.
 
     Returns the content hash of the imported translation.
     """
-    content = client.download_translation_for_locale(job=job, locale_id=smartling_locale_id)
+    content = client.download_translation_for_locale(job_file=job_file, locale_id=smartling_locale_id)
     content_str = content.decode("utf-8")
     content_hash = _compute_translation_hash(content_str)
     po_file = polib.pofile(_sanitize_po_content(content_str))
@@ -300,9 +426,10 @@ def _import_translation_for_locale(job: "Job", translation: Translation, smartli
 
 def _download_and_apply_translations(job: "Job") -> None:
     """
-    Download the translated files from a Smartling job and apply them.
+    Download every file of a Smartling job and apply the translations in it.
 
-    This marks all JobTranslation records as imported.
+    One zip per file, each carrying all of that file's locales, and each entry
+    imported into the page its file was uploaded from.
     """
 
     logger.info("Downloading and importing translations for job %s", job)
@@ -310,58 +437,86 @@ def _download_and_apply_translations(job: "Job") -> None:
     _translations_imported = []
     now = timezone.now()
 
-    with client.download_translations(job=job) as translations_zip:
-        for zipinfo in translations_zip.infolist():
-            # Filenames are of the format "{localeId}/{fileUri}"
-            smartling_locale_id, file_uri = zipinfo.filename.split("/")
+    # The endpoint takes one fileUri and answers with every locale of it, so a
+    # job of many pages costs one zip per page rather than one per page and
+    # locale.
+    job_files_by_uri = {job_file.file_uri: job_file for job_file in job.files.select_related("translation_source")}
+    unknown_file_uris = []
 
-            if file_uri != job.file_uri:
-                raise FileURIMismatch(f"File URI mismatch: expected {job.file_uri}, got {file_uri}")
+    for job_file in job_files_by_uri.values():
+        with client.download_translations(job_file=job_file) as translations_zip:
+            for zipinfo in translations_zip.infolist():
+                # Filenames are of the format "{localeId}/{fileUri}"
+                smartling_locale_id, file_uri = zipinfo.filename.split("/")
 
-            wagtail_locale_id = utils.format_wagtail_locale_id(smartling_locale_id)
-            try:
-                translation: Translation = job.translations.get(target_locale__language_code=wagtail_locale_id)
-            except job.translations.model.DoesNotExist:
-                logger.info("Translation not found for locale %s, skipping", wagtail_locale_id)
-                continue
+                entry_file = job_files_by_uri.get(file_uri)
+                if entry_file is None:
+                    # Raised once the loop is over. Stopping here would leave
+                    # every page after this entry unimported, and a stray entry
+                    # is deterministic, so no later run would get past it.
+                    unknown_file_uris.append(file_uri)
+                    continue
 
-            job_translation = job.job_translations.filter(  # pyright: ignore[reportAttributeAccessIssue]
-                translation=translation
-            ).first()
-
-            with translations_zip.open(zipinfo) as f:
-                content = f.read().decode("utf-8")
-                content_hash = _compute_translation_hash(content)
-
-                # Skip if already imported with the same content hash
-                if job_translation and job_translation.imported_at and job_translation.content_hash == content_hash:
+                wagtail_locale_id = utils.format_wagtail_locale_id(smartling_locale_id)
+                try:
+                    # Found by file as well as by locale: a locale on its own
+                    # cannot tell one page's translation from another's, and
+                    # pages in one order can be ordered in different locales.
+                    translation: Translation = job.translations.get(
+                        source=entry_file.translation_source,
+                        target_locale__language_code=wagtail_locale_id,
+                    )
+                except job.translations.model.DoesNotExist:
                     logger.info(
-                        "Translation for locale %s already imported with same content, skipping",
+                        "Translation not found for %s in locale %s, skipping",
+                        entry_file,
                         wagtail_locale_id,
                     )
                     continue
 
-                if job_translation and job_translation.imported_at:
-                    logger.info(
-                        "Translation for locale %s changed since per-locale import, re-importing",
-                        wagtail_locale_id,
-                    )
+                job_translation = job.job_translations.filter(  # pyright: ignore[reportAttributeAccessIssue]
+                    translation=translation
+                ).first()
 
-                po_file = polib.pofile(_sanitize_po_content(content))
-                translation.import_po(po_file)
-                individual_translation_imported.send(
-                    sender=job.__class__,
-                    instance=job,
-                    translation=translation,
-                )
-                logger.info("Imported translations for %s", translation)
-                _translations_imported.append(translation)
+                with translations_zip.open(zipinfo) as f:
+                    content = f.read().decode("utf-8")
+                    content_hash = _compute_translation_hash(content)
 
-                # Mark as imported with content hash
-                if job_translation:
-                    job_translation.imported_at = now
-                    job_translation.content_hash = content_hash
-                    job_translation.save(update_fields=["imported_at", "content_hash"])
+                    # Skip if already imported with the same content hash
+                    if job_translation and job_translation.imported_at and job_translation.content_hash == content_hash:
+                        logger.info(
+                            "%s in locale %s already imported with same content, skipping",
+                            entry_file,
+                            wagtail_locale_id,
+                        )
+                        continue
+
+                    if job_translation and job_translation.imported_at:
+                        logger.info(
+                            "%s in locale %s changed since per-locale import, re-importing",
+                            entry_file,
+                            wagtail_locale_id,
+                        )
+
+                    # A locale half imported, or imported without its marker,
+                    # would be worse than one this pass did not reach.
+                    with transaction.atomic():
+                        po_file = polib.pofile(_sanitize_po_content(content))
+                        translation.import_po(po_file)
+                        individual_translation_imported.send(
+                            sender=job.__class__,
+                            instance=job,
+                            translation=translation,
+                        )
+
+                        # Mark as imported with content hash
+                        if job_translation:
+                            job_translation.imported_at = now
+                            job_translation.content_hash = content_hash
+                            job_translation.save(update_fields=["imported_at", "content_hash"])
+
+                    logger.info("Imported translations for %s", translation)
+                    _translations_imported.append(translation)
 
     if _translations_imported:
         translation_import_successful.send(
@@ -369,3 +524,6 @@ def _download_and_apply_translations(job: "Job") -> None:
             instance=job,
             translations_imported=_translations_imported,
         )
+
+    if unknown_file_uris:
+        raise FileURIMismatch(f"{', '.join(unknown_file_uris)} belong to no file of job {job.pk}")

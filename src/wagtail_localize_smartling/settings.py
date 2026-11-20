@@ -1,7 +1,7 @@
 import dataclasses
 import logging
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal, cast
 
 from django.conf import settings as django_settings
@@ -11,7 +11,7 @@ from django.utils.module_loading import import_string
 
 
 if TYPE_CHECKING:
-    from wagtail_localize.models import Translation, TranslationSource
+    from wagtail_localize.models import TranslationSource
 
     from wagtail_localize_smartling.models import Job
 
@@ -31,8 +31,8 @@ class SmartlingSettings:
     SMARTLING_LOCALE_TO_LOCALE: "dict[str, str]" = dataclasses.field(default_factory=dict)
     REFORMAT_LANGUAGE_CODES: bool = True
     JOB_NAME_PREFIX: str | None = None
-    JOB_DESCRIPTION_CALLBACK: Callable[[str, "TranslationSource", Iterable["Translation"]], str] | None = None
-    VISUAL_CONTEXT_CALLBACK: Callable[["Job"], tuple[str, str]] | None = None
+    JOB_DESCRIPTION_CALLBACK: Callable[[str, "Job"], str] | None = None
+    VISUAL_CONTEXT_CALLBACK: Callable[["Job", "TranslationSource"], tuple[str, str]] | None = None
     TRANSLATION_APPROVER_GROUP_NAME: str = "Translation approver"
     ADD_APPROVAL_TASK_TO_DASHBOARD: bool = True
     MAX_APPROVAL_TASKS_ON_DASHBOARD: int = 7
@@ -70,17 +70,13 @@ def _init_settings() -> SmartlingSettings:
         settings_kwargs["REQUIRED"] = bool(settings_dict["REQUIRED"])
 
     if "SEND_TO_SMARTLING_BY_DEFAULT" in settings_dict:
-        settings_kwargs["SEND_TO_SMARTLING_BY_DEFAULT"] = bool(
-            settings_dict["SEND_TO_SMARTLING_BY_DEFAULT"]
-        )
+        settings_kwargs["SEND_TO_SMARTLING_BY_DEFAULT"] = bool(settings_dict["SEND_TO_SMARTLING_BY_DEFAULT"])
     else:
         # If the host project hasn't pinned a value, default to ON in
         # production-like environments and OFF when a project-level
         # `DEV` flag is truthy. The flag is opt-in: projects that don't
         # define `settings.DEV` get the production default (on).
-        settings_kwargs["SEND_TO_SMARTLING_BY_DEFAULT"] = not bool(
-            getattr(django_settings, "DEV", False)
-        )
+        settings_kwargs["SEND_TO_SMARTLING_BY_DEFAULT"] = not bool(getattr(django_settings, "DEV", False))
 
     if "ENVIRONMENT" in settings_dict:
         if (environment := settings_dict["ENVIRONMENT"]) not in (

@@ -9,9 +9,9 @@ from django.contrib.auth.models import User
 from django.template.loader import render_to_string
 from django.test import override_settings
 from wagtail.models import Page
-from wagtail_localize.models import Translation
+from wagtail_localize.models import Translation, TranslationSource
 
-from wagtail_localize_smartling.models import Job, LandedTranslationTask
+from wagtail_localize_smartling.models import Job, JobFile, LandedTranslationTask
 from wagtail_localize_smartling.signal_handlers import (
     _close_translation_landed_task,
     _model_is_registered_as_snippet,
@@ -27,7 +27,13 @@ from wagtail_localize_smartling.signals import (
     translation_import_successful,
 )
 
-from tests.factories import TranslationApproverGroupFactory, WagtailUserFactory
+from testapp.factories import InfoPageFactory
+from tests.factories import (
+    JobFactory,
+    OrderFactory,
+    TranslationApproverGroupFactory,
+    WagtailUserFactory,
+)
 
 
 pytestmark = [pytest.mark.django_db]
@@ -46,7 +52,7 @@ def test_translation_import_successful_is_connected_to_the_expected_handlers():
 def test_job_synced_to_smartling_is_connected_to_the_expected_handlers():
     assert len(job_synced_to_smartling.receivers) == 1
     assert job_synced_to_smartling.receivers[0][1] == send_slack_notification_on_job_sync
-    
+
 
 def _mock_translation(mocker, *, language_code, language_name, edit_path):
     t = mocker.MagicMock(spec=Translation, name=f"mock-translation-{language_code}")
@@ -243,14 +249,14 @@ def test_notification_body_rendering(translation_targets):
         template_name="wagtail_localize_smartling/admin/email/notifications/translations_imported__body.txt",
         context={
             "job_name": "TEST JOB",
-            "translation_source_name": "TS NAME",
+            "order_name": "ORDER NAME",
             "translation_targets": translation_targets,
         },
     )
     if len(translation_targets) == 1:
-        assert "It is for Job 'TEST JOB' for 'TS NAME" in email_body
+        assert "It is for Job 'TEST JOB' for 'ORDER NAME" in email_body
     else:
-        assert "They are for Job 'TEST JOB' for 'TS NAME" in email_body
+        assert "They are for Job 'TEST JOB' for 'ORDER NAME" in email_body
 
     for target in translation_targets:
         assert f"* {target['locale_name']} - {target['edit_url']}" in email_body
@@ -264,7 +270,7 @@ def test_notification_body_rendering__no_edit_url():
         template_name="wagtail_localize_smartling/admin/email/notifications/translations_imported__body.txt",
         context={
             "job_name": "TEST JOB",
-            "translation_source_name": "TS NAME",
+            "order_name": "ORDER NAME",
             "translation_targets": [
                 {"locale_name": "French", "edit_url": ""},
             ],
@@ -321,7 +327,7 @@ def test_create_landed_translation_task__task_created(
     mock_job = mocker.MagicMock(spec=Job)
     mock_translation = mocker.MagicMock(spec=Translation)
     mock_source_instance = mocker.Mock(name="test-source")
-    mock_job.translation_source.get_source_instance.return_value = mock_source_instance
+    mock_translation.source.get_source_instance.return_value = mock_source_instance
 
     create_landed_translation_task(
         sender=Job,
@@ -485,6 +491,72 @@ def test_model_is_registered_as_snippet(is_a_snippet, mocker):
     assert _model_is_registered_as_snippet(model_2) == is_a_snippet
 
 
+def _job_of_two_pages(root_page, **kwargs):
+    """A job carrying two pages, as an order's job does."""
+    sources = [
+        TranslationSource.get_or_create_from_instance(InfoPageFactory(parent=root_page, title=title))[0]
+        for title in ("First page", "Second page, which has rather more words in its title")
+    ]
+    job = JobFactory(source_instance=sources[0].get_source_instance(), files=sources, synced=True, **kwargs)
+    return job, sources
+
+
+def test_the_approval_task_is_filed_against_the_page_that_landed(root_page, locales, smartling_settings):
+    smartling_settings.ADD_APPROVAL_TASK_TO_DASHBOARD = True
+    job, (_, second_source) = _job_of_two_pages(root_page)
+    landed = job.translations.get(source=second_source, target_locale__language_code="fr")
+    landed.save_target(publish=False)
+
+    individual_translation_imported.send(sender=Job, instance=job, translation=landed)
+
+    task = LandedTranslationTask.objects.get()
+    assert task.object_id == landed.get_target_instance().pk
+    assert task.relevant_locale == landed.target_locale
+
+
+def test_the_slack_notification_counts_every_file(root_page, locales, smartling_settings, mocker):
+    smartling_settings.SLACK_BOT_TOKEN = "xoxb-test-token"  # noqa: S105
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID = "C0123456789"
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE = ""
+    mock_post = mocker.patch("wagtail_localize_smartling.signal_handlers.requests.post")
+    mock_post.return_value.json.return_value = {"ok": True}
+    job, sources = _job_of_two_pages(root_page)
+
+    job_synced_to_smartling.send(sender=Job, instance=job)
+
+    def words(*translation_sources):
+        return sum(len(entry.msgid.split()) for source in translation_sources for entry in source.export_po())
+
+    # Without this the whole-job count and the first file's count could coincide.
+    assert words(*sources) > words(sources[0])
+    assert f"Word count: {words(*sources)}" in mock_post.call_args[1]["json"]["text"]
+
+
+@override_settings(
+    DEFAULT_FROM_EMAIL="from@example.com",
+    WAGTAILADMIN_BASE_URL="https://cms.example.com",
+)
+def test_the_imported_email_names_the_order_rather_than_one_of_its_pages(root_page, locales, mocker):
+    approver = WagtailUserFactory(username="approver", email="approver@example.com")
+    TranslationApproverGroupFactory().user_set.add(approver)
+    job, sources = _job_of_two_pages(root_page, order=OrderFactory(name="WNP 157"))
+    mock_send_mail = mocker.patch("wagtail_localize_smartling.signal_handlers.send_mail")
+
+    translation_import_successful.send(
+        sender=Job,
+        instance=job,
+        translations_imported=[
+            _mock_translation(mocker, language_code="fr", language_name="French", edit_path="/admin/pages/12/edit/")
+        ],
+    )
+
+    message = mock_send_mail.call_args[1]["message"]
+    assert "WNP 157" in message
+    # The job carries both pages, so naming either one of them would be a lie.
+    for source in sources:
+        assert str(source.get_source_instance()) not in message
+
+
 def _make_mock_job_for_slack(mocker):
     import polib
 
@@ -496,7 +568,9 @@ def _make_mock_job_for_slack(mocker):
     po = polib.POFile()
     po.append(polib.POEntry(msgid="Hello world", msgstr=""))
     po.append(polib.POEntry(msgid="Goodbye", msgstr=""))
-    mock_job.translation_source.export_po.return_value = po
+    mock_file = mocker.MagicMock(spec=JobFile)
+    mock_file.translation_source.export_po.return_value = po
+    mock_job.files.select_related.return_value = [mock_file]
     mock_job.translations.values_list.return_value = ["fr", "de"]
 
     return mock_job

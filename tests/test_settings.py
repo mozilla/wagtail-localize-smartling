@@ -168,7 +168,7 @@ def test_visual_context_callback(smartling_job):
     fn = smartling_settings.VISUAL_CONTEXT_CALLBACK
     assert callable(fn)
     assert fn.__name__ == "visual_context_callback"
-    assert fn(smartling_job) == (
+    assert fn(smartling_job, smartling_job.files.get().translation_source) == (
         "https://example.com/path/to/page/",
         "<html><body>test</body></html>",
     )

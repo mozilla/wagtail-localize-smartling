@@ -18,7 +18,7 @@ from wagtail_localize_smartling.locks import (
     get_pending_translation_state,
     is_in_flight_target,
 )
-from wagtail_localize_smartling.models import Job, JobTranslation
+from wagtail_localize_smartling.models import Job, JobFile, JobTranslation
 
 from testapp.factories import InfoPageFactory
 
@@ -170,6 +170,7 @@ def test_the_same_locale_in_two_pending_jobs_is_named_once(smartling_job, source
         last_synced_at=now,
         translation_job_uid="second-job-uid",
     )
+    JobFile.objects.create(job=second_job, translation_source=smartling_job.translation_source)
     second_job.translations.set([translation])
 
     assert language_codes(get_in_flight_locales_for_instance(source_page_of_smartling_job)) == ["fr"]
