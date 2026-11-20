@@ -269,7 +269,7 @@ class SmartlingSubmitTranslationMixin(SubmitTranslationView if TYPE_CHECKING els
 
         # An order that already existed proves nothing either: a submission
         # that ends up with nothing to translate adds no page to it.
-        source = TranslationSource.objects.get_for_instance_or_none(self.object)
+        source = TranslationSource.objects.get_for_instance_or_none(self.object)  # pyright: ignore[reportAttributeAccessIssue]
         if source is None or not order.order_items.filter(translation_source=source).exists():
             return None
         return order

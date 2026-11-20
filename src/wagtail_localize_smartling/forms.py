@@ -125,7 +125,8 @@ class JobForm(WagtailAdminModelForm):
 
     @staticmethod
     def _describe_order(order: "Order") -> str:
-        pages = ngettext("%(count)s page", "%(count)s pages", order.page_count) % {"count": order.page_count}
+        page_count = order.page_count  # pyright: ignore[reportAttributeAccessIssue]
+        pages = ngettext("%(count)s page", "%(count)s pages", page_count) % {"count": page_count}
         # created_by is cleared when the account is deleted, and an order can
         # outlive whoever opened it.
         opened_by = order.created_by.get_username() if order.created_by else gettext("a deleted user")
