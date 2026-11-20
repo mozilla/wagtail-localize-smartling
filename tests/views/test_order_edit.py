@@ -267,6 +267,23 @@ def test_saving_a_draft_does_not_send_it(client, superuser, root_page):
     assert order.jobs.count() == 0
 
 
+def test_renaming_a_draft_to_a_name_another_open_order_holds_is_refused(client, superuser, root_page):
+    page = InfoPageFactory(parent=root_page, title="Firefox release notes")
+    draft_order = draft_order_with_one_page(page, superuser)
+    stored_name = draft_order.name
+    OrderFactory(submitted_at=None, created_by=superuser, name="WNP 158")
+    client.force_login(superuser)
+    posted_new_name = "WNP 158"
+    assert stored_name != posted_new_name
+
+    response = client.post(edit_url(draft_order), {"name": posted_new_name, "notes": "", "due_date": ""})
+    draft_order.refresh_from_db()
+
+    assert response.status_code == 200
+    assert "Another open order is already called" in str(response.context["form"].errors["name"])
+    assert draft_order.name == stored_name
+
+
 def test_submitting_creates_one_job_and_closes_the_order(client, superuser, root_page, smartling_project):
     page = InfoPageFactory(parent=root_page, title="Firefox release notes")
     order = draft_order_with_one_page(page, superuser)

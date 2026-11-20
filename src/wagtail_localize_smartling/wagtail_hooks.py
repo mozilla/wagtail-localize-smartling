@@ -7,6 +7,8 @@ from wagtail.admin.staticfiles import versioned_static
 
 from . import admin_urls
 from .components import LandedTranslationsPanel, OpenOrdersPanel
+from .models import Job
+from .permissions import job_permission_policy
 from .settings import settings as smartling_settings
 from .views import (
     SmartlingResubmitJobView,
@@ -14,6 +16,19 @@ from .views import (
     SmartlingSubmitSnippetTranslationView,
 )
 from .viewsets import smartling_order_viewset
+
+
+try:
+    # The register_permission_policy is added in Wagtail 8.
+    from wagtail.permissions import register_permission_policy
+except ImportError:
+    # Wagtail < 8.0 has no permission policy registry. This branch can be
+    # removed when we drop support for Wagtail 7.
+    pass
+else:
+    # Registering here stops Wagtail 8.0+ from auto-registering the viewset's
+    # permission_policy, which it does with a RemovedInWagtail90Warning.
+    register_permission_policy(Job, job_permission_policy, exact_class=True)
 
 
 @hooks.register("register_admin_urls")  # pyright: ignore[reportOptionalCall]
