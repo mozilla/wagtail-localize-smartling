@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add support for Wagtail 7.4 and 8.0 - @dchukhin
 - The minimum required Django version is now 5.2 - @dchukhin
 - The minimum required Wagtail version is now 7.0 - @dchukhin
+- Add `PendingTranslationLockMixin`, which locks a page in the Wagtail admin while its content is awaiting translation in Smartling, so that edits made in the meantime aren't overwritten when the translation is imported.
 
 ## [0.13.0] - 2026-08-03
 
