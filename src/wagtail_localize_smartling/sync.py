@@ -77,8 +77,6 @@ class FileURIMismatch(SyncJobException):
 SYNC_LEASE_SECONDS = 60 * 30
 
 
-# Statuses where a 4xx says something about the caller, the moment, or the
-# network, rather than about the job, so retrying is the right move.
 RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({401, 403, 408, 409, 429})
 
 
@@ -119,8 +117,7 @@ def sync_job(job_id: int) -> None:
 
     claimed_at = job.sync_started_at
     was_blocked = job.sync_blocked
-    # A blocked job is never pushed again: its push is what failed, and nothing
-    # here can fix it.
+    # A blocked job is never pushed again, since its push failed.
     pushing = not was_blocked and job.push_is_incomplete
     try:
         if pushing:
@@ -153,8 +150,7 @@ def sync_job(job_id: int) -> None:
                     )
         raise SyncJobException(f"Exception syncing job {job}") from e
     else:
-        # A job blocked on its push stays blocked until that push finishes: a
-        # clean poll says nothing about the upload that failed.
+        # Once a push finished, a blocked job becomes unblocked.
         if not was_blocked or not job.push_is_incomplete:
             job.clear_sync_failure()
     finally:
