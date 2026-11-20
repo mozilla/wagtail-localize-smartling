@@ -97,3 +97,35 @@
     align-items: center;
     gap: 0.25rem;
 }
+
+.order-screen__meta {
+    margin-top: 0.5rem;
+    color: var(--w-color-text-meta);
+}
+
+.order-screen__notes {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--w-color-border-furniture);
+    max-width: 50rem;
+}
+
+.order-screen__section {
+    margin-top: 2rem;
+}
+
+.order-history__status--alert {
+    background-color: var(--w-color-critical-50);
+    color: var(--w-color-critical-200);
+}
+
+.order-history__table {
+    width: 100%;
+}
+
+.order-history__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}

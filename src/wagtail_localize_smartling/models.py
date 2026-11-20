@@ -641,6 +641,10 @@ class Job(SyncedModel):
         editable=False,
     )
 
+    if TYPE_CHECKING:
+        # Django adds this for a field with choices, but only at runtime.
+        def get_status_display(self) -> str: ...
+
     # Our fields
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="jobs")

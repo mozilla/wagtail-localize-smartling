@@ -63,3 +63,39 @@ def test_a_viewer_reaches_a_draft_through_inspect_url(client, order_viewer):
 
     assert reverse("wagtail_localize_smartling_jobs:inspect", args=(draft.pk,)) in content
     assert reverse("wagtail_localize_smartling_jobs:edit", args=(draft.pk,)) not in content
+
+
+def test_a_viewer_can_open_the_submitted_screen_but_is_offered_nothing_to_change(client, order_viewer, root_page):
+    """A draft, so the refusal is the viewer's permissions rather than the order's state."""
+    draft = OrderFactory(submitted_at=None, created_by=order_viewer)
+    client.force_login(order_viewer)
+
+    response = client.get(reverse("wagtail_localize_smartling_jobs:inspect", args=(draft.pk,)))
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert reverse("wagtail_localize_smartling_jobs:edit", args=(draft.pk,)) not in content
+    assert reverse("wagtail_localize_smartling_jobs:delete", args=(draft.pk,)) not in content
+
+
+def test_an_admin_user_without_order_permissions_cannot_open_the_submitted_screen(client, root_page):
+    user = UserFactory(is_superuser=False)
+    user.user_permissions.add(Permission.objects.get(codename="access_admin"))
+    order = OrderFactory(created_by=user)
+    JobFactory(source_instance=root_page, order=order, synced=True, status=JobStatus.IN_PROGRESS)
+    client.force_login(user)
+
+    response = client.get(reverse("wagtail_localize_smartling_jobs:inspect", args=(order.pk,)))
+
+    assert response.status_code == 302
+    assert response.url == reverse("wagtailadmin_home")
+
+
+def test_a_logged_out_visitor_is_sent_to_the_login_screen(client, superuser, root_page):
+    order = OrderFactory(created_by=superuser)
+    JobFactory(source_instance=root_page, order=order, synced=True, status=JobStatus.IN_PROGRESS)
+
+    response = client.get(reverse("wagtail_localize_smartling_jobs:inspect", args=(order.pk,)))
+
+    assert response.status_code == 302
+    assert reverse("wagtailadmin_login") in response.url

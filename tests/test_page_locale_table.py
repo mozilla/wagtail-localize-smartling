@@ -293,3 +293,30 @@ def test_every_kind_of_order_reads_the_state_it_is_in(root_page, superuser):
 
     assert [annotated[order.pk].annotated_state for _, order in cases] == [state.value for state, _ in cases]
     assert [order.state for _, order in cases] == [state for state, _ in cases]
+
+
+@pytest.mark.django_db
+def test_a_locale_excluded_after_a_send_keeps_the_column_it_was_sent_in(root_page, superuser, smartling_settings):
+    """
+    A sent order is the record of what went to Smartling. Dropping a locale's
+    column because the setting changed afterwards erases a locale that is on
+    its way back, or has already landed.
+    """
+    order = OrderFactory(created_by=superuser)
+    page = InfoPageFactory(parent=root_page, title="Sent page")
+    source, _ = TranslationSource.get_or_create_from_instance(page)
+    wls_models.OrderItem.objects.create(order=order, translation_source=source, added_by=superuser)
+    german = Locale.objects.get(language_code="de")
+    JobFactory(
+        source_instance=page,
+        order=order,
+        synced=True,
+        translations=[Translation.objects.get_or_create(source=source, target_locale=german)[0]],
+    )
+
+    smartling_settings.EXCLUDE_LOCALES = frozenset(["de", "fr"])
+    table = build_coverage_table(order)
+
+    language_codes = {locale.language_code for locale in table.locales}
+    assert "de" in language_codes, "The locale this order sent lost its column"
+    assert "fr" not in language_codes, "A locale nobody sent is still excluded"
