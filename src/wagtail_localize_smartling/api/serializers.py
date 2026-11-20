@@ -275,6 +275,24 @@ class CreateBatchResponseSerializer(ResponseSerializer):
     batchUid = serializers.CharField()
 
 
+class BatchItemSerializer(serializers.Serializer):
+    fileUri = serializers.CharField()
+    status = serializers.CharField()
+    # Only ever shown to a human, so take any shape rather than fail a sync
+    # over a diagnostic.
+    errors = serializers.JSONField(allow_null=True, default="")  # pyright: ignore[reportIncompatibleMethodOverride, reportAssignmentType]
+
+
+class GetBatchStatusResponseSerializer(ResponseSerializer):
+    # https://api-reference.smartling.com/#tag/Job-Batches-V2/operation/getJobBatchStatusV2
+    status = serializers.CharField()
+    # Smartling omits the key until the batch has a file to report on.
+    files = BatchItemSerializer(many=True, default=list)
+    # Optional, so that a batch Smartling describes without one is still read
+    # rather than failing the sync it was fetched for.
+    updatedDate = serializers.DateTimeField(default_timezone=UTC, allow_null=True, required=False, default=None)
+
+
 class UploadFileToBatchResponseSerializer(NullDataResponseSerializer):
     # https://api-reference.smartling.com/#tag/Job-Batches-V2/operation/uploadFileToJobBatchV2
     _acceptable_codes_for_null_response = [
