@@ -21,6 +21,16 @@
     margin-bottom: 1.5rem;
 }
 
+.order-screen__collecting {
+    margin-inline-start: 0.5rem;
+    border: 1px solid var(--w-color-warning-100, #faa634);
+    background-color: var(--w-color-warning-50, #fdf0d7);
+    /* Wagtail leaves the warning colours pale in both themes but flips
+       text-context to near-white in dark mode, which would make this unreadable.
+       A grey keeps dark text on the pale background in light & dark mode. */
+    color: var(--w-color-grey-600, #333);
+}
+
 .order-screen__standfirst {
     margin-top: 0.5rem;
     max-width: 50rem;

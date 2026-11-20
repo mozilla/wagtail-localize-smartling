@@ -16,7 +16,7 @@ from wagtail_localize.views import submit_translations
 
 from wagtail_localize_smartling import models as wls_models
 
-from testapp.factories import InfoPageFactory, TranslationSourceFactory
+from testapp.factories import InfoPageFactory, InfoSnippetFactory, TranslationSourceFactory
 from tests.factories import JobFactory, OrderFactory, OrderItemFactory
 
 
@@ -638,3 +638,275 @@ def test_an_order_deleted_mid_edit_does_not_leave_an_empty_dropdown(client, page
     assert "Add to an open order" not in page_text(response)
     assert wls_models.OrderItem.objects.count() == 0
     assert wls_models.Job.objects.count() == 0
+
+
+def test_the_form_keeps_the_markup_the_order_choice_script_reaches_into(client, page, superuser):
+    """
+    The script finds the rows to hide in markup that belongs to Wagtail and to
+    wagtail-localize, so an upgrade that renames any of it would leave every
+    field on screen with nothing to say so.
+    """
+    OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    add_children(page, 1)
+    client.force_login(superuser)
+
+    content = client.get(submit_url(page)).content.decode()
+    # The order-choice.js is in the page content
+    assert "order-choice.js" in content
+
+    soup = BeautifulSoup(content, "html.parser")
+    # Each field the choice governs sits in a row that can be hidden whole,
+    # taking its label with it.
+    for field_name in ("new_order_name", "new_order_notes", "order"):
+        field_input = soup.select_one(f"#id_{COMPONENT_PREFIX}-{field_name}")
+        assert field_input is not None, field_name
+        assert field_input.find_parent("li") is not None, field_name
+
+    # Every option of the choice is wrapped on its own, so that "Send now" can
+    # be taken off screen without the other two.
+    send_now = soup.select_one(f'input[name="{COMPONENT_PREFIX}-how_to_send_choice"][value="now"]')
+    assert send_now is not None
+    option_wrapper = send_now.find_parent("div")
+    assert len(option_wrapper.select(f'input[name="{COMPONENT_PREFIX}-how_to_send_choice"]')) == 1
+
+    assert soup.select_one('input[name="include_subtree"]') is not None
+
+
+def test_a_refused_field_is_marked_the_way_the_order_choice_script_looks_for(client, page, superuser):
+    """A row the form re-renders with an error stays on screen, so it has to be findable."""
+    client.force_login(superuser)
+
+    response = client.post(submit_url(page), submit_data(page, how_to_send_choice="new", new_order_name=""))
+
+    soup = BeautifulSoup(response.content.decode(), "html.parser")
+    refused_row = soup.select_one(f"#id_{COMPONENT_PREFIX}-new_order_name").find_parent("li")
+    assert refused_row.select_one(".error-message") is not None
+
+
+def test_a_subtree_submission_records_what_the_order_is_waiting_for(client, page, superuser, smartling_project):
+    """Submitting with include_subtree=True records the number of pages the order should have."""
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    add_page_to_order(order, InfoPageFactory(parent=page.get_parent(), title="Already here"), superuser)
+    add_children(page, 3)
+    client.force_login(superuser)
+    assert order.page_count_when_complete != 5
+    assert order.order_items.count() == 1
+
+    client.post(
+        submit_url(page),
+        submit_data(page, how_to_send_choice="existing", order=order.pk, include_subtree=True),
+    )
+
+    order.refresh_from_db()
+    assert order.page_count_when_complete == 5
+    # Tied to what arrived, so that a number nothing can reach would fail here.
+    assert order.order_items.count() == 5
+
+
+def test_a_late_subtree_does_not_raise_what_the_order_is_waiting_for(
+    client, page, superuser, smartling_project, mocker
+):
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    add_children(page, 3)
+    client.force_login(superuser)
+    held = hold_the_subtree_task(mocker)
+
+    client.post(
+        submit_url(page),
+        submit_data(page, how_to_send_choice="existing", order=order.pk, include_subtree=True),
+    )
+
+    # At this point the order has 1 item, but we have recorded that it should
+    # have 4 when it is complete.
+    order.refresh_from_db()
+    assert order.order_items.count() == 1
+    assert order.page_count_when_complete == 4
+
+    held[0]()
+
+    # Now that the held task runs, it updates the order's order_items.
+    order.refresh_from_db()
+    assert order.order_items.count() == 4
+    assert order.page_count_when_complete == 4
+
+
+def test_a_single_page_leaves_the_order_waiting_for_nothing(client, page, superuser, smartling_project):
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    add_children(page, 3)
+    client.force_login(superuser)
+
+    client.post(submit_url(page), submit_data(page, how_to_send_choice="existing", order=order.pk))
+
+    order.refresh_from_db()
+    assert order.order_items.count() == 1
+    assert order.page_count_when_complete is None
+
+
+def test_a_subtree_starting_an_order_records_what_it_is_waiting_for(client, page, superuser, smartling_project):
+    """A new order is written as the first page joins, so it carries the count from the start."""
+    add_children(page, 3)
+    client.force_login(superuser)
+
+    client.post(
+        submit_url(page),
+        submit_data(page, how_to_send_choice="new", new_order_name="WNP 157", include_subtree=True),
+    )
+
+    order = wls_models.Order.objects.get()
+    assert order.page_count_when_complete == 4
+    assert order.order_items.count() == 4
+
+
+def test_a_second_subtree_adds_to_what_the_order_is_waiting_for(client, page, superuser, smartling_project, mocker):
+    """
+    Two subtrees collected at once are what the order waits for, not the later
+    of the two. Sending stops short otherwise, and a send cannot be undone.
+    """
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    sibling = InfoPageFactory(parent=page.get_parent(), title="Sibling section")
+    add_children(page, 3)
+    add_children(sibling, 1)
+    client.force_login(superuser)
+    held = hold_the_subtree_task(mocker)
+
+    # Add both the page and its sibling to the order.
+    for submitted_page in (page, sibling):
+        client.post(
+            submit_url(submitted_page),
+            submit_data(submitted_page, how_to_send_choice="existing", order=order.pk, include_subtree=True),
+        )
+    # Run in the opposite order: nothing makes two background tasks finish in
+    # the order they were queued, and the later one must not be overwritten by
+    # a count the earlier one worked out before the second subtree existed.
+    for run_held_task in reversed(held):
+        run_held_task()
+
+    order.refresh_from_db()
+    assert order.order_items.count() == 6
+    assert order.page_count_when_complete == 6
+
+
+def test_an_order_sent_mid_edit_is_not_left_waiting_for_a_refused_subtree(client, page, superuser, smartling_project):
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    add_children(page, 3)
+    client.force_login(superuser)
+    data = submit_data(page, how_to_send_choice="existing", order=order.pk, include_subtree=True)
+
+    order.submitted_at = timezone.now()
+    order.save(update_fields=["submitted_at"])
+    client.post(submit_url(page), data)
+
+    # Since the order has already been submitted, it is not waiting for any more pages.
+    order.refresh_from_db()
+    assert order.page_count_when_complete is None
+
+
+def test_pages_already_in_the_order_are_not_counted_twice(client, page, superuser, smartling_project):
+    """An order holds a page once however often it is sent there."""
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    add_children(page, 3)
+    first_child = page.get_children().first().specific
+    client.force_login(superuser)
+
+    # The child joins on its own, and is then carried in again by its parent.
+    client.post(
+        submit_url(first_child),
+        submit_data(first_child, how_to_send_choice="existing", order=order.pk),
+    )
+    client.post(
+        submit_url(page),
+        submit_data(page, how_to_send_choice="existing", order=order.pk, include_subtree=True),
+    )
+
+    order.refresh_from_db()
+    assert order.order_items.count() == 4
+    assert order.page_count_when_complete == 4
+
+    # The child is added again, but the order's pages do not change.
+    client.post(
+        submit_url(first_child),
+        submit_data(first_child, how_to_send_choice="existing", order=order.pk),
+    )
+    order.refresh_from_db()
+    assert order.order_items.count() == 4
+    assert order.page_count_when_complete == 4
+
+
+def test_sending_the_same_subtree_for_another_locale_does_not_raise_what_it_expects(
+    client, page, superuser, smartling_project
+):
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    add_children(page, 3)
+    client.force_login(superuser)
+    data = submit_data(page, how_to_send_choice="existing", order=order.pk, include_subtree=True)
+    target_locales = data["locales"]
+    assert len(target_locales) > 1, "this needs a locale left over for the second send"
+
+    client.post(submit_url(page), {**data, "locales": target_locales[:1]})
+    client.post(submit_url(page), {**data, "locales": target_locales[1:]})
+
+    order.refresh_from_db()
+    assert order.order_items.count() == 4
+    assert order.page_count_when_complete == 4
+
+
+def test_a_page_joining_a_collecting_order_raises_what_it_expects(client, page, superuser, smartling_project, mocker):
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    add_children(page, 3)
+    unrelated = InfoPageFactory(parent=page.get_parent(), title="Unrelated page")
+    client.force_login(superuser)
+    hold_the_subtree_task(mocker)
+
+    client.post(
+        submit_url(page),
+        submit_data(page, how_to_send_choice="existing", order=order.pk, include_subtree=True),
+    )
+    client.post(submit_url(unrelated), submit_data(unrelated, how_to_send_choice="existing", order=order.pk))
+
+    order.refresh_from_db()
+    assert order.order_items.count() == 2
+    assert order.page_count_when_complete == 5  # 2 pages already in it, plus the 3 from the subtree
+
+
+def test_a_submission_with_smartling_switched_off_leaves_the_order_alone(client, page, superuser, smartling_project):
+    """Nothing joins an order when the component is disabled, so nothing is expected of it."""
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    add_children(page, 3)
+    client.force_login(superuser)
+    data = submit_data(page, how_to_send_choice="existing", order=order.pk, include_subtree=True)
+    del data[f"{COMPONENT_PREFIX}-enabled"]
+
+    client.post(submit_url(page), data)
+
+    order.refresh_from_db()
+    assert order.order_items.count() == 0
+    assert order.page_count_when_complete is None
+
+
+def test_a_snippet_leaves_the_order_waiting_for_nothing(client, superuser, smartling_project):
+    """A snippet has no subtree, so it promises nothing beyond itself."""
+    snippet = InfoSnippetFactory(content="Test snippet")
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157")
+    client.force_login(superuser)
+    url = reverse(
+        "wagtail_localize:submit_snippet_translation",
+        kwargs={"app_label": "testapp", "model_name": "infosnippet", "pk": snippet.pk},
+    )
+
+    client.post(
+        url,
+        {
+            "locales": list(Locale.objects.exclude(pk=snippet.locale_id).values_list("pk", flat=True)),
+            f"{COMPONENT_PREFIX}-enabled": True,
+            f"{COMPONENT_PREFIX}-due_date": "",
+            f"{COMPONENT_PREFIX}-how_to_send_choice": "existing",
+            f"{COMPONENT_PREFIX}-order": order.pk,
+            # Ticked by hand: the snippet form has no such box, and the count
+            # is gated on the object really having descendants, not on this.
+            "include_subtree": "on",
+        },
+    )
+
+    order.refresh_from_db()
+    assert order.order_items.count() == 1
+    assert order.page_count_when_complete is None
