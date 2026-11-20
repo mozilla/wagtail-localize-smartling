@@ -40,6 +40,9 @@ def test_get_resubmit_job_denied_without_appropriate_user_permission(client, reg
 def test_get_resubmit_job_denied_if_newer_job_exists(client, regular_user, cancelled_smartling_job):
     new_job = cancelled_smartling_job
     new_job.id = None
+    # Smartling refuses a name one of its jobs already has, so a resubmission
+    # is always named apart from the job it replaces.
+    new_job.name = f"{cancelled_smartling_job.name} resubmitted"
     new_job.status = JobStatus.DRAFT
     new_job.save()
 

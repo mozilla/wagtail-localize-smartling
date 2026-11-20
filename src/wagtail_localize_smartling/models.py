@@ -5,6 +5,7 @@ import uuid
 from collections.abc import Iterable
 from datetime import datetime
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
@@ -13,10 +14,10 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Case, Count, ExpressionWrapper, F, OuterRef, Q, QuerySet, Subquery, Value, When
-from django.db.models.functions import Coalesce
-from django.db.models.manager import Manager
+from django.db.models.functions import Coalesce, Lower
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.functional import Promise
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.panels import FieldPanel
 from wagtail.models import Locale, Page
@@ -36,7 +37,17 @@ from .constants import (
 from .forms import JobForm
 from .settings import settings as smartling_settings
 from .sync import sync_job
-from .utils import compute_content_hash, get_snippet_admin_url
+from .utils import (
+    compute_content_hash,
+    get_snippet_admin_url,
+    max_job_name_length,
+    max_order_name_length,
+    prefixed_job_name,
+)
+
+
+if TYPE_CHECKING:
+    from django.db.models.fields.related_descriptors import RelatedManager
 
 
 logger = logging.getLogger(__name__)
@@ -98,7 +109,7 @@ class Project(SyncedModel):
     source_locale_description = models.CharField(max_length=255)
     source_locale_id = models.CharField(max_length=16)
 
-    target_locales: Manager["ProjectTargetLocale"]
+    target_locales: "RelatedManager[ProjectTargetLocale]"
 
     class Meta(SyncedModel.Meta):
         unique_together = ["environment", "account_uid", "project_id"]
@@ -269,8 +280,8 @@ class Order(models.Model):
     # the description but, as an M2M, changes after the row is saved.
     FIELDS_SENT_TO_SMARTLING = frozenset({"name", "notes", "due_date"})
 
-    jobs: Manager["Job"]
-    order_items: Manager["OrderItem"]
+    jobs: "RelatedManager[Job]"
+    order_items: "RelatedManager[OrderItem]"
     # The items the last submit() left out because nothing in them remained to
     # translate. Not a field: it describes one send, not the order.
     dropped_order_items: "list[OrderItem]"
@@ -290,18 +301,71 @@ class Order(models.Model):
             # carry one number to Smartling, whose UI has no view of the FK.
             self.reference_number = uuid.uuid4().hex
 
-        # Clean the data being saved before saving.
-        self.clean()
         super().save(*args, **kwargs)
 
     def clean(self):
-        """Refuse to rewrite what a sent order told translators."""
+        """
+        Refuse a name too long for the Smartling job it will become, and refuse
+        to rewrite what a sent order told translators.
+        """
         super().clean()
-        # No further cleaning for Orders that are unsaved or draft.
-        if self.pk is None or self.is_draft:
+        if self.is_draft:
+            self._clean_name_length()
+            self._clean_name_unique()
             return
 
-        # If the Order has been deleted, no further cleaning is done.
+        self._clean_fields_sent_to_smartling()
+
+    def _clean_name_length(self) -> None:
+        longest_allowed_length = max_order_name_length()
+        # An absent name is the field's own error to report.
+        if not self.name or len(self.name) <= longest_allowed_length:
+            return
+
+        if longest_allowed_length <= 0:
+            raise ValidationError(
+                {
+                    "name": _(
+                        "No name will fit, because the Smartling job name prefix"
+                        " is too long for this job name. Ask an administrator "
+                        "to shorten the prefix."
+                    )
+                }
+            )
+
+        raise ValidationError(
+            {
+                "name": _("Keep this to %(limit)s characters: Smartling's job name puts '%(prefix)s ' in front of it.")
+                % {"limit": longest_allowed_length, "prefix": smartling_settings.JOB_NAME_PREFIX}
+            }
+        )
+
+    def _clean_name_unique(self) -> None:
+        """Refuse a name the job built from it could not be given."""
+        # An absent name is the field's own error to report.
+        if not self.name:
+            return
+
+        open_orders = Order.objects.filter(submitted_at__isnull=True, name__iexact=self.name)
+        if open_orders.exclude(pk=self.pk).exists():
+            raise ValidationError(
+                {"name": _("Another open order is already called '%(name)s'. Pick another name.") % {"name": self.name}}
+            )
+
+        # Covers the orders already sent, too: sending one leaves a job behind
+        # under the name it was sent as. Not narrowed to one Smartling project,
+        # because naming the current one costs an API call.
+        job_name = prefixed_job_name(self.name)
+        if Job.name_is_taken(job_name):
+            raise ValidationError(
+                {"name": _("A Smartling job is already called '%(name)s'. Pick another name.") % {"name": job_name}}
+            )
+
+    def _clean_fields_sent_to_smartling(self) -> None:
+        # No further cleaning for Orders that are unsaved.
+        if self.pk is None:
+            return
+
         stored = Order.objects.filter(pk=self.pk).values(*self.FIELDS_SENT_TO_SMARTLING).first()
         if stored is None:
             return
@@ -309,8 +373,6 @@ class Order(models.Model):
         changed = sorted(field for field, value in stored.items() if getattr(self, field) != value)
         if changed:
             raise ValidationError(
-                # A sent order is the record of what went to Smartling, so the
-                # fields translators were given have to keep saying what they said.
                 f"This order was sent to Smartling and can no longer be edited ({', '.join(changed)})."
             )
 
@@ -377,7 +439,7 @@ class Order(models.Model):
         return OrderState(annotated_state)
 
     @property
-    def state_label(self) -> str:
+    def state_label(self) -> str | Promise:
         return self.state.label
 
     def suggested_job_name(self) -> str:
@@ -385,13 +447,17 @@ class Order(models.Model):
         A Smartling job name for the next send of this order.
 
         Smartling rejects a duplicate job name, so a resend cannot reuse the
-        first one.
+        first one, nor one that another order has been named after.
         """
-        send_number = self.jobs.count() + 1
-        name = self.name if send_number == 1 else f"{self.name}-{send_number}"
-        if smartling_settings.JOB_NAME_PREFIX:
-            name = f"{smartling_settings.JOB_NAME_PREFIX} {name}"
-        return name
+        # Stops where max_order_name_length() stops reserving room: an order
+        # name is measured against a two-digit suffix and no more.
+        for send_number in range(self.jobs.count() + 1, 100):
+            name = self.name if send_number == 1 else f"{self.name}-{send_number}"
+            job_name = prefixed_job_name(name)
+            if not Job.name_is_taken(job_name):
+                return job_name
+
+        raise ValueError(f"Order {self.pk} has been sent under every name there is room for")
 
     def submit(
         self,
@@ -401,14 +467,7 @@ class Order(models.Model):
         items: "Iterable[OrderItem] | None" = None,
         translations: Iterable[Translation] | None = None,
     ) -> "Job":
-        """
-        Create the one Smartling job that carries every page of this order.
-
-        Returns the new Job. A resend passes the items and translations that
-        still need sending, and a name of its own, because Smartling rejects a
-        duplicate job name. Whatever this send leaves behind is put on
-        `dropped_order_items` and `dropped_due_date` for the caller to report.
-        """
+        """Create the one Smartling job that carries every page of this order."""
         order_items = list(items if items is not None else self.order_items.select_related("translation_source"))
         wanted_translations = set(
             translations
@@ -439,12 +498,24 @@ class Order(models.Model):
         if not order_items_to_send:
             raise ValueError(f"Order {self.pk} has no pages to translate")
 
+        job_name = job_name or self.suggested_job_name()
+        # Checked here as well as in clean(), because the prefix can grow
+        # between the day an order is named and the day it is sent.
+        if len(job_name) > max_job_name_length():
+            raise ValueError(
+                f"Job name '{job_name}' is longer than the {max_job_name_length()} characters Smartling allows"
+            )
+        # Checked here as well as in clean(), because a name free when the
+        # order was named can be taken by the time it is sent.
+        if Job.name_is_taken(job_name):
+            raise ValueError(f"A Smartling job is already called '{job_name}'")
+
         with transaction.atomic():
             job = Job.objects.create(
                 project=Project.get_current(),
                 order=self,
                 user=user,
-                name=job_name or self.suggested_job_name(),
+                name=job_name,
                 reference_number=self.reference_number,
                 due_date=due_date,
             )
@@ -592,7 +663,8 @@ class Job(SyncedModel):
     # it.
     sync_blocked = models.BooleanField(default=False)
 
-    files: Manager["JobFile"]
+    order_id: int | None
+    files: "RelatedManager[JobFile]"
 
     base_form_class = JobForm
     panels = [FieldPanel("due_date")]
@@ -618,6 +690,13 @@ class Job(SyncedModel):
                     )
                 ),
                 name="status_consistent_with_sync_dates",
+            ),
+            # Smartling refuses a job name one of its jobs in the same project
+            # already has, and refuses it in a background push nobody watches.
+            models.UniqueConstraint(
+                Lower("name"),
+                "project",
+                name="job_name_unique_per_project",
             ),
         ]
 
@@ -690,6 +769,14 @@ class Job(SyncedModel):
         """
         return self.status in UNTRANSLATED_STATUSES or (self.sync_blocked and not self.translation_job_uid)
 
+    @classmethod
+    def name_is_taken(cls, job_name: str) -> bool:
+        """Whether a job of this name exists, regardless of casing."""
+        # Lower(), not iexact: iexact compiles to UPPER() on Postgres, which
+        # cannot use the index job_name_unique_per_project builds on Lower(),
+        # and which folds some non-ASCII pairs differently from it.
+        return cls.objects.alias(name_lower=Lower("name")).filter(name_lower=job_name.lower()).exists()
+
     @staticmethod
     def get_default_name(
         translation_source: TranslationSource,
@@ -716,7 +803,7 @@ class Job(SyncedModel):
         _timestamp = (
             timezone.now()
             .replace(tzinfo=None)  # remove +00:00 - we know it's UTC
-            .isoformat(timespec="seconds")
+            .isoformat(timespec="microseconds")
         )
         _locales = ":".join(sorted(t.target_locale.language_code for t in translations))
 
@@ -725,10 +812,7 @@ class Job(SyncedModel):
             usedforsecurity=False,
         ).hexdigest()[:8]
 
-        name = f"{hash} #{translation_source.pk}"
-        if smartling_settings.JOB_NAME_PREFIX:
-            name = f"{smartling_settings.JOB_NAME_PREFIX} {name}"
-        return name
+        return prefixed_job_name(f"{hash} #{translation_source.pk}")
 
     @staticmethod
     def get_default_reference_number(
@@ -892,19 +976,13 @@ class Job(SyncedModel):
             # Create Job and JobFile in 1 transaction to avoid having an invalid
             # Job (that later gets sent to Smartling).
             with transaction.atomic():
-                # Sending one page now is an order of one, submitted the moment
-                # it is made, so that every job has an order behind it.
                 job_order = Order.objects.create(
-                    # The prefix belongs to the Smartling job name built from
-                    # this one, not to the order an editor sees listed.
                     name=str(translation_source.get_source_instance())[:100],
                     created_by=user,
                     due_date=due_date,
                     submitted_at=timezone.now(),
                 )
                 job_order.contributors.add(user)
-                # Create the OrderItem, because without the OrderItem the order
-                # holds no pages, which is what the order screens count and list.
                 order_item = OrderItem.objects.create(
                     order=job_order,
                     translation_source=translation_source,
@@ -1043,9 +1121,9 @@ def _record_locales_on_order(
     """
     Record the locales the job has on the job's order.
 
-    An order's items are what a resend reads to decide what to send, so an order
-    that previously only knew about some of the job's locales needs to add the
-    rest of the job's locales now.
+    A resend reads an order's items to decide what to send, so an order that
+    previously only knew about some of the job's locales needs to add the rest
+    of the job's locales now.
     """
     if job.order_id is None:
         return
@@ -1056,8 +1134,6 @@ def _record_locales_on_order(
         defaults={"added_by": user},
     )
     if created:
-        # A page the order has no item for is owed every locale its job
-        # carries, not only the ones arriving now.
         order_item.translations.set(job.translations.all())
     else:
         order_item.translations.add(*translations)
