@@ -559,6 +559,7 @@ class Job(SyncedModel):
     # it.
     sync_blocked = models.BooleanField(default=False)
 
+    order_id: int | None
     files: "RelatedManager[JobFile]"
 
     base_form_class = JobForm
