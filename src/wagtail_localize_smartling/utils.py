@@ -71,6 +71,20 @@ def prefixed_job_name(name: str) -> str:
     return f"{prefix} {name}" if prefix else name
 
 
+def job_name_begins_with_prefix(job_name: str) -> bool:
+    """Whether a job name carries JOB_NAME_PREFIX. True when none is configured."""
+    prefix = smartling_settings.JOB_NAME_PREFIX
+    return not prefix or job_name.startswith(f"{prefix} ")
+
+
+def name_without_job_prefix(job_name: str) -> str:
+    """The opposite of prefixed_job_name, leaving a name that carries no prefix alone."""
+    prefix = smartling_settings.JOB_NAME_PREFIX
+    if prefix and job_name.startswith(f"{prefix} "):
+        return job_name[len(prefix) + 1 :]
+    return job_name
+
+
 def max_job_name_length() -> int:
     """The longest job name Smartling accepts, as the field that stores one records it."""
     # Imported here because models.py imports this module.

@@ -684,7 +684,7 @@ class Job(SyncedModel):
     job_translations: "RelatedManager[JobTranslation]"
 
     base_form_class = JobForm
-    panels = [FieldPanel("due_date")]
+    panels = [FieldPanel("order"), FieldPanel("due_date")]
 
     class Meta(SyncedModel.Meta):
         default_permissions = ("view",)
@@ -902,7 +902,9 @@ class Job(SyncedModel):
         If all requested locales are already covered by existing jobs, no action is taken.
 
         When an order is given, the page joins that order instead and no job is
-        created here: the order's own job is created when it is submitted.
+        created here: the order's own job is created when it is submitted. The
+        order may be unsaved, in which case it is saved as the first page
+        joins it.
         """
         # TODO only submit locales that match Smartling target locales
         # TODO make sure the source locale matches the Smartling project's language
@@ -923,6 +925,19 @@ class Job(SyncedModel):
             if not translations_list:
                 return
 
+        if order is not None and order.pk is not None:
+            # Try to find the order, but if it has already been sent, then send
+            # a new order.
+            try:
+                order.refresh_from_db(fields=["submitted_at"])
+            except Order.DoesNotExist:
+                logger.info(
+                    "Order %s is gone, sending %s as its own job",
+                    order.pk,
+                    translation_source,
+                )
+                order = None
+
         if order is not None and not order.is_draft:
             logger.info(
                 "Order %s has already been submitted, sending %s as its own job",
@@ -932,6 +947,10 @@ class Job(SyncedModel):
             order = None
 
         if order is not None:
+            if order.pk is None:
+                # Saved here, not by the form that builds it, because the form
+                # does not have enough information about what the order has.
+                order.save()
             # If order is passed, then the page joins the order, and
             # nothing is sent to Smartling until the order itself is.
             order_item, _ = OrderItem.objects.get_or_create(
