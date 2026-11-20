@@ -14,13 +14,14 @@ class OrderPagesPanel(Panel):
     class BoundPanel(Panel.BoundPanel):
         template_name = "wagtail_localize_smartling/admin/_pages_table.html"
 
-        def is_shown(self):
+        def is_shown(self):  # pyright: ignore[reportIncompatibleMethodOverride]
             # The table is built from rows keyed on the order, so an order that
             # has never been saved has nothing to show.
             return self.instance is not None and self.instance.pk is not None
 
         def get_context_data(self, parent_context=None):
-            context = super().get_context_data(parent_context)
+            context = super().get_context_data(parent_context) or {}
+
             context["table"] = build_coverage_table(self.instance)
             context["editable"] = self.instance.is_draft
             context["order"] = self.instance
