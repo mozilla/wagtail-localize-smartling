@@ -11,12 +11,7 @@ from wagtail.admin.forms import WagtailAdminModelForm
 from wagtail.models import Page
 
 from .settings import settings as smartling_settings
-from .utils import (
-    job_name_begins_with_prefix,
-    max_order_name_length,
-    name_without_job_prefix,
-    prefixed_job_name,
-)
+from .utils import job_name_begins_with_prefix, name_without_job_prefix
 
 
 if TYPE_CHECKING:
@@ -141,21 +136,19 @@ class JobForm(WagtailAdminModelForm):
     def _order_name_error(order_name: str) -> str | None:
         """Why this order cannot be given this name, or None if it can."""
         # Imported here because models.py imports this module.
-        from .models import Job, Order
+        from .models import Order
 
-        job_name = prefixed_job_name(order_name)
+        try:
+            Order(name=order_name).clean()
+        except ValidationError as error:
+            # An open order is the one refusal this screen can do something
+            # about, so it gives the user its own error message for it.
+            if Order.objects.filter(submitted_at__isnull=True, name__iexact=order_name).exists():
+                return gettext("An order called '%(name)s' is already open. Add to it, or pick another name.") % {
+                    "name": order_name
+                }
 
-        if Order.objects.filter(submitted_at__isnull=True, name__iexact=order_name).exists():
-            return gettext("An order called '%(name)s' is already open. Add to it, or pick another name.") % {
-                "name": order_name
-            }
-        if Job.name_is_taken(job_name):
-            return gettext("A Smartling job is already called '%(name)s'. Pick another name.") % {"name": job_name}
-
-        # Resending an order appends a suffix to the job name, and Smartling
-        # refuses a name over its limit.
-        if len(order_name) > max_order_name_length():
-            return gettext("That name is too long once the Smartling prefix is added.")
+            return error.message_dict["name"][0]
 
         return None
 

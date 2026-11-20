@@ -322,10 +322,21 @@ def test_a_name_too_long_once_the_prefix_is_added_is_refused(client, page, super
 
     response = client.post(submit_url(page), submit_data(page, how_to_send_choice="new", new_order_name="W" * 100))
 
-    assert "too long" in response.content.decode()
+    assert "Keep this to 96 characters" in page_text(response)
     assert "new_order_name" in component_form_errors(response)
     assert wls_models.Order.objects.count() == 0
     assert wls_models.Job.objects.count() == 0
+
+
+def test_name_is_refused_when_the_prefix_fills_a_job_name(client, page, superuser, smartling_settings):
+    smartling_settings.JOB_NAME_PREFIX = "x" * 170
+    client.force_login(superuser)
+
+    response = client.post(submit_url(page), submit_data(page, how_to_send_choice="new", new_order_name="WNP 157"))
+
+    assert "Ask an administrator" in page_text(response)
+    assert "new_order_name" in component_form_errors(response)
+    assert wls_models.Order.objects.count() == 0
 
 
 def test_a_name_the_field_itself_refuses_is_reported_only_once(client, page, superuser):
