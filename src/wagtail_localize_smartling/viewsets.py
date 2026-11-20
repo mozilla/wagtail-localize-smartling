@@ -1,5 +1,7 @@
 import logging
 
+from typing import cast
+
 import django_filters
 
 from django.contrib.auth import get_user_model
@@ -27,7 +29,11 @@ logger = logging.getLogger(__name__)
 
 def get_users_for_filter(user):
     User = get_user_model()
-    return User.objects.filter(pk__in=Order.objects.values_list("created_by", flat=True)).order_by(User.USERNAME_FIELD)  # pyright: ignore[reportAttributeAccessIssue]
+    # USERNAME_FIELD is a str at runtime, but django-stubs models get_user_model()'s
+    # return as a placeholder whose __getattr__ only knows "objects".
+    username_field = cast(str, User.USERNAME_FIELD)  # pyright: ignore[reportArgumentType]
+
+    return User.objects.filter(pk__in=Order.objects.values_list("created_by", flat=True)).order_by(username_field)
 
 
 class OrderReportFilterSet(WagtailFilterSet):
@@ -234,7 +240,9 @@ class OrderViewSet(ModelViewSet):
     copy_view_enabled = False
     inspect_view_enabled = True
 
-    @property
+    # Wagtail >= 8.0 declares permission_policy as a cached_property, so a plain
+    # class attribute here fails type checking.
+    @cached_property
     def permission_policy(self):
         return OrderPermissionPolicy(self.model)
 
