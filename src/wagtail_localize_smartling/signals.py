@@ -13,5 +13,5 @@ translation_import_successful = Signal()
 job_synced_to_smartling = Signal()
 
 # Sent when syncing a job raised an exception, with the exception and whether
-# the failure was classified as permanent
+# that attempt is what stopped the job's upload being retried
 job_sync_failed = Signal()
