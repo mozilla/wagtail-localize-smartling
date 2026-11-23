@@ -33,6 +33,7 @@ def test_settings():
     assert smartling_settings.REFORMAT_LANGUAGE_CODES is True
     assert smartling_settings.JOB_NAME_PREFIX is None
     assert smartling_settings.JOB_DESCRIPTION_CALLBACK is None
+    assert smartling_settings.INCLUDE_CONTRIBUTORS_IN_JOB_DESCRIPTION is True
     assert smartling_settings.VISUAL_CONTEXT_CALLBACK is None
     assert smartling_settings.TRANSLATION_APPROVER_GROUP_NAME == "Translation approver"
     assert smartling_settings.ADD_APPROVAL_TASK_TO_DASHBOARD is True
@@ -194,6 +195,17 @@ def test_invalid_visual_context_callback_signature():
 def test_reformat_language_codes():
     smartling_settings = _init_settings()
     assert smartling_settings.REFORMAT_LANGUAGE_CODES is False
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "INCLUDE_CONTRIBUTORS_IN_JOB_DESCRIPTION": False,
+    }
+)
+def test_include_contributors_in_job_description():
+    smartling_settings = _init_settings()
+    assert smartling_settings.INCLUDE_CONTRIBUTORS_IN_JOB_DESCRIPTION is False
 
 
 @override_settings(

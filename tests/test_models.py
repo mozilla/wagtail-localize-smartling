@@ -1130,15 +1130,67 @@ def test_an_order_job_is_described_by_its_pages_its_notes_and_its_contributors(
     )
     # Somebody other than the order's creator and the submitter, so that naming
     # either of those instead would not satisfy the assertion.
-    assembler = UserFactory()
+    assembler = UserFactory(first_name="Testfirstname", last_name="Testlastname")
     order.contributors.add(assembler)
 
     job = order.submit(user=superuser)
 
     assert "WNP 157" in job.description
     assert "Ship with 157." in job.description
-    assert assembler.get_username() in job.description
+    assert "Testfirstname Testlastname" in job.description
     assert str(source.get_source_instance()) in job.description
+
+
+def test_a_contributor_is_named_by_their_full_name():
+    order = OrderFactory()
+    order.contributors.add(
+        UserFactory(username="testuser@example.com", first_name="Testfirstname", last_name="Testlastname")
+    )
+
+    assert Job.get_contributor_names(order) == ["Testfirstname Testlastname"]
+
+
+def test_contributors_sharing_a_full_name_are_named_once_and_in_a_stable_order():
+    order = OrderFactory()
+    order.contributors.add(
+        UserFactory(username="zoe", first_name="Zoe", last_name="Zeta"),
+        UserFactory(username="alex-one", first_name="Alex", last_name="Smith"),
+        UserFactory(username="alex-two", first_name="Alex", last_name="Smith"),
+    )
+
+    assert Job.get_contributor_names(order) == ["Alex Smith", "Zoe Zeta"]
+
+
+def test_a_contributor_without_a_full_name_is_named_by_their_username():
+    order = OrderFactory()
+    order.contributors.add(UserFactory(username="Testfirstname", first_name="", last_name=""))
+
+    assert Job.get_contributor_names(order) == ["Testfirstname"]
+
+
+def test_contributors_are_left_out_of_the_description_when_the_setting_is_off(
+    root_page, locales, superuser, smartling_project, smartling_settings
+):
+    smartling_settings.INCLUDE_CONTRIBUTORS_IN_JOB_DESCRIPTION = False
+    order = OrderFactory(submitted_at=None, created_by=superuser, name="WNP 157", notes="Ship with 157.")
+    source = TranslationSourceFactory(source_instance=root_page)
+    OrderItemFactory(
+        order=order,
+        translation_source=source,
+        added_by=superuser,
+        translations=[Translation.objects.create(source=source, target_locale=locale) for locale in target_locales()],
+    )
+    assembler = UserFactory(username="testuser@example.com", first_name="Testfirstname", last_name="Testlastname")
+    order.contributors.add(assembler)
+
+    job = order.submit(user=superuser)
+
+    assert "Testfirstname Testlastname" not in job.description
+    assert "testuser@example.com" not in job.description
+    assert "Assembled by" not in job.description
+    # The rest of the description is unaffected.
+    assert "WNP 157" in job.description
+    assert "Ship with 157." in job.description
 
 
 def test_a_partial_send_describes_only_the_pages_it_carries(root_page, locales, superuser, smartling_project):

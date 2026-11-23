@@ -134,6 +134,22 @@ integrates with the Smartling translation platform.
 
     ----
 
+    By default, the description of a Job created from an Order names the people
+    who added pages to that Order, so that translators know who to ask about the
+    content. Each is named by their full name, falling back to their username if
+    they have no full name set. Because a username can be an email address, and
+    because a Job's description is read by whoever works the Job in Smartling,
+    you can leave these names out of the description:
+
+    ```python
+    WAGTAIL_LOCALIZE_SMARTLING = {
+        # ...
+        "INCLUDE_CONTRIBUTORS_IN_JOB_DESCRIPTION": False,
+    }
+    ```
+
+    ----
+
     If you want to pass a [Visual Context](https://help.smartling.com/hc/en-us/articles/360057484273--Overview-of-Visual-Context)
     to Smartling after a Job is synced, you need to provide a way to get hold
     of the appropriate URL for the page to use context. You provide this via
