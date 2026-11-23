@@ -591,6 +591,26 @@ class TestInitialSyncIsResumable:
 
         assert sorted(request_body_of(responses, path_ends_with="/jobs")["targetLocaleIds"]) == ["de", "fr"]
 
+    def test_a_locale_that_two_files_share_is_ordered_once(
+        self, root_page, smartling_create_job, smartling_create_batch_for_job, responses, settings
+    ):
+        source_a = TranslationSourceFactory(source_instance=root_page)
+        source_b = TranslationSourceFactory(source_instance=InfoPageFactory(parent=root_page, title="Second page"))
+        job = JobFactory(source_instance=root_page, files=[source_a, source_b], translations=[], unsynced=True)
+        job.translations.set(
+            [
+                Translation.objects.create(source=source, target_locale=Locale.objects.get(language_code=code))
+                for source in (source_a, source_b)
+                for code in ("fr", "de")
+            ]
+        )
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+        register_file_upload_to_batch(responses, settings, succeeds=True)
+
+        _initial_sync(job)
+
+        assert request_body_of(responses, path_ends_with="/jobs")["targetLocaleIds"] == ["de", "fr"]
+
     def test_a_resumed_push_uploads_only_what_is_left(
         self, root_page, smartling_create_batch_for_job, responses, settings
     ):
