@@ -77,8 +77,6 @@ class FileURIMismatch(SyncJobException):
 SYNC_LEASE_SECONDS = 60 * 30
 
 
-# Statuses where a 4xx says something about the caller, the moment, or the
-# network, rather than about the job, so retrying is the right move.
 RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({401, 403, 408, 409, 429})
 
 
@@ -119,8 +117,7 @@ def sync_job(job_id: int) -> None:
 
     claimed_at = job.sync_started_at
     was_blocked = job.sync_blocked
-    # A blocked job is never pushed again: its push is what failed, and nothing
-    # here can fix it.
+    # A blocked job is never pushed again, since its push failed.
     pushing = not was_blocked and job.push_is_incomplete
     try:
         if pushing:
@@ -133,16 +130,23 @@ def sync_job(job_id: int) -> None:
         permanent = is_failure_permanent(e)
         job.record_sync_failure(e, permanent=permanent, pushing=pushing)
 
+        # Retrying has stopped if the job was not previously blocked, and has
+        # now become blocked. Knowing when a job stops retrying allows us to
+        # mark when a failure has become permanent.
+        retrying_has_stopped = job.sync_blocked and not was_blocked
+
         # Past the limit the job keeps being swept but stops being announced:
-        # a job that fails every sweep would otherwise alert every sweep.
-        if job.consecutive_sync_failures <= smartling_settings.SYNC_FAILURE_LIMIT:
+        # a job that fails every sweep would otherwise alert every sweep. The
+        # attempt that blocks the job is announced whatever the count, because
+        # it is the only one that will ever say the upload has stopped.
+        if retrying_has_stopped or job.consecutive_sync_failures <= smartling_settings.SYNC_FAILURE_LIMIT:
             # Sent a job_sync_failed signal robustly, so that this exception
             # reaches the caller.
             for receiver, response in job_sync_failed.send_robust(
                 sender=job.__class__,
                 instance=job,
                 exception=e,
-                permanent=permanent,
+                permanent=retrying_has_stopped,
             ):
                 if isinstance(response, Exception):
                     logger.error(
@@ -153,8 +157,7 @@ def sync_job(job_id: int) -> None:
                     )
         raise SyncJobException(f"Exception syncing job {job}") from e
     else:
-        # A job blocked on its push stays blocked until that push finishes: a
-        # clean poll says nothing about the upload that failed.
+        # Once a push finished, a blocked job becomes unblocked.
         if not was_blocked or not job.push_is_incomplete:
             job.clear_sync_failure()
     finally:
@@ -235,12 +238,13 @@ def _initial_sync(job: "Job") -> None:
     _check_job_can_be_authorized(job)
 
     if not job.translation_job_uid:
-        # Every locale any of the job's files was ordered in. Each file is
-        # then authorized for only its own subset when it is uploaded.
-        target_locale_ids = [
-            utils.format_smartling_locale_id(lc)
-            for lc in job.translations.values_list("target_locale__language_code", flat=True)
-        ]
+        # Every locale any of the job's files was ordered in, once each.
+        target_locale_ids = sorted(
+            {
+                utils.format_smartling_locale_id(lc)
+                for lc in job.translations.values_list("target_locale__language_code", flat=True)
+            }
+        )
 
         job_data = client.create_job(
             job_name=job.name,

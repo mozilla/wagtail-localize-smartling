@@ -32,3 +32,5 @@ class Command(BaseCommand):
                 sync_job(job_id)
             except SyncJobException:
                 logger.exception("Error syncing job with ID %s", job_id)
+            except Exception:
+                logger.exception("Unexpected error syncing job with ID %s", job_id)
