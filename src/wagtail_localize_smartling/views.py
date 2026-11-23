@@ -26,7 +26,7 @@ from wagtail_localize.views.submit_translations import (
 )
 
 from .components import LandedTranslationsPanel
-from .forms import ResubmitOrderForm
+from .forms import JobForm, ResubmitOrderForm
 from .models import Job, Order, Project
 from .permissions import job_permission_policy
 from .templatetags.wagtail_localize_smartling_admin_tags import smartling_job_url
@@ -251,16 +251,57 @@ class SmartlingSubmitTranslationMixin(SubmitTranslationView if TYPE_CHECKING els
             gettext("Review and send the order."),
         )
 
+    def form_valid(self, form):
+        # Worked out before the pages join: afterwards the order holds some of
+        # what it counts. A subtree's descendants arrive from a background task
+        # that never comes back through this view, so this is the only place
+        # that can say how many are still coming.
+        page_count_when_complete = self._page_count_when_complete()
+
+        response = super().form_valid(form)  # pyright: ignore[reportAttributeAccessIssue]
+
+        if page_count_when_complete is not None:
+            try:
+                if (order := self._order_joined()) is not None:
+                    order.record_page_count_when_complete(page_count_when_complete)
+            except Exception:
+                # The submission is committed by now, and this only feeds a
+                # line on the order screen. Losing it is not worth a 500 on
+                # work that succeeded.
+                logger.exception("Could not record what the order still has to collect")
+
+        return response
+
+    def _page_count_when_complete(self) -> int | None:
+        """What the chosen order will hold, or None when this submission promises nothing."""
+        component_form = self._smartling_component_form()
+        if component_form is None:
+            return None
+
+        order = component_form.cleaned_data.get("order")
+        if order is None:
+            return None
+
+        if not component_form.adds_a_subtree and not (order.pk and order.page_count_when_complete):
+            return None
+
+        return component_form.page_count_when_complete
+
+    def _smartling_component_form(self) -> JobForm | None:
+        """This library's own form on the submit page, once it has been cleaned."""
+        for component, _instance, form in self.components.components:
+            if component["model"] is Job:
+                # A disabled component is never cleaned, so it has no cleaned_data.
+                return form if hasattr(form, "cleaned_data") else None
+        return None
+
     def _order_joined(self) -> Order | None:
         """The order this object was just added to, or None if it was not."""
-        for component, _instance, form in self.components.components:
-            if component["model"] is not Job:
-                continue
-            # A disabled component is never cleaned, so it has no cleaned_data.
-            order = getattr(form, "cleaned_data", {}).get("order")
-            break
-        else:
+        component_form = self._smartling_component_form()
+        if component_form is None:
             return None
+
+        order = component_form.cleaned_data.get("order")
 
         # A new order is written only once a page joins it, so one still
         # unsaved means nothing joined it.

@@ -18,6 +18,16 @@ from tests.factories import OrderFactory
 
 pytestmark = pytest.mark.django_db
 
+# The badge shown beside the order's state while it holds fewer pages than it
+# expects.
+COLLECTING_BADGE = ".order-screen__collecting"
+
+
+def collecting_badge(content: str) -> str | None:
+    """What the collecting badge says, or None when the screen is not showing one."""
+    badge = BeautifulSoup(content, "html.parser").select_one(COLLECTING_BADGE)
+    return None if badge is None else " ".join(badge.get_text().split())
+
 
 def edit_url(order) -> str:
     return reverse("wagtail_localize_smartling_jobs:edit", args=(order.pk,))
@@ -396,3 +406,78 @@ def test_an_ordinary_editor_can_open_submit_and_read_an_order(client, editor_use
     assert order.notes == ""
     assert response.url == inspect_url(order)
     assert client.get(inspect_url(order)).status_code == 200
+
+
+def test_the_draft_screen_says_how_many_pages_are_still_coming(client, superuser, root_page):
+    page = InfoPageFactory(parent=root_page, title="Firefox release notes")
+    order = draft_order_with_one_page(page, superuser)
+    order.page_count_when_complete = 13
+    order.save(update_fields=["page_count_when_complete"])
+    client.force_login(superuser)
+
+    content = client.get(edit_url(order)).content.decode()
+
+    assert collecting_badge(content) == "1 of 13 pages collected"
+
+
+def test_the_count_of_collected_pages_is_a_badge_beside_the_state(client, superuser, root_page):
+    """A sentence in a paragraph is missed; the badges are where a reader looks first."""
+    page = InfoPageFactory(parent=root_page, title="Firefox release notes")
+    order = draft_order_with_one_page(page, superuser)
+    order.page_count_when_complete = 13
+    order.save(update_fields=["page_count_when_complete"])
+    client.force_login(superuser)
+
+    soup = BeautifulSoup(client.get(edit_url(order)).content.decode(), "html.parser")
+
+    intro = soup.select_one(".order-screen__intro")
+    badges = [" ".join(badge.get_text().split()) for badge in intro.select(".w-status")]
+    assert badges == [order.state_label, "1 of 13 pages collected"]
+
+
+def test_the_draft_screen_is_quiet_once_every_page_has_arrived(client, superuser, root_page):
+    page = InfoPageFactory(parent=root_page, title="Firefox release notes")
+    order = draft_order_with_one_page(page, superuser)
+    order.page_count_when_complete = 1
+    order.save(update_fields=["page_count_when_complete"])
+    client.force_login(superuser)
+
+    content = client.get(edit_url(order)).content.decode()
+
+    assert collecting_badge(content) is None
+
+
+def test_the_draft_screen_of_an_order_that_waits_for_nothing_is_quiet(client, superuser, root_page):
+    """An order nobody promised anything about says nothing about what it holds."""
+    page = InfoPageFactory(parent=root_page, title="Firefox release notes")
+    order = draft_order_with_one_page(page, superuser)
+    client.force_login(superuser)
+
+    response = client.get(edit_url(order))
+
+    assert response.status_code == 200
+    assert collecting_badge(response.content.decode()) is None
+
+
+def test_removing_a_page_stops_the_order_waiting_for_it(client, superuser, root_page):
+    page = InfoPageFactory(parent=root_page, title="Firefox release notes")
+    order = draft_order_with_one_page(page, superuser)
+    order.page_count_when_complete = 1
+    order.save(update_fields=["page_count_when_complete"])
+    client.force_login(superuser)
+
+    client.post(edit_url(order), {"action-remove-item": str(order.order_items.get().pk)})
+
+    order.refresh_from_db()
+    assert order.page_count_when_complete == 0
+    assert collecting_badge(client.get(edit_url(order)).content.decode()) is None
+
+
+def test_an_order_waiting_for_its_first_page_reads_in_the_singular(client, superuser):
+    """The singular wording is only reachable before anything has arrived."""
+    order = OrderFactory(submitted_at=None, created_by=superuser)
+    order.page_count_when_complete = 1
+    order.save(update_fields=["page_count_when_complete"])
+    client.force_login(superuser)
+
+    assert collecting_badge(client.get(edit_url(order)).content.decode()) == "0 of 1 page collected"

@@ -112,3 +112,15 @@ def default_send_to_smartling_js():
         '<script src="{src}"></script>',
         src=versioned_static("wagtail_localize_smartling/js/default-send-to-smartling.js"),
     )
+
+
+@hooks.register("insert_global_admin_js")  # pyright: ignore[reportOptionalCall]
+def order_choice_js():
+    """
+    Show only the order fields that the chosen "How to send this" option uses,
+    on wagtail-localize's submit/update-translation forms.
+    """
+    return format_html(
+        '<script src="{src}"></script>',
+        src=versioned_static("wagtail_localize_smartling/js/order-choice.js"),
+    )

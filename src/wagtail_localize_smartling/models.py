@@ -14,7 +14,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Case, Count, ExpressionWrapper, F, OuterRef, Q, QuerySet, Subquery, Value, When
-from django.db.models.functions import Coalesce, Lower
+from django.db.models.functions import Coalesce, Greatest, Lower
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.functional import Promise
@@ -280,6 +280,11 @@ class Order(models.Model):
             "Smartling shows it for each job, which connects it to the Order it came from."
         ),
     )
+    # Sometimes, an order is created for a page and its subtree, but the subtree
+    # pages themselves are added by a background task (after the user makes the
+    # translation request). Until the subtree pages are added, the order is
+    # waiting on pages to be collected.
+    page_count_when_complete = models.PositiveIntegerField(null=True, editable=False)
 
     # The fields whose values reach translators: the job's name, description
     # and due date are built from these. Not contributors, which also reaches
@@ -385,6 +390,17 @@ class Order(models.Model):
     @property
     def is_draft(self) -> bool:
         return self.submitted_at is None
+
+    def record_page_count_when_complete(self, page_count: int) -> None:
+        """
+        Record how many pages this order ends up holding.
+
+        Never lowers the number: a count is worked out before the pages it
+        counts have joined, so one worked out earlier must not overwrite one
+        that has since accounted for more.
+        """
+        already_recorded = Coalesce("page_count_when_complete", Value(0))
+        Order.objects.filter(pk=self.pk).update(page_count_when_complete=Greatest(already_recorded, Value(page_count)))
 
     @property
     def dropped_page_names(self) -> str:
