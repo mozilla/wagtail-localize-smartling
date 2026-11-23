@@ -186,12 +186,13 @@ def _initial_sync(job: "Job") -> None:
     _check_job_can_be_authorized(job)
 
     if not job.translation_job_uid:
-        # Every locale any of the job's files was ordered in. Each file is
-        # then authorized for only its own subset when it is uploaded.
-        target_locale_ids = [
-            utils.format_smartling_locale_id(lc)
-            for lc in job.translations.values_list("target_locale__language_code", flat=True)
-        ]
+        # Every locale any of the job's files was ordered in, once each.
+        target_locale_ids = sorted(
+            {
+                utils.format_smartling_locale_id(lc)
+                for lc in job.translations.values_list("target_locale__language_code", flat=True)
+            }
+        )
 
         job_data = client.create_job(
             job_name=job.name,
