@@ -195,6 +195,10 @@ def test_the_draft_screen_same_db_query_count_whatever_its_size(client, superuse
     client.force_login(superuser)
 
     def count_queries_for(order) -> int:
+        # The first request warms caches that outlive it, such as content types,
+        # so only the second request's count is comparable.
+        client.get(edit_url(order))
+
         with CaptureQueriesContext(connection) as queries:
             client.get(edit_url(order))
         return len(queries)
