@@ -1,6 +1,6 @@
 import hashlib
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.parse import quote, urljoin, urlparse
 
 from django.urls import reverse
@@ -19,6 +19,12 @@ if TYPE_CHECKING:
     from polib import POFile
 
     from .models import Job, Project
+
+
+# Room kept back for the "-2", "-3"… a resend appends to the job name it
+# resends, because an order is named days before anyone knows it will be
+# resent. The hundredth send of one order outgrows what this reserves.
+LONGEST_RESEND_SUFFIX_LENGTH = len("-99")
 
 
 def format_smartling_locale_id(locale_id: str) -> str:
@@ -57,6 +63,31 @@ def format_wagtail_locale_id(locale_id: str) -> str:
         return locale_id
 
     return locale_id.lower()
+
+
+def prefixed_job_name(name: str) -> str:
+    """The name Smartling is given for a job created from a name of this one."""
+    prefix = smartling_settings.JOB_NAME_PREFIX
+    return f"{prefix} {name}" if prefix else name
+
+
+def max_job_name_length() -> int:
+    """The longest job name Smartling accepts, as the field that stores one records it."""
+    # Imported here because models.py imports this module.
+    from .models import Job
+
+    return cast(int, Job._meta.get_field("name").max_length)  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def max_order_name_length() -> int:
+    """
+    How long an order's name may be before the job name built from it outgrows
+    the longest name Smartling accepts.
+
+    Zero or less means the configured prefix leaves room for no name at all.
+    """
+    prefix_length = len(prefixed_job_name(""))
+    return max_job_name_length() - prefix_length - LONGEST_RESEND_SUFFIX_LENGTH
 
 
 def _get_smartling_dashboard_base_url() -> str:
