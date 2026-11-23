@@ -8,9 +8,9 @@ from html import unescape
 import pytest
 
 from bs4 import BeautifulSoup
-from django.contrib.auth.models import Permission
+from django.contrib.auth.models import Group, Permission
 from django.urls import resolve, reverse
-from wagtail.models import Locale
+from wagtail.models import GroupPagePermission, Locale
 
 from wagtail_localize_smartling import models as wls_models
 from wagtail_localize_smartling.views import (
@@ -33,7 +33,7 @@ def page(root_page):
 
 
 @pytest.fixture()
-def submitter_user():
+def submitter_user(root_page):
     """Someone who may send pages for translation but may not change an order."""
     user = UserFactory(is_superuser=False)
     user.user_permissions.clear()
@@ -41,6 +41,14 @@ def submitter_user():
         Permission.objects.get(codename="access_admin"),
         Permission.objects.get(codename="submit_translation"),
     )
+    # Make sure the user can edit the page.
+    group = Group.objects.create(name="Smartling submit message tests")
+    GroupPagePermission.objects.create(
+        group=group,
+        page=root_page,
+        permission=Permission.objects.get(codename="change_page"),
+    )
+    user.groups.add(group)
     return user
 
 
