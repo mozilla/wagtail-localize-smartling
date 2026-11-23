@@ -1,6 +1,7 @@
 import pytest
 
 from django.core.management import call_command
+from django.db import DatabaseError
 
 from wagtail_localize_smartling.api.types import JobStatus
 from wagtail_localize_smartling.models import Job
@@ -58,7 +59,7 @@ def test_sync_smartling_still_polls_a_blocked_job_that_reached_smartling(root_pa
 def test_sync_smartling_sweeps_on_after_a_job_fails_to_record_its_failure(
     root_page, locales, smartling_project, mocker
 ):
-    """A Job deleted while the sweep runs must not cost every Job queued behind it."""
+    """A Job that fails while recording its failure must not cost the Jobs queued behind it."""
     JobFactory(source_instance=root_page, unsynced=True)
     JobFactory(source_instance=InfoPageFactory(), unsynced=True)
     sync_function = mocker.patch(
@@ -68,7 +69,7 @@ def test_sync_smartling_sweeps_on_after_a_job_fails_to_record_its_failure(
     mocker.patch.object(
         Job,
         "record_sync_failure",
-        side_effect=Job.NotUpdated("Save with update_fields did not affect any rows."),
+        side_effect=DatabaseError("connection lost"),
     )
 
     call_command("sync_smartling")
