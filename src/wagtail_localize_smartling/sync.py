@@ -130,16 +130,23 @@ def sync_job(job_id: int) -> None:
         permanent = is_failure_permanent(e)
         job.record_sync_failure(e, permanent=permanent, pushing=pushing)
 
+        # Retrying has stopped if the job was not previously blocked, and has
+        # now become blocked. Knowing when a job stops retrying allows us to
+        # mark when a failure has become permanent.
+        retrying_has_stopped = job.sync_blocked and not was_blocked
+
         # Past the limit the job keeps being swept but stops being announced:
-        # a job that fails every sweep would otherwise alert every sweep.
-        if job.consecutive_sync_failures <= smartling_settings.SYNC_FAILURE_LIMIT:
+        # a job that fails every sweep would otherwise alert every sweep. The
+        # attempt that blocks the job is announced whatever the count, because
+        # it is the only one that will ever say the upload has stopped.
+        if retrying_has_stopped or job.consecutive_sync_failures <= smartling_settings.SYNC_FAILURE_LIMIT:
             # Sent a job_sync_failed signal robustly, so that this exception
             # reaches the caller.
             for receiver, response in job_sync_failed.send_robust(
                 sender=job.__class__,
                 instance=job,
                 exception=e,
-                permanent=permanent,
+                permanent=retrying_has_stopped,
             ):
                 if isinstance(response, Exception):
                     logger.error(

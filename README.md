@@ -455,9 +455,10 @@ Signal kwargs:
 - `sender`: The `wagtail_localize_smartling.models.Job` class
 - `instance`: The `Job` instance whose sync failed
 - `exception`: The exception that was raised
-- `permanent`: `True` when retrying cannot succeed (a rejected request, or too many consecutive failures), `False` while the Job is still being retried
+- `permanent`: `True` on the attempt that stopped the Job's upload being retried, whether Smartling rejected the upload or it ran out of retries, and `False` otherwise. A Job is sent `True` at most once.
 
-Note: this signal fires on every failed attempt. If a receiver only needs to act on permanent failures, it can check the value of `permanent`:
+Note: this signal fires on every failed attempt. Only an upload sets `permanent`.
+If a receiver only needs to act on permanent failures, it can check the value of `permanent`:
 
 ```python
 from django.dispatch import receiver

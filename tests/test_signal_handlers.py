@@ -743,6 +743,102 @@ def test_job_sync_failed_stops_being_sent_once_the_failures_pass_the_limit(
             sync_job(job.pk)
 
     assert len(recorded_sync_failures) == 1
+    assert recorded_sync_failures[0]["permanent"] is False
+
+
+def test_job_sync_failed_reports_the_attempt_that_blocks_a_job_as_permanent(
+    root_page, smartling_project, smartling_settings, recorded_sync_failures
+):
+    smartling_settings.SYNC_FAILURE_LIMIT = 3
+    job = JobFactory(source_instance=root_page, unsynced=True)
+
+    for _ in range(3):
+        with (
+            patch(
+                "wagtail_localize_smartling.sync.client.create_job",
+                side_effect=TimeoutError("smartling unreachable"),
+            ),
+            pytest.raises(SyncJobException),
+        ):
+            sync_job(job.pk)
+
+    job.refresh_from_db()
+    assert job.sync_blocked is True
+    assert [failure["permanent"] for failure in recorded_sync_failures] == [False, False, True]
+
+
+def test_job_sync_failed_reports_a_rejected_poll_as_not_permanent(root_page, smartling_project, recorded_sync_failures):
+    """A rejected poll stops nothing: the job's files are in Smartling and the next sweep polls it again."""
+    job = JobFactory(source_instance=root_page, synced=True)
+    job.files.update(file_uri="job.po")
+
+    for _ in range(3):
+        with (
+            patch(
+                "wagtail_localize_smartling.sync.client.get_job_details",
+                side_effect=FailedResponse(code="VALIDATION_ERROR", errors=[], status_code=400),
+            ),
+            pytest.raises(SyncJobException),
+        ):
+            sync_job(job.pk)
+
+    job.refresh_from_db()
+    assert job.sync_blocked is False
+    assert [failure["permanent"] for failure in recorded_sync_failures] == [False, False, False]
+
+
+def test_job_sync_failed_announces_a_blocked_job_past_the_failure_limit(
+    root_page, smartling_project, smartling_settings, recorded_sync_failures
+):
+    """Blocking is announced once and never again, so the failure limit must not be what silences it."""
+    smartling_settings.SYNC_FAILURE_LIMIT = 10
+    job = JobFactory(source_instance=root_page, unsynced=True)
+
+    for _ in range(3):
+        with (
+            patch(
+                "wagtail_localize_smartling.sync.client.create_job",
+                side_effect=TimeoutError("smartling unreachable"),
+            ),
+            pytest.raises(SyncJobException),
+        ):
+            sync_job(job.pk)
+
+    # An administrator lowers the limit to one this job has already passed.
+    smartling_settings.SYNC_FAILURE_LIMIT = 2
+    with (
+        patch(
+            "wagtail_localize_smartling.sync.client.create_job",
+            side_effect=TimeoutError("smartling unreachable"),
+        ),
+        pytest.raises(SyncJobException),
+    ):
+        sync_job(job.pk)
+
+    job.refresh_from_db()
+    assert job.sync_blocked is True
+    assert recorded_sync_failures[-1]["permanent"] is True
+
+
+def test_job_sync_failed_announces_a_job_blocked_after_smartling_took_the_job(
+    root_page, smartling_project, recorded_sync_failures
+):
+    """A rejected upload stops the push even though Smartling already holds the job, which keeps being polled."""
+    job = JobFactory(source_instance=root_page, synced=True)
+
+    with (
+        patch(
+            "wagtail_localize_smartling.sync.client.create_batch_for_job",
+            side_effect=FailedResponse(code="VALIDATION_ERROR", errors=[], status_code=400),
+        ),
+        pytest.raises(SyncJobException),
+    ):
+        sync_job(job.pk)
+
+    job.refresh_from_db()
+    assert job.translation_job_uid != ""
+    assert job.sync_blocked is True
+    assert recorded_sync_failures[-1]["permanent"] is True
 
 
 def test_job_sync_failed_is_not_sent_when_a_sync_succeeds(root_page, smartling_project, recorded_sync_failures):
