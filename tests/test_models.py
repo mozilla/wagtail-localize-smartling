@@ -1406,6 +1406,13 @@ def test_clearing_sync_failure_resets_every_field(root_page):
     assert job.last_sync_error_at is None
 
 
+def test_clearing_a_job_with_nothing_to_clear_no_db_queries(root_page, django_assert_num_queries):
+    job = JobFactory(source_instance=root_page)
+
+    with django_assert_num_queries(0):
+        job.clear_sync_failure()
+
+
 @pytest.mark.parametrize(
     "status,blocked,expected_needs_a_new_job",
     [
