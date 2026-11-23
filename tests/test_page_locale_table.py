@@ -273,6 +273,10 @@ def test_table_db_count_the_same_whatever_its_size(smartling_project, root_page,
     small = _submitted_order_with_pages(root_page, superuser, page_count=2)
     large = _submitted_order_with_pages(root_page, superuser, page_count=8)
 
+    # The first build warms caches that outlive it, such as content types, so
+    # only a warm build's count is comparable.
+    _read_as_a_template_would(build_coverage_table(small))
+
     with CaptureQueriesContext(connection) as small_queries:
         _read_as_a_template_would(build_coverage_table(small))
     with CaptureQueriesContext(connection) as large_queries:
