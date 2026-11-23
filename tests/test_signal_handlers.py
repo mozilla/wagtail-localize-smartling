@@ -554,6 +554,19 @@ def test_the_slack_notification_counts_every_file(root_page, locales, smartling_
     assert f"Word count: {words(*sources)}" in mock_post.call_args[1]["json"]["text"]
 
 
+def test_the_slack_notification_names_a_locale_the_files_share_once(root_page, locales, smartling_settings, mocker):
+    smartling_settings.SLACK_BOT_TOKEN = "xoxb-test-token"  # noqa: S105
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID = "C0123456789"
+    smartling_settings.SLACK_NEW_JOB_NOTIFICATION_MESSAGE_TEMPLATE = ""
+    mock_post = mocker.patch("wagtail_localize_smartling.signal_handlers.requests.post")
+    mock_post.return_value.json.return_value = {"ok": True}
+    job, _ = _job_of_two_pages(root_page)
+
+    job_synced_to_smartling.send(sender=Job, instance=job)
+
+    assert "Locales (2): de, fr" in mock_post.call_args[1]["json"]["text"]
+
+
 @override_settings(
     DEFAULT_FROM_EMAIL="from@example.com",
     WAGTAILADMIN_BASE_URL="https://cms.example.com",
@@ -653,7 +666,7 @@ def test_slack_notification__custom_template(mocker, smartling_settings):
     job_synced_to_smartling.send(sender=Job, instance=mock_job)
 
     text = mock_post.call_args[1]["json"]["text"]
-    assert text == "Test Job | Mozilla L10n | A test job description | 3 | 2 | fr, de"
+    assert text == "Test Job | Mozilla L10n | A test job description | 3 | 2 | de, fr"
 
 
 def test_slack_notification__bad_template(mocker, smartling_settings):
