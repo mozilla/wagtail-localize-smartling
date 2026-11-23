@@ -137,6 +137,22 @@ integrates with the Smartling translation platform.
 
     ----
 
+    By default, the description of a Job created from an Order names the people
+    who added pages to that Order, so that translators know who to ask about the
+    content. Each is named by their full name, falling back to their username if
+    they have no full name set. Because a username can be an email address, and
+    because a Job's description is read by whoever works the Job in Smartling,
+    you can leave these names out of the description:
+
+    ```python
+    WAGTAIL_LOCALIZE_SMARTLING = {
+        # ...
+        "INCLUDE_CONTRIBUTORS_IN_JOB_DESCRIPTION": False,
+    }
+    ```
+
+    ----
+
     If you want to pass a [Visual Context](https://help.smartling.com/hc/en-us/articles/360057484273--Overview-of-Visual-Context)
     to Smartling after a Job is synced, you need to provide a way to get hold
     of the appropriate URL for the page to use context. You provide this via
@@ -487,9 +503,10 @@ Signal kwargs:
 - `sender`: The `wagtail_localize_smartling.models.Job` class
 - `instance`: The `Job` instance whose sync failed
 - `exception`: The exception that was raised
-- `permanent`: `True` when retrying cannot succeed (a rejected request, or too many consecutive failures), `False` while the Job is still being retried
+- `permanent`: `True` on the attempt that stopped the Job's upload being retried, whether Smartling rejected the upload or it ran out of retries, and `False` otherwise. A Job is sent `True` at most once.
 
-Note: this signal fires on every failed attempt. If a receiver only needs to act on permanent failures, it can check the value of `permanent`:
+Note: this signal fires on every failed attempt. Only an upload sets `permanent`.
+If a receiver only needs to act on permanent failures, it can check the value of `permanent`:
 
 ```python
 from django.dispatch import receiver

@@ -250,7 +250,9 @@ def send_slack_notification_on_job_sync(
         for job_file in instance.files.select_related("translation_source")
         for entry in job_file.translation_source.export_po()
     )
-    locale_codes = list(instance.translations.values_list("target_locale__language_code", flat=True))
+    # Translations are per file, so we avoid repeating the same locale when a
+    # job's files have the same locale.
+    locale_codes = sorted(set(instance.translations.values_list("target_locale__language_code", flat=True)))
     locale_count = len(locale_codes)
     locale_list = ", ".join(locale_codes)
 
