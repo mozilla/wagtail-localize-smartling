@@ -33,6 +33,7 @@ class SmartlingSettings:
     REFORMAT_LANGUAGE_CODES: bool = True
     JOB_NAME_PREFIX: str | None = None
     JOB_DESCRIPTION_CALLBACK: Callable[[str, "Job"], str] | None = None
+    INCLUDE_CONTRIBUTORS_IN_JOB_DESCRIPTION: bool = True
     VISUAL_CONTEXT_CALLBACK: Callable[["Job", "TranslationSource"], tuple[str, str]] | None = None
     TRANSLATION_APPROVER_GROUP_NAME: str = "Translation approver"
     ADD_APPROVAL_TASK_TO_DASHBOARD: bool = True
@@ -162,6 +163,11 @@ def _init_settings() -> SmartlingSettings:
 
         if callable(func_or_path):
             settings_kwargs["VISUAL_CONTEXT_CALLBACK"] = func_or_path
+
+    if "INCLUDE_CONTRIBUTORS_IN_JOB_DESCRIPTION" in settings_dict:
+        settings_kwargs["INCLUDE_CONTRIBUTORS_IN_JOB_DESCRIPTION"] = bool(
+            settings_dict["INCLUDE_CONTRIBUTORS_IN_JOB_DESCRIPTION"]
+        )
 
     if "JOB_NAME_PREFIX" in settings_dict:
         settings_kwargs["JOB_NAME_PREFIX"] = settings_dict["JOB_NAME_PREFIX"]

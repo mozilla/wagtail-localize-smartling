@@ -163,6 +163,10 @@ def test_the_listing_same_db_query_count_whatever_its_length(client, superuser, 
 
     def count_queries_for_the_listing() -> int:
         client.force_login(superuser)
+        # The first request warms caches that outlive it, such as content types,
+        # so only the second request's count is comparable.
+        client.get(reverse("wagtail_localize_smartling_jobs:index"))
+
         with CaptureQueriesContext(connection) as queries:
             client.get(reverse("wagtail_localize_smartling_jobs:index"))
         return len(queries)

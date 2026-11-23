@@ -20,6 +20,7 @@ from django.utils import timezone
 from django.utils.functional import Promise
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.panels import FieldPanel
+from wagtail.admin.utils import get_user_display_name
 from wagtail.models import Locale, Page
 from wagtail_localize.components import register_translation_component
 from wagtail_localize.models import Translation, TranslationSource
@@ -857,6 +858,19 @@ class Job(SyncedModel):
         return f"{translation_source.object.translation_key}"
 
     @staticmethod
+    def get_contributor_names(order: "Order") -> list[str]:
+        """
+        Names of the people who assembled the order, as translators should see
+        them: a full name where the user has one, their username otherwise.
+        """
+        # Return empty when INCLUDE_CONTRIBUTORS_IN_JOB_DESCRIPTION is off.
+        if not smartling_settings.INCLUDE_CONTRIBUTORS_IN_JOB_DESCRIPTION:
+            return []
+
+        # The results are sorted, and with a name shared by two accounts given once.
+        return sorted({get_user_display_name(contributor) for contributor in order.contributors.all()})
+
+    @staticmethod
     def get_description_for_order(order: "Order", *, job: "Job") -> str:
         """
         Default description to use for the job in Smartling. This is
@@ -869,7 +883,7 @@ class Job(SyncedModel):
             source_instance = job_file.translation_source.get_source_instance()
             lines.append(f"- {type(source_instance)._meta.verbose_name} '{source_instance}'")
 
-        contributors = [contributor.get_username() for contributor in order.contributors.all()]
+        contributors = Job.get_contributor_names(order)
         if contributors:
             lines += ["", f"Assembled by: {', '.join(contributors)}"]
 
