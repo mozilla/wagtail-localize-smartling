@@ -278,13 +278,18 @@ class TestImportTranslationForLocale:
         disable_signals,
     ):
         """Test importing a single locale's translation."""
-        smartling_download_translation_for_locale("fr")
-
         translation = smartling_job.translations.first()
+        smartling_download_translation_for_locale(
+            "fr", po_content=po_with_same_answer_for_each_string(translation.source, "Bonjour")
+        )
+
         _import_translation_for_locale(smartling_job, smartling_job.files.get(), translation, "fr")
 
-        # The translation should have been imported (import_po was called)
-        # We can verify by checking that no exception was raised
+        string_translations = StringTranslation.objects.filter(
+            context__object_id=translation.source.object_id, locale=translation.target_locale
+        )
+        assert string_translations.exists()
+        assert {st.tool_name for st in string_translations} == {"Smartling"}
 
 
 class TestSanitizePoContent:
@@ -814,6 +819,8 @@ class TestDownloadIsPerFile:
 
         assert get_string_translations_for_page(first_file.translation_source, "fr") == {"Première page"}
         assert get_string_translations_for_page(second_file.translation_source, "fr") == {"Deuxième page"}
+        tool_names = StringTranslation.objects.filter(locale__language_code="fr").values_list("tool_name", flat=True)
+        assert set(tool_names) == {"Smartling"}
 
     def test_each_file_is_downloaded_under_its_own_uri(
         self, root_page, smartling_translations_zip, responses, disable_signals

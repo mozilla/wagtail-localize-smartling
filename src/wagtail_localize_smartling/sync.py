@@ -416,7 +416,7 @@ def _import_translation_for_locale(
     content_str = content.decode("utf-8")
     content_hash = _compute_translation_hash(content_str)
     po_file = polib.pofile(_sanitize_po_content(content_str))
-    translation.import_po(po_file)
+    translation.import_po(po_file, tool_name="Smartling")
     individual_translation_imported.send(
         sender=job.__class__,
         instance=job,
@@ -503,7 +503,7 @@ def _download_and_apply_translations(job: "Job") -> None:
                     # would be worse than one this pass did not reach.
                     with transaction.atomic():
                         po_file = polib.pofile(_sanitize_po_content(content))
-                        translation.import_po(po_file)
+                        translation.import_po(po_file, tool_name="Smartling")
                         individual_translation_imported.send(
                             sender=job.__class__,
                             instance=job,
