@@ -21,10 +21,16 @@ class Command(BaseCommand):
     def handle(self, *args, **kwargs) -> None:
         project = Project.get_current()
 
-        for job_id in Job.objects.exclude(
-            project=project, status__in=FINAL_STATUSES
-        ).values_list("pk", flat=True):
+        for job_id in (
+            Job.objects.exclude(project=project, status__in=FINAL_STATUSES)
+            # Exclude jobs that never reached Smartling, and are blocked, since
+            # no one in Smartling is working on them.
+            .exclude(sync_blocked=True, translation_job_uid="")
+            .values_list("pk", flat=True)
+        ):
             try:
                 sync_job(job_id)
             except SyncJobException:
                 logger.exception("Error syncing job with ID %s", job_id)
+            except Exception:
+                logger.exception("Unexpected error syncing job with ID %s", job_id)
