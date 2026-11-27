@@ -7,7 +7,7 @@ from wagtail_localize_smartling import models as wls_models
 from wagtail_localize_smartling.api.types import JobStatus
 
 from testapp.factories import UserFactory
-from tests.factories import JobFactory, OrderFactory
+from tests.factories import JobFactory, OrderFactory, submit_order_of_pages
 
 
 pytestmark = pytest.mark.django_db
@@ -99,3 +99,29 @@ def test_a_logged_out_visitor_is_sent_to_the_login_screen(client, superuser, roo
 
     assert response.status_code == 302
     assert reverse("wagtailadmin_login") in response.url
+
+
+def test_the_resubmit_link_is_hidden_from_someone_who_cannot_follow_it(
+    client, order_viewer, superuser, root_page, smartling_project
+):
+    order = submit_order_of_pages(root_page, superuser)
+    job = order.jobs.get()
+    job.record_sync_failure(ValueError("duplicate job name"), permanent=True, pushing=True)
+    client.force_login(order_viewer)
+    resubmit_url = reverse("wagtail_localize_smartling_retry_job", args=(job.pk,))
+    assert order.jobs.count() == 1
+
+    denied_get = client.get(resubmit_url)
+    denied_post = client.post(resubmit_url, {"job_name": "Second attempt"})
+    inspect_view_content = client.get(
+        reverse("wagtail_localize_smartling_jobs:inspect", args=(order.pk,))
+    ).content.decode()
+
+    assert denied_get.status_code == 302
+    assert denied_get.url == reverse("wagtailadmin_home")
+    assert denied_post.status_code == 302
+    assert denied_post.url == reverse("wagtailadmin_home")
+    assert order.jobs.count() == 1
+    # The viewer does not see a resubmit link on the page
+    assert "Submission failed" in inspect_view_content
+    assert resubmit_url not in inspect_view_content
