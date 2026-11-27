@@ -11,7 +11,7 @@ from .models import Job
 from .permissions import job_permission_policy
 from .settings import settings as smartling_settings
 from .views import SmartlingResubmitJobView
-from .viewsets import smartling_job_viewset
+from .viewsets import smartling_order_viewset
 
 
 try:
@@ -50,7 +50,7 @@ def register_smartling_settings_menu_item():
 
 @hooks.register("register_admin_viewset")  # pyright: ignore[reportOptionalCall]
 def register_viewset():
-    return smartling_job_viewset
+    return smartling_order_viewset
 
 
 @hooks.register("construct_homepage_panels")  # pyright: ignore[reportOptionalCall]
