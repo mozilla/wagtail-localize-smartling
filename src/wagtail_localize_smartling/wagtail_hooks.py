@@ -10,7 +10,11 @@ from .components import LandedTranslationsPanel
 from .models import Job
 from .permissions import job_permission_policy
 from .settings import settings as smartling_settings
-from .views import SmartlingResubmitJobView
+from .views import (
+    SmartlingResubmitJobView,
+    SmartlingSubmitPageTranslationView,
+    SmartlingSubmitSnippetTranslationView,
+)
 from .viewsets import smartling_order_viewset
 
 
@@ -35,6 +39,25 @@ def register_admin_urls():
             "smartling-jobs/resubmit/<int:job_id>/",
             SmartlingResubmitJobView.as_view(),
             name="wagtail_localize_smartling_retry_job",
+        ),
+    ]
+
+
+# Registered ahead of every other app's URLs so that these paths, which
+# wagtail-localize also claims, resolve to the views below. Reversing
+# wagtail-localize's own URL names still works and still points here.
+@hooks.register("register_admin_urls", order=-1)  # pyright: ignore[reportOptionalCall]
+def register_submit_translation_urls():
+    return [
+        path(
+            "localize/submit/page/<int:page_id>/",
+            SmartlingSubmitPageTranslationView.as_view(),
+            name="smartling_submit_page_translation",
+        ),
+        path(
+            "localize/submit/snippet/<slug:app_label>/<slug:model_name>/<str:pk>/",
+            SmartlingSubmitSnippetTranslationView.as_view(),
+            name="smartling_submit_snippet_translation",
         ),
     ]
 
