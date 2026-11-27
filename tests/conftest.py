@@ -9,7 +9,7 @@ from zipfile import ZipFile
 
 import pytest
 
-from django.contrib.auth.models import Permission
+from django.contrib.auth.models import Group, Permission
 from responses import matchers
 from wagtail.coreutils import get_supported_content_language_variant
 from wagtail.models import Locale, Page
@@ -68,6 +68,33 @@ def superuser():
 def regular_user():
     user = UserFactory(is_superuser=False)
     user.user_permissions.add(Permission.objects.get(codename="access_admin"))
+    return user
+
+
+@pytest.fixture()
+def editor_user():
+    """
+    Someone who edits pages and sends them for translation, with no more
+    permission than installing this app gives such a group.
+    """
+    group = (
+        Group.objects.filter(
+            permissions__content_type__app_label="wagtail_localize",
+            permissions__codename="submit_translation",
+        )
+        .filter(
+            permissions__content_type__app_label="wagtail_localize_smartling",
+            permissions__codename="change_order",
+        )
+        .distinct()
+        # Both of Wagtail's default groups match; pick the same one every run.
+        .order_by("pk")
+        .first()
+    )
+    assert group is not None, "No group holds both submit_translation and change_order"
+
+    user = UserFactory(is_superuser=False)
+    user.groups.add(group)
     return user
 
 

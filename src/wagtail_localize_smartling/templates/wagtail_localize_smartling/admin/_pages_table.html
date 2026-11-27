@@ -13,6 +13,14 @@
     {% plural %}
         {{ pair_count }} page-locale pairs
     {% endblocktranslate %}
+    {% if not order.is_draft %}
+        &middot;
+        {% blocktranslate with pair_count=table.page_locale_pair_count count landed_count=table.landed_count trimmed %}
+            {{ landed_count }} of {{ pair_count }} landed
+        {% plural %}
+            {{ landed_count }} of {{ pair_count }} landed
+        {% endblocktranslate %}
+    {% endif %}
 </p>
 {% else %}
 <p class="order-coverage__count">{% trans "This order has no pages yet." %}</p>
