@@ -246,7 +246,9 @@ integrates with the Smartling translation platform.
     this after the first deployment, as a data migration bootstraps the Group.
 
     You can also control how many tasks are shown on the dashboard
-    via the `MAX_APPROVAL_TASKS_ON_DASHBOARD` setting.
+    via the `MAX_APPROVAL_TASKS_ON_DASHBOARD` setting, and how many orders the
+    Smartling orders panel shows in each of its groups via
+    `MAX_ORDERS_ON_DASHBOARD`.
 
     ----
 
@@ -344,6 +346,24 @@ separate job for every page beneath it.
 
 Orders are listed under "Smartling orders" in the admin menu. Open one to see
 what it holds, set its due date and notes, and send it.
+
+### Wagtail dashboard
+The Wagtail dashboard now also shows a panel for anyone with `view_order`.
+It lists:
+
+- **Open orders** — not sent yet. They link to the order's edit screen, or to
+  its read-only screen for someone without `change_order`.
+- **Needs sending again** — the last send stopped before Smartling had
+  everything, and nothing retries it. Only a person can act on these.
+- **Stuck, still retrying** — the last sync did not finish, but the next sweep
+  will try again, so these may clear on their own.
+
+A send that failed once Smartling had the job keeps a healthy status in the
+order listing and on the order's own screen, so for those orders the panel is
+the only place the failure is reported.
+
+The panel is hidden entirely when all three groups are empty, and shows at most
+`MAX_ORDERS_ON_DASHBOARD` orders in each.
 
 ### Updating translations
 <!-- TODO -->

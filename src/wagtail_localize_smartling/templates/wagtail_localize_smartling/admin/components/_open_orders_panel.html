@@ -1,0 +1,91 @@
+{% load i18n %}
+{% if has_orders %}
+<section class="w-panel" id="smartling-orders" aria-labelledby="smartling-orders-heading" data-panel="">
+    <div class="w-panel__header">
+        <a class="w-panel__anchor w-panel__anchor--prefix" href="#smartling-orders" data-panel-anchor="" aria-labelledby="smartling-orders-heading">
+            <svg class="icon icon-link w-panel__icon" aria-hidden="true"><use href="#icon-link"></use></svg>
+        </a>
+        <button class="w-panel__toggle" type="button" aria-label="{% trans 'Toggle section' %}" aria-describedby="smartling-orders-heading" data-panel-toggle="" aria-controls="smartling-orders-content" aria-expanded="true">
+            <svg class="icon icon-placeholder w-panel__icon" aria-hidden="true"><use href="#icon-placeholder"></use></svg>
+        </button>
+        <h2 class="w-panel__heading" id="smartling-orders-heading" data-panel-heading="">
+            <span data-panel-heading-text="">{% trans "Smartling orders needing a person" %}</span>
+        </h2>
+        <a class="w-panel__anchor w-panel__anchor--suffix" href="#smartling-orders" aria-labelledby="smartling-orders-heading">
+            <svg class="icon icon-link w-panel__icon" aria-hidden="true"><use href="#icon-link"></use></svg>
+        </a>
+        <div class="w-panel__divider"></div>
+    </div>
+
+    <div id="smartling-orders-content" class="w-panel__content">
+        {% if open_orders.orders %}
+            <h3>{% trans "Open orders" %}</h3>
+            <div class="help-block help-info">
+                <svg class="icon icon-help icon" aria-hidden="true"><use href="#icon-help"></use></svg>
+                <p>{% trans "These orders are still being assembled. Nothing in them reaches translators until someone sends them." %}</p>
+            </div>
+            <ul class="listing">
+                {% for order in open_orders.orders %}
+                    <li>
+                        <a href="{% url open_order_url_name order.pk %}">{{ order }}</a> &mdash;
+                        {% blocktranslate with age=order.created_at|timesince count count_pages=order.count_pages trimmed %}
+                            {{ count_pages }} page, opened {{ age }} ago
+                        {% plural %}
+                            {{ count_pages }} pages, opened {{ age }} ago
+                        {% endblocktranslate %}
+                    </li>
+                {% endfor %}
+            </ul>
+            {% if open_orders.count_remaining %}
+                <a href="{% url 'wagtail_localize_smartling_jobs:index' %}?state=not_sent">
+                    <strong>{% blocktranslate with count_total=open_orders.count_total %}See all {{ count_total }} open orders{% endblocktranslate %}</strong>
+                </a>
+            {% endif %}
+        {% endif %}
+
+        {% if blocked_orders.orders %}
+            <h3>{% trans "Needs sending again" %}</h3>
+            <div class="help-block help-critical">
+                <svg class="icon icon-warning icon" aria-hidden="true"><use href="#icon-warning"></use></svg>
+                <p>{% trans "The last send of these orders stopped before Smartling had everything, and nothing will retry it." %}</p>
+            </div>
+            <ul class="listing">
+                {% for order in blocked_orders.orders %}
+                    <li>
+                        <a href="{% url 'wagtail_localize_smartling_jobs:inspect' order.pk %}">{{ order }}</a> &mdash;
+                        {% blocktranslate with age=order.latest_sync_error_at|timesince trimmed %}
+                            gave up {{ age }} ago
+                        {% endblocktranslate %}
+                    </li>
+                {% endfor %}
+            </ul>
+            {% if blocked_orders.count_remaining %}
+                {# No listing filter matches this group, so the overflow is only named here. #}
+                <p>{% blocktranslate with count_remaining=blocked_orders.count_remaining %}and {{ count_remaining }} more{% endblocktranslate %}</p>
+            {% endif %}
+        {% endif %}
+
+        {% if stalled_orders.orders %}
+            <h3>{% trans "Stuck, still retrying" %}</h3>
+            <div class="help-block help-warning">
+                <svg class="icon icon-warning icon" aria-hidden="true"><use href="#icon-warning"></use></svg>
+                <p>{% trans "The last sync of these orders did not finish. They are still being retried, so these may clear on their own." %}</p>
+            </div>
+            <ul class="listing">
+                {% for order in stalled_orders.orders %}
+                    <li>
+                        <a href="{% url 'wagtail_localize_smartling_jobs:inspect' order.pk %}">{{ order }}</a> &mdash;
+                        {% blocktranslate with age=order.latest_sync_error_at|timesince trimmed %}
+                            no progress for {{ age }}
+                        {% endblocktranslate %}
+                    </li>
+                {% endfor %}
+            </ul>
+            {% if stalled_orders.count_remaining %}
+                {# No listing filter matches this group, so the overflow is only named here. #}
+                <p>{% blocktranslate with count_remaining=stalled_orders.count_remaining %}and {{ count_remaining }} more{% endblocktranslate %}</p>
+            {% endif %}
+        {% endif %}
+    </div>
+</section>
+{% endif %}

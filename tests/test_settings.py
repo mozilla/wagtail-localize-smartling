@@ -38,6 +38,7 @@ def test_settings():
     assert smartling_settings.TRANSLATION_APPROVER_GROUP_NAME == "Translation approver"
     assert smartling_settings.ADD_APPROVAL_TASK_TO_DASHBOARD is True
     assert smartling_settings.MAX_APPROVAL_TASKS_ON_DASHBOARD == 7
+    assert smartling_settings.MAX_ORDERS_ON_DASHBOARD == 7
     assert smartling_settings.SEND_EMAIL_ON_TRANSLATION_IMPORT is True
     assert smartling_settings.SLACK_BOT_TOKEN == ""
     assert smartling_settings.SLACK_NEW_JOB_NOTIFICATION_CHANNEL_ID == ""
@@ -250,6 +251,17 @@ def test_add_approval_task_to_dashboard():
 def test_max_approval_tasks_on_dashboard():
     smartling_settings = _init_settings()
     assert smartling_settings.MAX_APPROVAL_TASKS_ON_DASHBOARD == 45
+
+
+@override_settings(
+    WAGTAIL_LOCALIZE_SMARTLING={
+        **REQUIRED_SETTINGS,
+        "MAX_ORDERS_ON_DASHBOARD": 3,
+    }
+)
+def test_max_orders_on_dashboard():
+    smartling_settings = _init_settings()
+    assert smartling_settings.MAX_ORDERS_ON_DASHBOARD == 3
 
 
 @override_settings(

@@ -38,6 +38,7 @@ class SmartlingSettings:
     TRANSLATION_APPROVER_GROUP_NAME: str = "Translation approver"
     ADD_APPROVAL_TASK_TO_DASHBOARD: bool = True
     MAX_APPROVAL_TASKS_ON_DASHBOARD: int = 7
+    MAX_ORDERS_ON_DASHBOARD: int = 7
     SEND_EMAIL_ON_TRANSLATION_IMPORT: bool = True
     EXCLUDE_LOCALES: frozenset[str] = dataclasses.field(default_factory=frozenset)
     SLACK_BOT_TOKEN: str = ""
@@ -182,6 +183,9 @@ def _init_settings() -> SmartlingSettings:
 
     if "MAX_APPROVAL_TASKS_ON_DASHBOARD" in settings_dict:
         settings_kwargs["MAX_APPROVAL_TASKS_ON_DASHBOARD"] = settings_dict["MAX_APPROVAL_TASKS_ON_DASHBOARD"]
+
+    if "MAX_ORDERS_ON_DASHBOARD" in settings_dict:
+        settings_kwargs["MAX_ORDERS_ON_DASHBOARD"] = settings_dict["MAX_ORDERS_ON_DASHBOARD"]
 
     if "SEND_EMAIL_ON_TRANSLATION_IMPORT" in settings_dict:
         settings_kwargs["SEND_EMAIL_ON_TRANSLATION_IMPORT"] = settings_dict["SEND_EMAIL_ON_TRANSLATION_IMPORT"]
